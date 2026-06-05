@@ -41,8 +41,9 @@ struct RootView: View {
                 if hasKey { deleteSection }
             }
             .navigationTitle("Brocolis 🥦")
+            .onAppear { purgeIfNeeded() }
             .onChange(of: scenePhase) { phase in
-                if phase == .active { reload() }
+                if phase == .active { purgeIfNeeded() }
             }
             .sheet(isPresented: $showPairing, onDismiss: reload) {
                 NavigationStack { PairingView() }
@@ -230,6 +231,14 @@ struct RootView: View {
     }
 
     // MARK: Logique
+
+    /// Purge la clé si elle est périmée, prévient l'utilisateur, puis rafraîchit.
+    private func purgeIfNeeded() {
+        if BrocolisKeyStore.purgeExpiredKey() {
+            alertMessage = "La clé avait expiré : elle a été supprimée automatiquement. Renouvelle-la ou ré-appaire-toi."
+        }
+        reload()
+    }
 
     private func reload() {
         keyBase64 = BrocolisKeyStore.keyBase64

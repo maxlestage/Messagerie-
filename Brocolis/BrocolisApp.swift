@@ -14,6 +14,15 @@ import UIKit
 /// cas de force-quit par balayage). L'interrupteur de l'app reste le contrôle
 /// fiable.
 final class AppDelegate: NSObject, UIApplicationDelegate {
+    func application(
+        _ application: UIApplication,
+        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+    ) -> Bool {
+        // Purge automatique de la clé périmée dès le lancement.
+        BrocolisKeyStore.purgeExpiredKey()
+        return true
+    }
+
     func applicationWillTerminate(_ application: UIApplication) {
         BrocolisKeyStore.setActive(false)
     }
