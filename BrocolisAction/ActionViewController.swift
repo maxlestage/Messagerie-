@@ -118,6 +118,12 @@ final class ActionViewController: UIViewController {
             textView.text = ""
             return
         }
+        guard BrocolisKeyStore.isActive else {
+            statusLabel.text = "⏸ Brocolis est désactivé."
+            textView.text = "Ouvre l’app Brocolis 🥦 et active-le pour chiffrer/déchiffrer."
+            resultText = ""
+            return
+        }
         guard let key = BrocolisKeyStore.symmetricKey() else {
             statusLabel.text = "🔑 Aucune clé configurée."
             textView.text = "Ouvre l’app Brocolis 🥦 pour générer ou importer une clé, puis réessaie."
@@ -127,8 +133,12 @@ final class ActionViewController: UIViewController {
 
         let result = BrocolisTransform.auto(input, key: key)
         resultText = result.text
-        statusLabel.text = result.label + " — touche « Copier » puis colle dans la conversation."
         textView.text = result.text
+
+        // Brocolis étant actif, on copie directement le résultat pour réduire
+        // les gestes : il n'y a plus qu'à coller dans la conversation.
+        UIPasteboard.general.string = result.text
+        statusLabel.text = result.label + " — ✅ copié, colle dans la conversation."
     }
 
     // MARK: Actions
