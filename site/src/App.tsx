@@ -54,7 +54,7 @@ export default function App() {
       <header className="hero">
         <div className="hero-inner">
           <div className="logo">🥦</div>
-          <h1>Brocolis</h1>
+          <h1>Brocolis messageries</h1>
           <p className="tagline">
             Chiffrement sélectif pour tes messageries — bâti sur{' '}
             <a href={BROCOLIS_URL}>brocolis</a>.
