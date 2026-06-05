@@ -72,6 +72,37 @@ d'appairage. Les certificats sont persistés dans le volume `caddy_data`.
 > `http://<IP-locale>:8788` (même Wi-Fi). Pour de l'usage à distance, le HTTPS
 > de Caddy est requis (ATS iOS).
 
+## Déployer sur Heroku
+
+Heroku fournit **le HTTPS et le port** automatiquement : **pas besoin de Caddy
+ni de docker-compose** ici. Le serveur lit déjà `process.env.PORT`.
+
+Le serveur étant dans le sous-dossier `server/`, on le pousse comme racine de
+l'app avec `git subtree`.
+
+**Option A — buildpack Node (le plus simple)** — utilise `Procfile` :
+
+```sh
+heroku create mon-relais-brocolis
+git subtree push --prefix server heroku main
+# (optionnel) heroku config:set MAX_PEERS=32
+```
+
+**Option B — conteneur (réutilise le Dockerfile)** — utilise `heroku.yml` :
+
+```sh
+heroku create mon-relais-brocolis
+heroku stack:set container -a mon-relais-brocolis
+git subtree push --prefix server heroku main
+```
+
+Dans l'app, serveur d'appairage = `https://mon-relais-brocolis.herokuapp.com`.
+Vérif : `curl https://mon-relais-brocolis.herokuapp.com/health` → `ok`.
+
+> Stockage **en mémoire** (éphémère) : l'appairage prend quelques secondes, donc
+> le redémarrage périodique des dynos n'est pas gênant. Reste sur **un seul
+> dyno `web`** (le rendez-vous n'est pas partagé entre plusieurs dynos).
+
 ## API
 
 ```
