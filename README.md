@@ -81,6 +81,18 @@ Dans Xcode, pour **chaque** cible (`Brocolis` et `BrocolisAction`) :
 Pour tester l'extension : lance l'app (la clé), puis va dans une app avec du
 texte (Notes, Messages…), sélectionne du texte → **Partager** → **Brocolis 🥦**.
 
+## Tests
+
+La cible **BrocolisTests** (XCTest) couvre le chiffrement et la transformation :
+round-trips, format de jeton interopérable brocolis (`nonce|ct|tag`), Unicode /
+emoji, mauvaise clé, jeton altéré/corrompu, marqueurs non fermés ou vides,
+jetons adjacents, gros volumes, unicité des nonces, et l'auto-détection
+chiffrer/déchiffrer de l'extension.
+
+```
+Cmd+U dans Xcode   (ou : xcodebuild test -scheme Brocolis -destination 'platform=iOS Simulator,name=iPhone 15')
+```
+
 ## Sécurité — limites
 
 - L'extension protège le contenu **marqué** (ou la sélection) ; elle ne chiffre
