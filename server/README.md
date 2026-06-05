@@ -50,6 +50,28 @@ Image minimale (Node Alpine, **aucune dépendance**), utilisateur non-root,
 Ces plateformes fournissent le **TLS** → utilise `https://…` (donc `wss`-grade
 sécurité) côté app.
 
+## docker-compose + HTTPS automatique (Caddy)
+
+Pour un VPS, `docker-compose.yml` lance le rendez-vous **derrière Caddy**, qui
+obtient et renouvelle **tout seul** un certificat Let's Encrypt.
+
+Pré-requis : un **domaine** dont le DNS (A/AAAA) pointe vers la machine, et les
+ports **80 + 443** ouverts.
+
+```sh
+cd server
+cp .env.example .env        # renseigne DOMAIN=relais.example.com
+docker compose up -d
+```
+
+Caddy expose `https://<DOMAIN>` et relaie vers le service interne `rendezvous`
+(non exposé publiquement). Dans l'app, mets `https://<DOMAIN>` comme serveur
+d'appairage. Les certificats sont persistés dans le volume `caddy_data`.
+
+> Test local sans domaine : `docker run -p 8788:8788 brocolis-rendezvous` puis
+> `http://<IP-locale>:8788` (même Wi-Fi). Pour de l'usage à distance, le HTTPS
+> de Caddy est requis (ATS iOS).
+
 ## API
 
 ```

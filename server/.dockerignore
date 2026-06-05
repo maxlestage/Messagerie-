@@ -4,3 +4,7 @@ npm-debug.log
 .git
 .DS_Store
 README.md
+docker-compose.yml
+Caddyfile
+.env
+.env.example
