@@ -1,22 +1,31 @@
-# Xcode
-build/
-DerivedData/
-*.xcuserstate
-*.xcscmblueprint
-xcuserdata/
-*.moved-aside
-*.hmap
-*.ipa
-*.dSYM.zip
-*.dSYM
+# dependencies
+node_modules/
+
+# Expo
+.expo/
+.expo-shared/
+dist/
+web-build/
+
+# Metro
+.metro-health-check*
+
+# Native builds (si prebuild / eject)
+ios/
+android/
+
+# Logs & debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+*.log
+
+# Env / secrets
+.env
+.env.*
 
 # macOS
 .DS_Store
 
-# Swift Package Manager
-.build/
-.swiftpm/
-
-# CocoaPods / Carthage (au cas où)
-Pods/
-Carthage/Build/
+# Coverage
+coverage/
