@@ -85,6 +85,9 @@ peut pas déballer la clé de groupe. Plafond de participants par code :
   24 h / 7 j). À l'installation d'une clé, sa date d'expiration est calculée.
   Au-delà, l'**extension refuse** de chiffrer/déchiffrer (« clé expirée ») tant
   qu'on ne renouvelle pas la clé.
+- **Purge automatique à l'ouverture** : au lancement et au retour au premier
+  plan, l'app **efface** une clé périmée (ce qui désactive Brocolis) et le
+  signale. La clé expirée ne traîne donc pas sur l'appareil.
 - **Rotation** : pour un groupe, le fondateur relance **Créer le groupe** → une
   **nouvelle clé** est générée et redistribuée (le `/wrap` du serveur écrase
   l'ancienne) ; les membres la récupèrent en re-touchant **Rejoindre le

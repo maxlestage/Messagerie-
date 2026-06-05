@@ -144,6 +144,15 @@ enum BrocolisKeyStore {
         setKeyExpiresAt(computeExpiry(ttlSeconds: keyTTLSeconds, from: Date()))
     }
 
+    /// Si la clé courante est expirée, l'efface (et désactive Brocolis).
+    /// Renvoie `true` si une purge a eu lieu. À appeler au lancement de l'app.
+    @discardableResult
+    static func purgeExpiredKey() -> Bool {
+        guard hasKey, isExpired else { return false }
+        clearKey() // efface clé + empreinte + expiration, et désactive
+        return true
+    }
+
     // MARK: Helpers purs (testables, sans App Group)
 
     static func computeExpiry(ttlSeconds: Int, from now: Date) -> Date? {
