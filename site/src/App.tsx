@@ -95,7 +95,7 @@ export default function App() {
 
       <footer className="footer">
         <p>
-          Brocolis 🥦 — démonstration éducative bâtie sur{' '}
+          Brocolis 🥦 — chiffrement sélectif pour tes messageries, bâti sur{' '}
           <a href={BROCOLIS_URL}>brocolis</a>. Le contenu de cette page reflète le
           README du dépôt.
         </p>
