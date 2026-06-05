@@ -95,8 +95,29 @@ test('deux appareils dérivent la même clé via le rendez-vous', async () => {
   }
 });
 
-test('un troisième participant est refusé sur un code', async () => {
-  const server = createRendezvous();
+test('plusieurs participants peuvent se rejoindre sous un code', async () => {
+  const server = createRendezvous({ maxPeers: 4 });
+  const port = await listen(server);
+  try {
+    const code = 'GROUP1';
+    await api(port, 'POST', '/pair', { code, peerId: 'a', pub: 'AA' });
+    await api(port, 'POST', '/pair', { code, peerId: 'b', pub: 'BB' });
+    const c = await api(port, 'POST', '/pair', { code, peerId: 'c', pub: 'CC' });
+    assert.strictEqual(c.status, 200);
+    // c voit a et b.
+    assert.strictEqual(c.json.peers.length, 2);
+    const ids = c.json.peers.map((p) => p.peerId).sort();
+    assert.deepStrictEqual(ids, ['a', 'b']);
+    // a voit b et c.
+    const a = await api(port, 'GET', `/pair?code=${code}&peerId=a`);
+    assert.strictEqual(a.json.peers.length, 2);
+  } finally {
+    server.close();
+  }
+});
+
+test('le plafond configurable est respecté', async () => {
+  const server = createRendezvous({ maxPeers: 2 });
   const port = await listen(server);
   try {
     const code = 'FULL01';
@@ -104,6 +125,9 @@ test('un troisième participant est refusé sur un code', async () => {
     await api(port, 'POST', '/pair', { code, peerId: 'b', pub: 'BB' });
     const third = await api(port, 'POST', '/pair', { code, peerId: 'c', pub: 'CC' });
     assert.strictEqual(third.status, 409);
+    // Mais un participant déjà présent peut toujours se réactualiser.
+    const refresh = await api(port, 'POST', '/pair', { code, peerId: 'a', pub: 'AA2' });
+    assert.strictEqual(refresh.status, 200);
   } finally {
     server.close();
   }

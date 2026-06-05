@@ -20,9 +20,11 @@
 const http = require('http');
 
 const TTL_MS = 10 * 60 * 1000; // 10 min
-const MAX_PEERS_PER_CODE = 2;
+const DEFAULT_MAX_PEERS = Number(process.env.MAX_PEERS) || 16;
 
-function createRendezvous() {
+function createRendezvous(options = {}) {
+  // Plafond de participants par code (configurable).
+  const maxPeers = options.maxPeers ?? DEFAULT_MAX_PEERS;
   // code -> Map(peerId -> { pub, ts })
   const codes = new Map();
 
@@ -92,9 +94,9 @@ function createRendezvous() {
           peers = new Map();
           codes.set(code, peers);
         }
-        // Autorise la mise à jour d'un peerId déjà présent ; sinon limite à 2.
-        if (!peers.has(peerId) && peers.size >= MAX_PEERS_PER_CODE) {
-          return sendJSON(res, 409, { error: 'ce code a déjà 2 participants' });
+        // Autorise la mise à jour d'un peerId déjà présent ; sinon applique le plafond.
+        if (!peers.has(peerId) && peers.size >= maxPeers) {
+          return sendJSON(res, 409, { error: `ce code a déjà ${maxPeers} participants` });
         }
         peers.set(peerId, { pub, ts: Date.now() });
         return sendJSON(res, 200, { peers: peersExcluding(code, peerId) });

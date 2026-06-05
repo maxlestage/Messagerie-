@@ -5,17 +5,27 @@ même **code court** d'échanger automatiquement leurs **clés publiques X25519*
 
 ## Ce qu'il fait (et ne fait pas)
 
-- Il met en relation deux appareils par code et **n'échange que des clés
+- Il met en relation des appareils par code et **n'échange que des clés
   publiques**. Chacun **dérive ensuite seul** la clé symétrique AES (ECDH +
   HKDF) : **le serveur ne voit jamais la clé secrète ni les messages**.
-- Stockage **éphémère** (TTL 10 min), **2 participants max** par code.
+- Stockage **éphémère** (TTL 10 min). Plafond de participants par code
+  **configurable** via `MAX_PEERS` (défaut 16).
+
+> ⚠️ **Groupe (3+)** : relever le plafond permet à N personnes de se *rejoindre*
+> sous un code, mais la dérivation automatique de l'app reste **par paire**
+> (X25519 entre 2 clés publiques). Pour une vraie **clé de groupe commune**, les
+> membres doivent convenir de la même clé autrement — le plus simple : une
+> personne la **génère et la partage**, les autres l'**importent** (déjà
+> possible dans l'app). L'emballage de clé de groupe (une clé distribuée
+> chiffrée à chaque membre) n'est pas implémenté.
 
 ## Lancer
 
 ```sh
 cd server
-npm start            # écoute sur le port 8788 (PORT pour changer)
-npm test             # tests (rendez-vous + accord de clé identique des 2 côtés)
+npm start                 # écoute sur le port 8788 (PORT pour changer)
+MAX_PEERS=32 npm start     # relève le plafond de participants par code
+npm test                  # tests (rendez-vous, multi-participants, accord de clé)
 ```
 
 Dans l'app (écran **Appairage**), renseigne l'URL du serveur :
