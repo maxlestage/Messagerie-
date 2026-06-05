@@ -287,4 +287,38 @@ final class BrocolisExpiryTests: XCTestCase {
         let now = Date(timeIntervalSince1970: 1_000_000)
         XCTAssertTrue(BrocolisKeyStore.isExpired(expiresAt: now, now: now))
     }
+
+    // MARK: Préavis d'expiration
+
+    func testNoLeadWithoutTTL() {
+        XCTAssertNil(BrocolisKeyStore.notificationLead(ttlSeconds: 0))
+    }
+
+    func testLeadCappedAtOneHourForLongTTL() {
+        XCTAssertEqual(BrocolisKeyStore.notificationLead(ttlSeconds: 86_400), 3600)
+        XCTAssertEqual(BrocolisKeyStore.notificationLead(ttlSeconds: 604_800), 3600)
+    }
+
+    func testLeadIsHalfForShortTTL() {
+        XCTAssertEqual(BrocolisKeyStore.notificationLead(ttlSeconds: 1800), 900)
+    }
+
+    func testNoticeFireDateIsLeadBeforeExpiry() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let expires = now.addingTimeInterval(86_400) // +24 h
+        let fire = BrocolisKeyStore.noticeFireDate(expiresAt: expires, ttlSeconds: 86_400, now: now)
+        XCTAssertEqual(fire, expires.addingTimeInterval(-3600)) // 1 h avant
+    }
+
+    func testNoticeFireDateNilWhenAlreadyPast() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let expires = now.addingTimeInterval(5) // dans 5 s, lead 10 s -> préavis déjà passé
+        XCTAssertNil(BrocolisKeyStore.noticeFireDate(expiresAt: expires, ttlSeconds: 20, now: now))
+    }
+
+    func testNoticeFireDateNilWithoutExpiry() {
+        let now = Date()
+        XCTAssertNil(BrocolisKeyStore.noticeFireDate(expiresAt: nil, ttlSeconds: 3600, now: now))
+        XCTAssertNil(BrocolisKeyStore.noticeFireDate(expiresAt: now.addingTimeInterval(100), ttlSeconds: 0, now: now))
+    }
 }

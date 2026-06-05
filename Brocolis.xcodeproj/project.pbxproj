@@ -25,6 +25,7 @@
 		2000000000000000000B0010 /* PairingClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0011 /* PairingClient.swift */; };
 		2000000000000000000B0011 /* PairingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0012 /* PairingView.swift */; };
 		2000000000000000000B0012 /* BrocolisKeyAgreementTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0013 /* BrocolisKeyAgreementTests.swift */; };
+		2000000000000000000B0013 /* BrocolisNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0014 /* BrocolisNotifications.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -78,6 +79,7 @@
 		1000000000000000000C0011 /* PairingClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingClient.swift; sourceTree = "<group>"; };
 		1000000000000000000C0012 /* PairingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingView.swift; sourceTree = "<group>"; };
 		1000000000000000000C0013 /* BrocolisKeyAgreementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrocolisKeyAgreementTests.swift; sourceTree = "<group>"; };
+		1000000000000000000C0014 /* BrocolisNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrocolisNotifications.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -123,6 +125,7 @@
 				1000000000000000000C0005 /* RootView.swift */,
 				1000000000000000000C0011 /* PairingClient.swift */,
 				1000000000000000000C0012 /* PairingView.swift */,
+				1000000000000000000C0014 /* BrocolisNotifications.swift */,
 				1000000000000000000C0006 /* Assets.xcassets */,
 				1000000000000000000C0007 /* Brocolis.entitlements */,
 			);
@@ -304,6 +307,7 @@
 				2000000000000000000B0002 /* RootView.swift in Sources */,
 				2000000000000000000B0010 /* PairingClient.swift in Sources */,
 				2000000000000000000B0011 /* PairingView.swift in Sources */,
+				2000000000000000000B0013 /* BrocolisNotifications.swift in Sources */,
 				2000000000000000000B0003 /* BrocolisCrypto.swift in Sources */,
 				2000000000000000000B0004 /* BrocolisKeyStore.swift in Sources */,
 				2000000000000000000B0005 /* BrocolisTransform.swift in Sources */,
