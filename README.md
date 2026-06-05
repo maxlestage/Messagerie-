@@ -5,9 +5,10 @@ Petite app iOS native (Swift) qui ajoute le **chiffrement sélectif de
 de messagerie existante** (WhatsApp, iMessage, Messenger, Notes…) via une
 **Action Extension** dans le menu **Partager**.
 
-> 🌐 **Site** : une vitrine React (dans [`site/`](site/)) rend ce README et est
-> déployée sur **GitHub Pages** à chaque push sur `master` via
-> `.github/workflows/pages.yml`.
+> 🌐 **Site** : <https://maxlestage.github.io/Messagerie-/> — une vitrine React
+> (dans [`site/`](site/)) qui rend ce README, déployée sur **GitHub Pages** via
+> `.github/workflows/pages.yml`. Le déploiement part de la **branche par défaut**
+> du dépôt (contrainte de l'environnement `github-pages`).
 
 ## Pourquoi une extension (et pas un proxy en arrière-plan)
 
@@ -180,8 +181,9 @@ cd server && npm test
 
 - L'extension protège le contenu **marqué** (ou la sélection) ; elle ne chiffre
   pas automatiquement tout ce que tu envoies — c'est un geste explicite.
-- La clé est en **App Group** (`UserDefaults` du conteneur partagé) pour la
-  démo ; pour la production, préférer un groupe d'accès **Trousseau** partagé.
+- La clé est en **App Group** (`UserDefaults` du conteneur partagé) par
+  simplicité ; pour la production, préférer un groupe d'accès **Trousseau**
+  partagé.
 - Clé **symétrique** : sa diffusion doit passer par un canal sûr, comme brocolis.
 
 ## Licence
