@@ -1,6 +1,8 @@
 {
   "name": "brocolis-site",
   "private": true,
+  "license": "UNLICENSED",
+  "author": "LESTAGE Maxime Nathan",
   "type": "module",
   "scripts": {
     "copy-readme": "node copy-readme.mjs",
