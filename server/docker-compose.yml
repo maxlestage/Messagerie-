@@ -1,0 +1,38 @@
+# Rendez-vous brocolis 🥦 derrière Caddy (HTTPS automatique via Let's Encrypt).
+#
+# Pré-requis : un domaine dont l'enregistrement DNS A/AAAA pointe vers cette
+# machine, et les ports 80 + 443 ouverts. Puis :
+#
+#   cp .env.example .env   # et renseigne DOMAIN
+#   docker compose up -d
+#
+# L'app utilise alors  https://<DOMAIN>  comme serveur d'appairage.
+
+services:
+  rendezvous:
+    build: .
+    environment:
+      - PORT=8788
+      - MAX_PEERS=${MAX_PEERS:-16}
+    expose:
+      - "8788"          # interne uniquement : seul Caddy est public
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    depends_on:
+      - rendezvous
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN=${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data       # persiste les certificats
+      - caddy_config:/config
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:

@@ -13,6 +13,10 @@ xcuserdata/
 # macOS
 .DS_Store
 
+# Secrets / env (on garde .env.example)
+.env
+!.env.example
+
 # Swift Package Manager
 .build/
 .swiftpm/

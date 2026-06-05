@@ -1,0 +1,7 @@
+# Caddy : HTTPS automatique (Let's Encrypt) pour le domaine fourni via $DOMAIN.
+# Tout le trafic est relayé vers le service interne `rendezvous` sur le port 8788.
+
+{$DOMAIN} {
+	encode gzip
+	reverse_proxy rendezvous:8788
+}
