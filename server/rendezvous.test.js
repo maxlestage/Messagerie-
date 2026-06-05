@@ -53,6 +53,43 @@ function newPeer() {
   return { publicKey, privateKey, rawPub };
 }
 
+function pubKeyObjFromRaw(raw) {
+  return crypto.createPublicKey({
+    key: Buffer.concat([Buffer.from('302a300506032b656e032100', 'hex'), Buffer.from(raw)]),
+    format: 'der',
+    type: 'spki',
+  });
+}
+
+// Clé d'emballage pairwise (sel distinct du flux à deux).
+function deriveWrapKey(myPrivate, peerPubRaw, myPubRaw) {
+  const shared = crypto.diffieHellman({ privateKey: myPrivate, publicKey: pubKeyObjFromRaw(peerPubRaw) });
+  const a = Buffer.from(myPubRaw);
+  const b = Buffer.from(peerPubRaw);
+  const sorted = Buffer.compare(a, b) <= 0 ? Buffer.concat([a, b]) : Buffer.concat([b, a]);
+  const salt = Buffer.from('brocolis-x25519-wrap', 'utf8');
+  return Buffer.from(crypto.hkdfSync('sha256', shared, salt, sorted, 32));
+}
+
+// Emballage AES-256-GCM, format combined = iv(12) || ciphertext || tag(16).
+function wrap(wrapKey, plaintext) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', wrapKey, iv);
+  const ct = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return Buffer.concat([iv, ct, tag]).toString('base64');
+}
+
+function unwrap(wrapKey, blobB64) {
+  const packed = Buffer.from(blobB64, 'base64');
+  const iv = packed.subarray(0, 12);
+  const tag = packed.subarray(packed.length - 16);
+  const ct = packed.subarray(12, packed.length - 16);
+  const d = crypto.createDecipheriv('aes-256-gcm', wrapKey, iv);
+  d.setAuthTag(tag);
+  return Buffer.concat([d.update(ct), d.final()]);
+}
+
 test('deux appareils dérivent la même clé via le rendez-vous', async () => {
   const server = createRendezvous();
   const port = await listen(server);
@@ -142,6 +179,67 @@ test('POST incomplet est rejeté', async () => {
   } finally {
     server.close();
   }
+});
+
+test('le fondateur distribue une clé de groupe à plusieurs membres', async () => {
+  const server = createRendezvous({ maxPeers: 8 });
+  const port = await listen(server);
+  try {
+    const code = 'GRP777';
+    const founder = newPeer();
+    const bob = newPeer();
+    const carol = newPeer();
+
+    // Les membres publient leur clé publique d'abord.
+    await api(port, 'POST', '/pair', { code, peerId: 'bob', pub: bob.rawPub.toString('base64') });
+    await api(port, 'POST', '/pair', { code, peerId: 'carol', pub: carol.rawPub.toString('base64') });
+
+    // Avant distribution, pas de clé pour bob.
+    const before = await api(port, 'GET', `/wrap?code=${code}&peerId=bob`);
+    assert.strictEqual(before.json.wrap, null);
+
+    // Le fondateur rejoint, voit les membres, génère et emballe la clé de groupe.
+    await api(port, 'POST', '/pair', { code, peerId: 'founder', pub: founder.rawPub.toString('base64') });
+    const seen = await api(port, 'GET', `/pair?code=${code}&peerId=founder`);
+    assert.strictEqual(seen.json.peers.length, 2);
+
+    const groupKey = crypto.randomBytes(32);
+    const items = seen.json.peers.map((p) => {
+      const peerPubRaw = Buffer.from(p.pub, 'base64');
+      const wk = deriveWrapKey(founder.privateKey, peerPubRaw, founder.rawPub);
+      return { toPeerId: p.peerId, blob: wrap(wk, groupKey) };
+    });
+    const posted = await api(port, 'POST', '/wrap', {
+      code, fromPeerId: 'founder', fromPub: founder.rawPub.toString('base64'), items,
+    });
+    assert.strictEqual(posted.json.count, 2);
+
+    // Chaque membre récupère et déballe la même clé de groupe.
+    for (const member of [{ id: 'bob', peer: bob }, { id: 'carol', peer: carol }]) {
+      const got = await api(port, 'GET', `/wrap?code=${code}&peerId=${member.id}`);
+      assert.ok(got.json.wrap, `${member.id} doit recevoir un blob`);
+      const fromPubRaw = Buffer.from(got.json.wrap.fromPub, 'base64');
+      const wk = deriveWrapKey(member.peer.privateKey, fromPubRaw, member.peer.rawPub);
+      const groupKeyGot = unwrap(wk, got.json.wrap.blob);
+      assert.deepStrictEqual(groupKeyGot, groupKey, `${member.id} doit retrouver la clé de groupe`);
+    }
+  } finally {
+    server.close();
+  }
+});
+
+test('un intrus ne peut pas déballer la clé d’un autre membre', async () => {
+  const founder = newPeer();
+  const bob = newPeer();
+  const intruder = newPeer();
+  const groupKey = crypto.randomBytes(32);
+
+  const wkForBob = deriveWrapKey(founder.privateKey, bob.rawPub, founder.rawPub);
+  const blob = wrap(wkForBob, groupKey);
+
+  // L'intrus tente avec sa propre clé privée + la clé publique du fondateur.
+  const wkIntruder = deriveWrapKey(intruder.privateKey, founder.rawPub, intruder.rawPub);
+  assert.throws(() => unwrap(wkIntruder, blob));
 });
 
 test('health répond ok', async () => {

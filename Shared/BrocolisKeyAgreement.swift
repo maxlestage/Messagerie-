@@ -17,6 +17,7 @@ import CryptoKit
 enum BrocolisKeyAgreement {
 
     private static let salt = Data("brocolis-x25519".utf8)
+    private static let wrapSalt = Data("brocolis-x25519-wrap".utf8)
 
     enum AgreementError: LocalizedError {
         case badPeerKey
@@ -68,6 +69,71 @@ enum BrocolisKeyAgreement {
             symmetricKeyBase64: raw.base64EncodedString(),
             fingerprint: fingerprint(info)
         )
+    }
+
+    // MARK: Clé de groupe (key-wrapping X25519)
+
+    /// Génère une clé de groupe AES-256 aléatoire (base64).
+    static func generateGroupKeyBase64() -> String {
+        BrocolisCrypto.generateKeyBase64()
+    }
+
+    /// Emballe (chiffre) la clé de groupe à destination d'un membre, via la clé
+    /// pairwise dérivée de ma clé privée et de SA clé publique. Renvoie un blob
+    /// base64 que seul ce membre pourra déballer.
+    static func wrapGroupKey(
+        groupKeyBase64: String,
+        forPeerPublicBase64 peerB64: String,
+        myPrivate priv: Curve25519.KeyAgreement.PrivateKey
+    ) throws -> String {
+        guard let groupKey = Data(base64Encoded: groupKeyBase64) else { throw AgreementError.badPeerKey }
+        let peerPub = try peerPublicData(peerB64)
+        let wrapKey = try pairwiseWrapKey(myPrivate: priv, peerPub: peerPub)
+        let sealed = try AES.GCM.seal(groupKey, using: wrapKey)
+        guard let combined = sealed.combined else { throw AgreementError.badPeerKey }
+        return combined.base64EncodedString()
+    }
+
+    /// Déballe la clé de groupe reçue, via la clé pairwise dérivée de ma clé
+    /// privée et de la clé publique de l'émetteur. Renvoie la clé AES (base64).
+    static func unwrapGroupKey(
+        blobBase64: String,
+        fromPeerPublicBase64 fromB64: String,
+        myPrivate priv: Curve25519.KeyAgreement.PrivateKey
+    ) throws -> String {
+        guard let packed = Data(base64Encoded: blobBase64) else { throw AgreementError.badPeerKey }
+        let fromPub = try peerPublicData(fromB64)
+        let wrapKey = try pairwiseWrapKey(myPrivate: priv, peerPub: fromPub)
+        guard let box = try? AES.GCM.SealedBox(combined: packed) else { throw AgreementError.badPeerKey }
+        let groupKey = try AES.GCM.open(box, using: wrapKey)
+        return groupKey.base64EncodedString()
+    }
+
+    /// Empreinte d'une clé de groupe (identique pour tous les membres).
+    static func groupFingerprint(groupKeyBase64: String) -> String {
+        let data = Data(base64Encoded: groupKeyBase64) ?? Data()
+        return fingerprint(data)
+    }
+
+    /// Clé symétrique pairwise (même secret des deux côtés) servant à emballer.
+    private static func pairwiseWrapKey(
+        myPrivate priv: Curve25519.KeyAgreement.PrivateKey,
+        peerPub: Data
+    ) throws -> SymmetricKey {
+        guard let peerKey = try? Curve25519.KeyAgreement.PublicKey(rawRepresentation: peerPub) else {
+            throw AgreementError.badPeerKey
+        }
+        let shared = try priv.sharedSecretFromKeyAgreement(with: peerKey)
+        let info = sortedConcat(priv.publicKey.rawRepresentation, peerPub)
+        return shared.hkdfDerivedSymmetricKey(
+            using: SHA256.self, salt: wrapSalt, sharedInfo: info, outputByteCount: 32)
+    }
+
+    private static func peerPublicData(_ b64: String) throws -> Data {
+        guard let d = Data(base64Encoded: b64.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            throw AgreementError.badPeerKey
+        }
+        return d
     }
 
     // MARK: Outils

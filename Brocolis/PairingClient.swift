@@ -2,8 +2,9 @@
 //  PairingClient.swift
 //  Brocolis 🥦 (app uniquement)
 //
-//  Client du serveur de rendez-vous : publie sa clé publique sous un code et
-//  récupère celle du correspondant. Le serveur ne voit que des clés publiques.
+//  Client du serveur de rendez-vous : échange des clés publiques (appairage à
+//  deux) et distribue les clés de groupe emballées (X25519). Le serveur ne voit
+//  que des clés publiques et des blobs chiffrés.
 //
 
 import Foundation
@@ -13,9 +14,19 @@ struct PairingPeer: Decodable {
     let pub: String
 }
 
-private struct PairingResponse: Decodable {
-    let peers: [PairingPeer]
+struct WrapItem {
+    let toPeerId: String
+    let blob: String
 }
+
+struct WrapInbox: Decodable {
+    let from: String
+    let fromPub: String
+    let blob: String
+}
+
+private struct PairingResponse: Decodable { let peers: [PairingPeer] }
+private struct WrapResponse: Decodable { let wrap: WrapInbox? }
 
 enum PairingError: LocalizedError {
     case badURL
@@ -36,21 +47,43 @@ struct PairingClient {
 
     /// Publie sa clé publique ; renvoie les clés publiques des autres participants.
     func publish(code: String, peerId: String, pub: String) async throws -> [PairingPeer] {
-        try await request(
-            method: "POST",
-            path: "/pair",
-            body: ["code": code, "peerId": peerId, "pub": pub]
-        )
+        let data = try await raw(method: "POST", path: "/pair",
+                                 body: ["code": code, "peerId": peerId, "pub": pub])
+        return try JSONDecoder().decode(PairingResponse.self, from: data).peers
     }
 
     /// Récupère les clés publiques des autres participants du code.
     func fetch(code: String, peerId: String) async throws -> [PairingPeer] {
-        let c = code.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? code
-        let p = peerId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? peerId
-        return try await request(method: "GET", path: "/pair?code=\(c)&peerId=\(p)", body: nil)
+        let data = try await raw(method: "GET", path: pairQuery(code: code, peerId: peerId), body: nil)
+        return try JSONDecoder().decode(PairingResponse.self, from: data).peers
     }
 
-    private func request(method: String, path: String, body: [String: String]?) async throws -> [PairingPeer] {
+    /// (Fondateur) Dépose les clés de groupe emballées pour chaque membre.
+    func postWraps(code: String, fromPeerId: String, fromPub: String, items: [WrapItem]) async throws {
+        let itemsJSON = items.map { ["toPeerId": $0.toPeerId, "blob": $0.blob] }
+        _ = try await raw(method: "POST", path: "/wrap",
+                          body: ["code": code, "fromPeerId": fromPeerId, "fromPub": fromPub, "items": itemsJSON])
+    }
+
+    /// (Membre) Récupère la clé de groupe emballée qui lui est destinée, si dispo.
+    func fetchWrap(code: String, peerId: String) async throws -> WrapInbox? {
+        let data = try await raw(method: "GET", path: "/wrap?" + query(code: code, peerId: peerId), body: nil)
+        return try JSONDecoder().decode(WrapResponse.self, from: data).wrap
+    }
+
+    // MARK: Bas niveau
+
+    private func pairQuery(code: String, peerId: String) -> String {
+        "/pair?" + query(code: code, peerId: peerId)
+    }
+
+    private func query(code: String, peerId: String) -> String {
+        let c = code.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? code
+        let p = peerId.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? peerId
+        return "code=\(c)&peerId=\(p)"
+    }
+
+    private func raw(method: String, path: String, body: Any?) async throws -> Data {
         let base = baseURL.hasSuffix("/") ? String(baseURL.dropLast()) : baseURL
         guard let url = URL(string: base + path) else { throw PairingError.badURL }
 
@@ -70,7 +103,7 @@ struct PairingClient {
             guard (200..<300).contains(http.statusCode) else {
                 throw PairingError.server(http.statusCode)
             }
-            return try JSONDecoder().decode(PairingResponse.self, from: data).peers
+            return data
         } catch let e as PairingError {
             throw e
         } catch {

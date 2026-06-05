@@ -2,30 +2,30 @@
 //  PairingView.swift
 //  Brocolis 🥦 (app uniquement)
 //
-//  Appairage automatique : les deux personnes saisissent le MÊME code court ;
-//  l'app échange les clés publiques via le serveur de rendez-vous et dérive
-//  seule la clé AES partagée (X25519). On affiche une empreinte à comparer.
+//  Appairage automatique via le serveur de rendez-vous (X25519) :
+//   - À deux : échange des clés publiques, dérivation directe de la clé AES.
+//   - Groupe : un fondateur génère une clé de groupe et la distribue, emballée
+//     (chiffrée) pour chaque membre. Tout le monde obtient la même clé,
+//     automatiquement, sans copier-coller.
 //
 
 import SwiftUI
 import CryptoKit
 
 struct PairingView: View {
-    @Environment(\.dismiss) private var dismiss
-
     @State private var serverURL = BrocolisKeyStore.serverURL
     @State private var code = ""
     @State private var status = ""
     @State private var fingerprint: String? = BrocolisKeyStore.pairingFingerprint
-    @State private var isPairing = false
-    @State private var pairingTask: Task<Void, Never>?
+    @State private var isWorking = false
+    @State private var task: Task<Void, Never>?
 
     private let codeAlphabet = Array("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
 
     var body: some View {
         Form {
             Section {
-                Text("Saisissez **le même code** sur les deux téléphones, sur le même serveur. L’app récupère la clé de l’autre et dérive la clé partagée automatiquement.")
+                Text("Saisissez **le même code** sur tous les téléphones, sur le même serveur.")
                     .font(.subheadline)
             }
 
@@ -44,118 +44,211 @@ struct PairingView: View {
                         .font(.system(.title3, design: .monospaced))
                     Button("Générer") { code = randomCode() }
                         .buttonStyle(.bordered)
+                        .disabled(isWorking)
                 }
             }
 
             Section {
-                Button {
-                    startPairing()
-                } label: {
-                    if isPairing {
-                        HStack { ProgressView(); Text("Appairage…") }
-                    } else {
-                        Label("Appairer", systemImage: "link")
-                    }
-                }
-                .disabled(isPairing || serverURL.trimmingCharacters(in: .whitespaces).isEmpty || code.trimmingCharacters(in: .whitespaces).isEmpty)
-
-                if isPairing {
-                    Button("Annuler", role: .cancel) { cancelPairing() }
+                actionButton(title: "Appairer à deux", systemImage: "person.2.fill") {
+                    run { try await pairTwo() }
                 }
             } footer: {
-                if !status.isEmpty { Text(status) }
+                Text("Pour 2 personnes : chacune dérive la clé directement.")
+            }
+
+            Section {
+                actionButton(title: "Créer le groupe (je distribue la clé)", systemImage: "person.3.fill") {
+                    run { try await createGroup() }
+                }
+                actionButton(title: "Rejoindre le groupe", systemImage: "person.fill.badge.plus") {
+                    run { try await joinGroup() }
+                }
+            } header: {
+                Text("Groupe (3+)")
+            } footer: {
+                Text("Ordre : les membres touchent d’abord « Rejoindre le groupe », puis le fondateur touche « Créer le groupe ». Le fondateur génère la clé et la distribue chiffrée à chacun.")
+            }
+
+            if isWorking {
+                Section {
+                    Button("Annuler", role: .cancel) { cancel() }
+                }
+            }
+
+            if !status.isEmpty {
+                Section { Text(status).font(.subheadline) }
             }
 
             if let fp = fingerprint {
                 Section {
                     VStack(alignment: .leading, spacing: 6) {
-                        Label("Appairé", systemImage: "checkmark.seal.fill")
+                        Label("Clé en place", systemImage: "checkmark.seal.fill")
                             .foregroundStyle(.green)
                         Text("Empreinte de sécurité")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(.caption).foregroundStyle(.secondary)
                         Text(fp)
                             .font(.system(.title3, design: .monospaced))
                             .textSelection(.enabled)
                     }
                 } footer: {
-                    Text("Comparez cette empreinte de vive voix avec votre correspondant. Si elle est identique des deux côtés, la connexion n’a pas été interceptée.")
+                    Text("Comparez cette empreinte de vive voix avec les autres. Si elle est identique pour tous, la clé n’a pas été interceptée.")
                 }
             }
         }
         .navigationTitle("Appairage")
         .navigationBarTitleDisplayMode(.inline)
-        .onDisappear { cancelPairing() }
+        .onDisappear { cancel() }
     }
 
-    // MARK: Logique
+    // MARK: UI helpers
+
+    private func actionButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+        }
+        .disabled(isWorking || serverURL.trimmingCharacters(in: .whitespaces).isEmpty
+                  || code.trimmingCharacters(in: .whitespaces).isEmpty)
+    }
 
     private func randomCode(length: Int = 6) -> String {
         String((0..<length).map { _ in codeAlphabet.randomElement()! })
     }
 
-    private func startPairing() {
+    // MARK: Orchestration
+
+    private func run(_ body: @escaping () async throws -> Void) {
         BrocolisKeyStore.setServerURL(serverURL)
-        let normalizedCode = code.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-        code = normalizedCode
-
-        isPairing = true
-        status = "Publication de ta clé publique…"
+        code = code.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        isWorking = true
         fingerprint = nil
-
-        let client = PairingClient(baseURL: serverURL.trimmingCharacters(in: .whitespaces))
-        let priv = BrocolisKeyAgreement.loadOrCreatePrivateKey()
-        let myPub = BrocolisKeyAgreement.publicKeyBase64(of: priv)
-        let peerId = UUID().uuidString
-
-        pairingTask = Task {
+        task = Task {
             do {
-                _ = try await client.publish(code: normalizedCode, peerId: peerId, pub: myPub)
-                await update("En attente du correspondant…")
-
-                // Sondage jusqu'à 60 s.
-                for _ in 0..<40 {
-                    if Task.isCancelled { return }
-                    let peers = try await client.fetch(code: normalizedCode, peerId: peerId)
-                    if let peer = peers.first(where: { $0.pub != myPub }) {
-                        try finishPairing(priv: priv, peerPub: peer.pub)
-                        return
-                    }
-                    try await Task.sleep(nanoseconds: 1_500_000_000)
-                }
-                await finish(error: "Délai dépassé : le correspondant n’a pas rejoint le code.")
+                try await body()
             } catch is CancellationError {
-                // annulé par l'utilisateur
+                // annulé
             } catch {
-                let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-                await finish(error: message)
+                await finish(error: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
             }
         }
     }
 
-    private func finishPairing(priv: Curve25519.KeyAgreement.PrivateKey, peerPub: String) throws {
-        let derived = try BrocolisKeyAgreement.derive(myPrivate: priv, peerPublicBase64: peerPub)
-        BrocolisKeyStore.setKey(derived.symmetricKeyBase64)
-        BrocolisKeyStore.setPairingFingerprint(derived.fingerprint)
+    private func cancel() {
+        task?.cancel()
+        task = nil
+        if isWorking { isWorking = false }
+    }
+
+    private var client: PairingClient { PairingClient(baseURL: serverURL.trimmingCharacters(in: .whitespaces)) }
+
+    // MARK: Flux — à deux
+
+    private func pairTwo() async throws {
+        let priv = BrocolisKeyAgreement.loadOrCreatePrivateKey()
+        let myPub = BrocolisKeyAgreement.publicKeyBase64(of: priv)
+        let peerId = UUID().uuidString
+
+        await update("Publication de ta clé publique…")
+        _ = try await client.publish(code: code, peerId: peerId, pub: myPub)
+        await update("En attente du correspondant…")
+
+        for _ in 0..<40 {
+            if Task.isCancelled { return }
+            let peers = try await client.fetch(code: code, peerId: peerId)
+            if let peer = peers.first(where: { $0.pub != myPub }) {
+                let derived = try BrocolisKeyAgreement.derive(myPrivate: priv, peerPublicBase64: peer.pub)
+                applyKey(derived.symmetricKeyBase64, fingerprint: derived.fingerprint,
+                         message: "✅ Appairé. Brocolis est actif.")
+                return
+            }
+            try await Task.sleep(nanoseconds: 1_500_000_000)
+        }
+        await finish(error: "Délai dépassé : le correspondant n’a pas rejoint.")
+    }
+
+    // MARK: Flux — fondateur du groupe
+
+    private func createGroup() async throws {
+        let priv = BrocolisKeyAgreement.loadOrCreatePrivateKey()
+        let myPub = BrocolisKeyAgreement.publicKeyBase64(of: priv)
+        let peerId = UUID().uuidString
+
+        // Le fondateur a la clé tout de suite.
+        let groupKey = BrocolisKeyAgreement.generateGroupKeyBase64()
+        applyKey(groupKey, fingerprint: BrocolisKeyAgreement.groupFingerprint(groupKeyBase64: groupKey),
+                 message: "Clé de groupe créée. Distribution en cours…", keepWorking: true)
+
+        // Publie sa clé publique pour que les membres puissent déballer.
+        _ = try await client.publish(code: code, peerId: peerId, pub: myPub)
+
+        var wrappedTo = Set<String>()
+        for _ in 0..<30 {
+            if Task.isCancelled { return }
+            let peers = try await client.fetch(code: code, peerId: peerId)
+            let newPeers = peers.filter { !wrappedTo.contains($0.peerId) && $0.pub != myPub }
+            if !newPeers.isEmpty {
+                var items: [WrapItem] = []
+                for p in newPeers {
+                    let blob = try BrocolisKeyAgreement.wrapGroupKey(
+                        groupKeyBase64: groupKey, forPeerPublicBase64: p.pub, myPrivate: priv)
+                    items.append(WrapItem(toPeerId: p.peerId, blob: blob))
+                }
+                try await client.postWraps(code: code, fromPeerId: peerId, fromPub: myPub, items: items)
+                newPeers.forEach { wrappedTo.insert($0.peerId) }
+                await update("Clé distribuée à \(wrappedTo.count) membre(s). Touche « Annuler » quand tout le monde a reçu.")
+            }
+            try await Task.sleep(nanoseconds: 2_000_000_000)
+        }
+        await finish(message: "Distribution terminée (\(wrappedTo.count) membre(s)).")
+    }
+
+    // MARK: Flux — membre du groupe
+
+    private func joinGroup() async throws {
+        let priv = BrocolisKeyAgreement.loadOrCreatePrivateKey()
+        let myPub = BrocolisKeyAgreement.publicKeyBase64(of: priv)
+        let peerId = UUID().uuidString
+
+        await update("Publication de ta clé publique…")
+        _ = try await client.publish(code: code, peerId: peerId, pub: myPub)
+        await update("En attente de la clé du groupe…")
+
+        for _ in 0..<60 {
+            if Task.isCancelled { return }
+            if let wrap = try await client.fetchWrap(code: code, peerId: peerId) {
+                let groupKey = try BrocolisKeyAgreement.unwrapGroupKey(
+                    blobBase64: wrap.blob, fromPeerPublicBase64: wrap.fromPub, myPrivate: priv)
+                applyKey(groupKey, fingerprint: BrocolisKeyAgreement.groupFingerprint(groupKeyBase64: groupKey),
+                         message: "✅ Clé de groupe reçue. Brocolis est actif.")
+                return
+            }
+            try await Task.sleep(nanoseconds: 1_500_000_000)
+        }
+        await finish(error: "Délai dépassé : aucune clé de groupe reçue. Le fondateur a-t-il lancé la distribution ?")
+    }
+
+    // MARK: Application du résultat
+
+    private func applyKey(_ keyB64: String, fingerprint fp: String, message: String, keepWorking: Bool = false) {
+        BrocolisKeyStore.setKey(keyB64)
+        BrocolisKeyStore.setPairingFingerprint(fp)
         BrocolisKeyStore.setActive(true)
         Task { @MainActor in
-            fingerprint = derived.fingerprint
-            status = "✅ Appairage réussi. Brocolis est actif."
-            isPairing = false
+            fingerprint = fp
+            status = message
+            if !keepWorking { isWorking = false }
         }
     }
 
     @MainActor private func update(_ s: String) { status = s }
 
-    @MainActor private func finish(error: String) {
-        status = "⚠️ " + error
-        isPairing = false
+    @MainActor private func finish(message: String) {
+        status = message
+        isWorking = false
     }
 
-    private func cancelPairing() {
-        pairingTask?.cancel()
-        pairingTask = nil
-        if isPairing { isPairing = false }
+    @MainActor private func finish(error: String) {
+        status = "⚠️ " + error
+        isWorking = false
     }
 }
 
