@@ -15,21 +15,26 @@ enum BrocolisNotifications {
     private static let noticeID = "brocolis.key.expiry.notice"
     private static let expiredID = "brocolis.key.expired"
 
-    /// Catégorie + action « Prolonger » attachées aux notifications d'expiration.
+    /// Catégorie + actions attachées aux notifications d'expiration.
     static let categoryID = "BROCOLIS_EXPIRY"
     static let renewActionID = "BROCOLIS_RENEW"
+    static let openRenewActionID = "BROCOLIS_OPEN_RENEW"
 
-    /// Déclare la catégorie de notification avec l'action « Prolonger ».
-    /// À appeler une fois au lancement.
+    /// Déclare la catégorie de notification avec ses actions. À appeler au lancement.
     static func registerCategories() {
         let renew = UNNotificationAction(
             identifier: renewActionID,
             title: "Prolonger la clé",
             options: [] // s'exécute sans ouvrir l'app
         )
+        let openRenew = UNNotificationAction(
+            identifier: openRenewActionID,
+            title: "Ouvrir pour renouveler",
+            options: [.foreground] // ouvre l'app sur l'écran d'appairage
+        )
         let category = UNNotificationCategory(
             identifier: categoryID,
-            actions: [renew],
+            actions: [renew, openRenew],
             intentIdentifiers: [],
             options: []
         )

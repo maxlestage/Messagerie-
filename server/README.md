@@ -35,6 +35,21 @@ Dans l'app (écran **Appairage**), renseigne l'URL du serveur :
 > iOS bloque par défaut le HTTP non chiffré (ATS). En production, sers le
 > rendez-vous en **HTTPS**.
 
+## Docker
+
+```sh
+cd server
+docker build -t brocolis-rendezvous .
+docker run -p 8788:8788 -e MAX_PEERS=32 brocolis-rendezvous
+# santé : curl http://localhost:8788/health  -> ok
+```
+
+Image minimale (Node Alpine, **aucune dépendance**), utilisateur non-root,
+`HEALTHCHECK` sur `/health`. Le serveur écoute sur `process.env.PORT` (défaut
+8788) : l'image fonctionne telle quelle sur Render, Railway, Fly.io ou un VPS.
+Ces plateformes fournissent le **TLS** → utilise `https://…` (donc `wss`-grade
+sécurité) côté app.
+
 ## API
 
 ```
