@@ -11,6 +11,14 @@ import SwiftUI
 import UIKit
 import UserNotifications
 
+/// Routeur partagé pour déclencher une navigation depuis l'extérieur du graphe
+/// de vues (ex. depuis une action de notification).
+final class AppRouter: ObservableObject {
+    static let shared = AppRouter()
+    @Published var openPairing = false
+    private init() {}
+}
+
 /// Gère le cycle de vie + les actions de notification (« Prolonger »).
 /// Note : `applicationWillTerminate` n'est pas appelé en cas de force-quit par
 /// balayage ; l'interrupteur de l'app reste le contrôle fiable.
@@ -38,9 +46,16 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        if response.actionIdentifier == BrocolisNotifications.renewActionID {
+        switch response.actionIdentifier {
+        case BrocolisNotifications.renewActionID:
+            // Prolonge la clé courante sans ouvrir l'app.
             BrocolisKeyStore.reapplyExpiry()
             BrocolisNotifications.refresh()
+        case BrocolisNotifications.openRenewActionID:
+            // Ouvre l'app sur l'écran d'appairage pour une vraie rotation.
+            DispatchQueue.main.async { AppRouter.shared.openPairing = true }
+        default:
+            break
         }
         completionHandler()
     }

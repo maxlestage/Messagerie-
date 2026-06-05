@@ -10,6 +10,7 @@ import UIKit
 
 struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
+    @ObservedObject private var router = AppRouter.shared
 
     @State private var keyBase64: String? = BrocolisKeyStore.keyBase64
     @State private var isActive = BrocolisKeyStore.isActive
@@ -41,9 +42,15 @@ struct RootView: View {
                 if hasKey { deleteSection }
             }
             .navigationTitle("Brocolis 🥦")
-            .onAppear { purgeIfNeeded() }
+            .onAppear {
+                purgeIfNeeded()
+                if router.openPairing { showPairing = true; router.openPairing = false }
+            }
             .onChange(of: scenePhase) { phase in
                 if phase == .active { purgeIfNeeded() }
+            }
+            .onChange(of: router.openPairing) { open in
+                if open { showPairing = true; router.openPairing = false }
             }
             .sheet(isPresented: $showPairing, onDismiss: reload) {
                 NavigationStack { PairingView() }
