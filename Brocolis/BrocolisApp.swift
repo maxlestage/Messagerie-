@@ -9,22 +9,49 @@
 
 import SwiftUI
 import UIKit
+import UserNotifications
 
-/// Désactive Brocolis quand l'app est *terminée* (best effort : non appelé en
-/// cas de force-quit par balayage). L'interrupteur de l'app reste le contrôle
-/// fiable.
-final class AppDelegate: NSObject, UIApplicationDelegate {
+/// Gère le cycle de vie + les actions de notification (« Prolonger »).
+/// Note : `applicationWillTerminate` n'est pas appelé en cas de force-quit par
+/// balayage ; l'interrupteur de l'app reste le contrôle fiable.
+final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         // Purge automatique de la clé périmée dès le lancement.
         BrocolisKeyStore.purgeExpiredKey()
+        // Notifications : devient le destinataire des actions + déclare l'action « Prolonger ».
+        UNUserNotificationCenter.current().delegate = self
+        BrocolisNotifications.registerCategories()
         return true
     }
 
     func applicationWillTerminate(_ application: UIApplication) {
         BrocolisKeyStore.setActive(false)
+    }
+
+    /// Action « Prolonger » : réarme la validité de la clé courante (même clé),
+    /// puis reprogramme le préavis. Fonctionne sans ouvrir l'app.
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        if response.actionIdentifier == BrocolisNotifications.renewActionID {
+            BrocolisKeyStore.reapplyExpiry()
+            BrocolisNotifications.refresh()
+        }
+        completionHandler()
+    }
+
+    /// Affiche aussi les notifications quand l'app est au premier plan.
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .sound])
     }
 }
 

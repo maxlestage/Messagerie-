@@ -93,6 +93,11 @@ peut pas déballer la clé de groupe. Plafond de participants par code :
   même app fermée, plus une notification à l'expiration. L'écran affiche aussi
   « Expire dans … » et passe en alerte quand l'échéance approche. (iOS demande
   l'autorisation de notifier la première fois qu'une clé a une durée de vie.)
+- **Prolonger en un tap** : la notification porte une action **« Prolonger la
+  clé »** qui **réarme la validité** de la clé courante (même clé, compteur
+  remis à maintenant + durée) sans ouvrir l'app, et reprogramme le préavis.
+  Pour une **vraie rotation** (nouvelle clé de groupe), passe par l'app
+  (« Créer le groupe »).
 - **Rotation** : pour un groupe, le fondateur relance **Créer le groupe** → une
   **nouvelle clé** est générée et redistribuée (le `/wrap` du serveur écrase
   l'ancienne) ; les membres la récupèrent en re-touchant **Rejoindre le
