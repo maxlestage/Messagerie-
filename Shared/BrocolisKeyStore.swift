@@ -19,6 +19,7 @@ enum BrocolisKeyStore {
     /// ⚠️ Doit correspondre à l'App Group activé sur l'app ET l'extension.
     static let appGroup = "group.rs.brocolis.messagerie"
     private static let keyName = "shared_aes_key_b64"
+    private static let activeName = "is_active"
 
     private static var defaults: UserDefaults? {
         UserDefaults(suiteName: appGroup)
@@ -36,7 +37,25 @@ enum BrocolisKeyStore {
 
     static func clearKey() {
         defaults?.removeObject(forKey: keyName)
+        // Sans clé, on ne peut pas rester actif.
+        setActive(false)
     }
+
+    // MARK: État « Actif »
+    //
+    // Quand `isActive == true`, l'extension chiffre/déchiffre. L'état persiste
+    // (App Group) tant que l'utilisateur ne le désactive pas. Il est aussi remis
+    // à `false` à la terminaison de l'app hôte (best effort, cf. AppDelegate).
+
+    static var isActive: Bool {
+        // Actif seulement si une clé est présente.
+        (defaults?.bool(forKey: activeName) ?? false) && hasKey
+    }
+
+    static func setActive(_ value: Bool) {
+        defaults?.set(value, forKey: activeName)
+    }
+
 
     /// Clé utilisable, ou `nil` si absente/invalide.
     static func symmetricKey() -> SymmetricKey? {

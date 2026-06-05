@@ -18,14 +18,27 @@ une **Action Extension** sur le texte sélectionné.
 1. Ouvre l'app **Brocolis 🥦** une fois pour **générer ou importer** la clé
    partagée (équivalent de `brocolis keygen`). Transmets cette clé à ton
    correspondant par un canal sûr.
-2. Dans **n'importe quelle app**, sélectionne du texte → **Partager** →
-   **Brocolis 🥦**. L'extension :
+2. Mets l'interrupteur **Actif** sur ON. Brocolis **reste actif** tant que tu ne
+   le repasses pas sur OFF (ou que tu ne fermes pas l'app).
+3. Dans **n'importe quelle app**, sélectionne du texte → **Partager** →
+   **Brocolis 🥦**. Quand c'est actif, l'extension :
    - **chiffre** les segments `((entre doubles parenthèses))` (ou toute la
      sélection si aucun marqueur) en jetons `[[BROCOLIS:v1:…]]` ;
-   - **déchiffre** automatiquement si la sélection contient des jetons.
-3. Touche **Copier**, puis colle le résultat dans la conversation.
+   - **déchiffre** automatiquement si la sélection contient des jetons ;
+   - **copie** le résultat tout de suite — il n'y a plus qu'à coller.
 
-La clé est partagée entre l'app et l'extension via un **App Group**.
+La clé **et l'état Actif** sont partagés entre l'app et l'extension via un
+**App Group**.
+
+### État « Actif »
+
+- L'interrupteur dans l'app est l'unique contrôle fiable : actif jusqu'à ce que
+  tu le désactives. Sortir de l'app pour aller dans WhatsApp/Notes **ne le
+  désactive pas** (sinon l'extension serait inutile).
+- À la **fermeture** de l'app, Brocolis se désactive (`applicationWillTerminate`).
+  ⚠️ iOS n'appelle pas ce hook en cas de *force-quit* (balayage de l'app) :
+  dans ce cas l'état reste tel quel — utilise l'interrupteur pour être sûr.
+- Tant qu'il est **inactif** (ou sans clé), l'extension n'agit pas et l'indique.
 
 ## Interopérable avec brocolis
 
