@@ -79,6 +79,17 @@ Le serveur ne voit que des **clés publiques** et des **blobs chiffrés** ; il n
 peut pas déballer la clé de groupe. Plafond de participants par code :
 `MAX_PEERS` (défaut 16).
 
+## Rotation & expiration de la clé
+
+- **Expiration** : dans l'app, règle la **Validité de la clé** (Jamais / 1 h /
+  24 h / 7 j). À l'installation d'une clé, sa date d'expiration est calculée.
+  Au-delà, l'**extension refuse** de chiffrer/déchiffrer (« clé expirée ») tant
+  qu'on ne renouvelle pas la clé.
+- **Rotation** : pour un groupe, le fondateur relance **Créer le groupe** → une
+  **nouvelle clé** est générée et redistribuée (le `/wrap` du serveur écrase
+  l'ancienne) ; les membres la récupèrent en re-touchant **Rejoindre le
+  groupe**. Installer une nouvelle clé réarme aussi l'horloge d'expiration.
+
 ## Interopérable avec brocolis
 
 Même format de jeton (`[[BROCOLIS:v1:…]]`, AES-256-GCM,

@@ -130,6 +130,12 @@ final class ActionViewController: UIViewController {
             resultText = ""
             return
         }
+        guard !BrocolisKeyStore.isExpired else {
+            statusLabel.text = "⌛️ Clé expirée."
+            textView.text = "Renouvelle la clé dans l’app Brocolis 🥦 (ou ré-appaire-toi), puis réessaie."
+            resultText = ""
+            return
+        }
 
         let result = BrocolisTransform.auto(input, key: key)
         resultText = result.text

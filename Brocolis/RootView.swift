@@ -14,9 +14,17 @@ struct RootView: View {
     @State private var keyBase64: String? = BrocolisKeyStore.keyBase64
     @State private var isActive = BrocolisKeyStore.isActive
     @State private var fingerprint: String? = BrocolisKeyStore.pairingFingerprint
+    @State private var keyTTL = BrocolisKeyStore.keyTTLSeconds
     @State private var importText = ""
     @State private var alertMessage: String?
     @State private var showPairing = false
+
+    private let ttlOptions: [(label: String, seconds: Int)] = [
+        ("Jamais", 0),
+        ("1 heure", 3600),
+        ("24 heures", 86_400),
+        ("7 jours", 604_800),
+    ]
 
     private var hasKey: Bool { keyBase64 != nil }
 
@@ -25,6 +33,7 @@ struct RootView: View {
             Form {
                 statusSection
                 pairingSection
+                if hasKey { expirySection }
                 howToSection
                 keySection
                 generateSection
@@ -101,6 +110,46 @@ struct RootView: View {
             Text("Correspondant")
         } footer: {
             Text("Échange la clé automatiquement avec un correspondant via un code court (X25519) — sans copier la clé. Compare l’empreinte de vive voix pour vérifier qu’il n’y a pas d’interception.")
+        }
+    }
+
+    // MARK: Expiration / rotation
+
+    private var expirySection: some View {
+        Section {
+            Picker("Validité de la clé", selection: ttlBinding) {
+                ForEach(ttlOptions, id: \.seconds) { opt in
+                    Text(opt.label).tag(opt.seconds)
+                }
+            }
+            expiryStatus
+        } header: {
+            Text("Expiration")
+        } footer: {
+            Text("Au-delà de la validité, l’extension refuse de chiffrer/déchiffrer tant que la clé n’est pas renouvelée. Pour un groupe, le fondateur relance « Créer le groupe » pour distribuer une nouvelle clé.")
+        }
+    }
+
+    private var ttlBinding: Binding<Int> {
+        Binding(
+            get: { keyTTL },
+            set: { newValue in
+                BrocolisKeyStore.setKeyTTL(newValue)
+                keyTTL = BrocolisKeyStore.keyTTLSeconds
+            }
+        )
+    }
+
+    @ViewBuilder private var expiryStatus: some View {
+        if let expires = BrocolisKeyStore.keyExpiresAt {
+            if BrocolisKeyStore.isExpired {
+                Label("Clé expirée — renouvelle-la", systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+            } else {
+                LabeledContent("Expire le", value: expires.formatted(date: .abbreviated, time: .shortened))
+            }
+        } else {
+            Text("Pas d’expiration").foregroundStyle(.secondary)
         }
     }
 
@@ -186,6 +235,7 @@ struct RootView: View {
         keyBase64 = BrocolisKeyStore.keyBase64
         isActive = BrocolisKeyStore.isActive
         fingerprint = BrocolisKeyStore.pairingFingerprint
+        keyTTL = BrocolisKeyStore.keyTTLSeconds
     }
 
     private func importKey() {
