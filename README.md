@@ -40,6 +40,27 @@ La clé **et l'état Actif** sont partagés entre l'app et l'extension via un
   dans ce cas l'état reste tel quel — utilise l'interrupteur pour être sûr.
 - Tant qu'il est **inactif** (ou sans clé), l'extension n'agit pas et l'indique.
 
+## Appairage automatique (sans copier la clé)
+
+Plutôt que de copier-coller la clé symétrique, deux personnes peuvent
+**l'obtenir automatiquement** par accord de clé **X25519 (ECDH)** :
+
+1. Les deux ouvrent l'app → **Appairer automatiquement**, renseignent la même
+   **URL de serveur** et **le même code court** (ex. `ABC123`).
+2. Chaque téléphone publie sa **clé publique** sur le serveur de rendez-vous et
+   récupère celle de l'autre, puis **dérive seul** la même clé AES (HKDF). La
+   clé secrète n'est jamais transmise ; le serveur ne voit que des clés
+   publiques.
+3. L'app affiche une **empreinte de sécurité** : comparez-la de vive voix. Si
+   elle est identique des deux côtés, personne n'a intercepté l'échange (MITM).
+
+Le serveur de rendez-vous est dans [`server/`](server/) (Node, sans dépendance).
+L'appairage active automatiquement Brocolis ; l'extension utilise ensuite la clé
+dérivée comme d'habitude.
+
+> Le code court ne sert qu'à se *rejoindre* : la sécurité réelle vient de X25519
+> et de la vérification de l'empreinte.
+
 ## Interopérable avec brocolis
 
 Même format de jeton (`[[BROCOLIS:v1:…]]`, AES-256-GCM,
@@ -53,12 +74,17 @@ déchiffrables par brocolis (et inversement).
 Brocolis.xcodeproj
 Shared/                       # code partagé app + extension
   BrocolisCrypto.swift        # AES-256-GCM, format de jeton brocolis
-  BrocolisKeyStore.swift      # clé partagée via App Group
+  BrocolisKeyStore.swift      # clé + état actif + appairage (App Group)
   BrocolisTransform.swift     # chiffre/déchiffre en un geste (auto-détection)
-Brocolis/                     # app hôte (gestion de la clé)
+  BrocolisKeyAgreement.swift  # accord de clé X25519 (ECDH + HKDF) + empreinte
+Brocolis/                     # app hôte
   BrocolisApp.swift, RootView.swift, Assets, Brocolis.entitlements
+  PairingView.swift           # écran d'appairage automatique
+  PairingClient.swift         # client du serveur de rendez-vous
 BrocolisAction/               # Action Extension (menu Partager)
   ActionViewController.swift, Info.plist, BrocolisAction.entitlements
+BrocolisTests/                # tests XCTest (crypto, transform, accord de clé)
+server/                       # serveur de rendez-vous X25519 (Node)
 ```
 
 ## Lancer le projet
@@ -89,8 +115,19 @@ emoji, mauvaise clé, jeton altéré/corrompu, marqueurs non fermés ou vides,
 jetons adjacents, gros volumes, unicité des nonces, et l'auto-détection
 chiffrer/déchiffrer de l'extension.
 
+Elle inclut aussi l'**accord de clé X25519** (les deux côtés dérivent la même
+clé AES, clé dérivée utilisable pour chiffrer/déchiffrer, format d'empreinte).
+
 ```
 Cmd+U dans Xcode   (ou : xcodebuild test -scheme Brocolis -destination 'platform=iOS Simulator,name=iPhone 15')
+```
+
+Le **serveur de rendez-vous** a ses propres tests Node (exécutables partout) —
+ils vérifient le flux d'appairage et que **les deux appareils dérivent une clé
+identique** :
+
+```
+cd server && npm test
 ```
 
 ## Sécurité — limites
