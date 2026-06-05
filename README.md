@@ -1,83 +1,92 @@
-# Messagerie 🥦 — messagerie chiffrée pour iPhone, bâtie sur [brocolis](https://github.com/maxlestage/brocolis)
+# Messagerie 🥦 — messagerie chiffrée (React Native) bâtie sur [brocolis](https://github.com/maxlestage/brocolis)
 
-Application **iOS native (SwiftUI)** de messagerie qui réutilise le
+Application **React Native (Expo + TypeScript)** de messagerie qui réutilise le
 **chiffrement sélectif** du proxy [brocolis 🥦](https://github.com/maxlestage/brocolis).
+Pensée pour **iPhone** (tourne dans **Expo Go**), sans dépendance native exotique.
 
 Le principe est identique à brocolis : seul le contenu **explicitement marqué**
 est chiffré. Tu écris un message ; chaque segment entre `((doubles parenthèses))`
-est remplacé, **avant stockage**, par un jeton chiffré
-`[[BROCOLIS:v1:<base64>]]` (AES-256-GCM). À l'affichage, les jetons sont
-déchiffrés à la volée avec la clé partagée. Le clair des parties secrètes
-n'est donc **jamais** écrit sur disque.
+est remplacé, **avant stockage**, par un jeton chiffré `[[BROCOLIS:v1:<base64>]]`
+(AES-256-GCM). À l'affichage, les jetons sont déchiffrés à la volée avec la clé
+partagée. Le clair des parties secrètes n'est donc **jamais** écrit sur disque.
 
-> ⚠️ Projet de démonstration / éducatif. Voir l'avertissement de licence ci-dessous.
+> ⚠️ Projet de démonstration / éducatif.
 
 ## Pourquoi « s'appuie sur brocolis »
 
 Le format du jeton est **interopérable au format près** avec la crate Rust de
 brocolis :
 
-| Élément        | brocolis (Rust, `aes-gcm`)            | Messagerie 🥦 (Swift, `CryptoKit`)        |
-| -------------- | ------------------------------------- | ----------------------------------------- |
-| Clé            | base64 de 32 octets (`brocolis keygen`) | identique                                |
-| Préfixe/suffixe| `[[BROCOLIS:v1:` … `]]`                | identique                                 |
-| Marqueurs clair| `((` … `))`                           | identiques                                |
-| Empaquetage    | `nonce(12) ‖ ciphertext ‖ tag(16)`    | `AES.GCM.SealedBox.combined` (identique)  |
+| Élément         | brocolis (Rust, `aes-gcm`)              | Messagerie 🥦 (JS, `@noble/ciphers`)     |
+| --------------- | --------------------------------------- | ---------------------------------------- |
+| Clé             | base64 de 32 octets (`brocolis keygen`) | identique                                |
+| Préfixe/suffixe | `[[BROCOLIS:v1:` … `]]`                  | identique                                |
+| Marqueurs clair | `((` … `))`                             | identiques                               |
+| Empaquetage     | `nonce(12) ‖ ciphertext ‖ tag(16)`      | identique (`AES-GCM`, tag de 16 octets)  |
 
-Une clé générée par `brocolis keygen` peut donc être collée dans l'app, et un
-jeton produit par l'app peut être déchiffré par brocolis (et inversement).
+Une clé générée par `brocolis keygen` se colle telle quelle dans l'app, et un
+jeton produit par l'app est déchiffrable par brocolis (et inversement). Le test
+`__tests__/brocolisCrypto.test.ts` vérifie ce format.
 
-## Fonctionnalités
+## Stack technique
 
-- 🔑 **Gestion de clé** (Trousseau iOS) : générer, importer, partager, supprimer.
-- 💬 **Conversations** persistées localement (JSON), triées par activité.
-- 🟢 **Chiffrement sélectif** des `((secrets))` à l'envoi.
-- 🔓 **Déchiffrement** automatique à l'affichage pour les détenteurs de la clé.
-- 🔒 **Affichage « texte chiffré »** (bascule) pour voir ce qui voyage réellement.
-- 📥 **Réception** : coller un message reçu d'un correspondant (chiffré ou non).
+- **Expo SDK 51** / React Native 0.74 / TypeScript
+- `@noble/ciphers` — AES-256-GCM en JS pur (pas de module natif)
+- `@scure/base` — base64
+- `expo-crypto` — aléa CSPRNG (clé, nonce, UUID)
+- `expo-secure-store` — clé partagée dans le Trousseau iOS
+- `@react-native-async-storage/async-storage` — conversations (JSON)
+- `@react-navigation/native-stack` — navigation
 
 ## Lancer le projet
 
-Pré-requis : **Xcode 16+**, iOS 17+.
+Pré-requis : Node 18+, l'app **Expo Go** sur ton iPhone.
 
 ```sh
-open Brocolis.xcodeproj
-# Sélectionner le schéma "Brocolis", un simulateur iPhone, puis Cmd+R
+npm install
+npm start          # puis scanne le QR code avec Expo Go (iPhone)
+# ou : npm run ios  (simulateur iOS, sur macOS avec Xcode)
 ```
 
-Tests unitaires (chiffrement / interopérabilité) : `Cmd+U`.
+Tests unitaires (chiffrement / interopérabilité) :
+
+```sh
+npm test
+```
 
 ### Premier usage
 
-1. Touche l'icône 🔑 → **Générer une nouvelle clé** (ou importe une clé
-   `brocolis keygen`).
-2. Ouvre/crée une conversation.
+1. Touche 🔑 (en haut à gauche) → **Générer une nouvelle clé** (ou importe une
+   clé `brocolis keygen`).
+2. Crée une conversation (✏️ en haut à droite).
 3. Écris un message avec un secret, ex. :
    `Le code du coffre est ((1234)) à ne pas oublier`.
-4. Envoie : seul `1234` est stocké chiffré (`[[BROCOLIS:v1:…]]`). Active
-   « Voir le texte chiffré » pour le constater.
-5. Partage la même clé avec un correspondant pour qu'il puisse lire le clair.
+4. Envoie : seul `1234` est stocké chiffré (`[[BROCOLIS:v1:…]]`). Via le menu ⋯
+   → **Voir le texte chiffré**, tu constates ce qui voyage réellement.
+5. Partage la même clé avec un correspondant pour qu'il lise le clair. Le menu ⋯
+   → **Recevoir un message** permet de coller un message reçu.
 
 ## Architecture
 
 ```
-Brocolis/
-  BrocolisApp.swift          // point d'entrée SwiftUI
-  Crypto/BrocolisCrypto.swift // chiffrement sélectif AES-256-GCM (CryptoKit)
-  Models/                    // Message, Conversation
-  Store/                     // KeyStore (Keychain), ChatStore (JSON)
-  Views/                     // ContentView, ChatView, MessageBubble, KeyView
-BrocolisTests/               // tests crypto + interopérabilité de format
+App.tsx                        # navigation + providers
+src/
+  crypto/brocolisCrypto.ts     # chiffrement sélectif AES-256-GCM
+  models/types.ts              # Message, Conversation, params de navigation
+  state/AppContext.tsx         # clé (SecureStore) + conversations (AsyncStorage)
+  components/MessageBubble.tsx
+  screens/                     # Conversations, Chat, Key
+__tests__/brocolisCrypto.test.ts
 ```
 
 ## Sécurité — limites connues
 
-- App de **démonstration** : pas de transport réseau intégré (l'échange de
-  messages se fait par copier-coller / partage, à la main).
+- App de **démonstration** : pas de transport réseau intégré (l'échange se fait
+  par copier-coller / partage, à la main).
 - Le chiffrement protège uniquement les parties **marquées** ; les métadonnées
   (titres, horodatages) et le texte non marqué restent en clair.
-- La clé est partagée **symétriquement** ; sa diffusion doit passer par un
-  canal sûr, comme pour brocolis.
+- Clé **symétrique** partagée : sa diffusion doit passer par un canal sûr, comme
+  pour brocolis.
 
 ## Licence
 
