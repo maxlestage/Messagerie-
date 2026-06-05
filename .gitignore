@@ -1,31 +1,18 @@
-# dependencies
-node_modules/
-
-# Expo
-.expo/
-.expo-shared/
-dist/
-web-build/
-
-# Metro
-.metro-health-check*
-
-# Native builds (si prebuild / eject)
-ios/
-android/
-
-# Logs & debug
-npm-debug.*
-yarn-debug.*
-yarn-error.*
-*.log
-
-# Env / secrets
-.env
-.env.*
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+*.xcscmblueprint
+xcuserdata/
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
 
 # macOS
 .DS_Store
 
-# Coverage
-coverage/
+# Swift Package Manager
+.build/
+.swiftpm/
