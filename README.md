@@ -188,5 +188,7 @@ cd server && npm test
 
 ## Licence
 
-Accompagne brocolis, propriété de **LESTAGE Maxime Nathan**. Voir le dépôt
-brocolis pour les termes. Fourni « TEL QUEL », sans garantie.
+© 2026 **LESTAGE Maxime Nathan** — Tous droits réservés. Logiciel
+**propriétaire** : voir le fichier [`LICENSE`](LICENSE). Ce projet accompagne
+[brocolis](https://github.com/maxlestage/brocolis), également propriétaire.
+Fourni « TEL QUEL », sans garantie.
