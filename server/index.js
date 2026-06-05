@@ -27,6 +27,8 @@ function createRendezvous(options = {}) {
   const maxPeers = options.maxPeers ?? DEFAULT_MAX_PEERS;
   // code -> Map(peerId -> { pub, ts })
   const codes = new Map();
+  // code -> Map(toPeerId -> { from, fromPub, blob, ts })  (clés de groupe emballées)
+  const wraps = new Map();
 
   function prune() {
     const now = Date.now();
@@ -35,6 +37,12 @@ function createRendezvous(options = {}) {
         if (now - entry.ts > TTL_MS) peers.delete(peerId);
       }
       if (peers.size === 0) codes.delete(code);
+    }
+    for (const [code, recips] of wraps) {
+      for (const [toId, entry] of recips) {
+        if (now - entry.ts > TTL_MS) recips.delete(toId);
+      }
+      if (recips.size === 0) wraps.delete(code);
     }
   }
 
@@ -100,6 +108,58 @@ function createRendezvous(options = {}) {
         }
         peers.set(peerId, { pub, ts: Date.now() });
         return sendJSON(res, 200, { peers: peersExcluding(code, peerId) });
+      });
+      return;
+    }
+
+    // --- Clés de groupe emballées (key-wrapping X25519) ---
+
+    if (req.method === 'GET' && url.pathname === '/wrap') {
+      const code = (url.searchParams.get('code') || '').trim();
+      const peerId = url.searchParams.get('peerId') || '';
+      if (!code || !peerId) return sendJSON(res, 400, { error: 'code et peerId requis' });
+      const recips = wraps.get(code);
+      const entry = recips ? recips.get(peerId) : undefined;
+      if (!entry) return sendJSON(res, 200, { wrap: null });
+      return sendJSON(res, 200, { wrap: { from: entry.from, fromPub: entry.fromPub, blob: entry.blob } });
+    }
+
+    if (req.method === 'POST' && url.pathname === '/wrap') {
+      let raw = '';
+      req.on('data', (chunk) => {
+        raw += chunk;
+        if (raw.length > 65536) req.destroy();
+      });
+      req.on('end', () => {
+        let body;
+        try {
+          body = JSON.parse(raw);
+        } catch {
+          return sendJSON(res, 400, { error: 'JSON invalide' });
+        }
+        const code = (body.code || '').trim();
+        const from = (body.fromPeerId || '').trim();
+        const fromPub = (body.fromPub || '').trim();
+        const items = Array.isArray(body.items) ? body.items : null;
+        if (!code || !from || !fromPub || !items) {
+          return sendJSON(res, 400, { error: 'code, fromPeerId, fromPub et items requis' });
+        }
+        let recips = wraps.get(code);
+        if (!recips) {
+          recips = new Map();
+          wraps.set(code, recips);
+        }
+        let count = 0;
+        const now = Date.now();
+        for (const it of items) {
+          const toId = (it && it.toPeerId || '').trim();
+          const blob = (it && it.blob || '').trim();
+          if (toId && blob) {
+            recips.set(toId, { from, fromPub, blob, ts: now });
+            count += 1;
+          }
+        }
+        return sendJSON(res, 200, { ok: true, count });
       });
       return;
     }

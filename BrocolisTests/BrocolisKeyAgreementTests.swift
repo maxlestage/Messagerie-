@@ -74,6 +74,88 @@ final class BrocolisKeyAgreementTests: XCTestCase {
         XCTAssertTrue(d.fingerprint.allSatisfy { $0.isHexDigit || $0 == "-" })
     }
 
+    // MARK: Clé de groupe (key-wrapping)
+
+    func testGroupKeyWrapUnwrap() throws {
+        let founder = Curve25519.KeyAgreement.PrivateKey()
+        let member = Curve25519.KeyAgreement.PrivateKey()
+        let groupKey = BrocolisKeyAgreement.generateGroupKeyBase64()
+
+        let blob = try BrocolisKeyAgreement.wrapGroupKey(
+            groupKeyBase64: groupKey,
+            forPeerPublicBase64: member.publicKey.rawRepresentation.base64EncodedString(),
+            myPrivate: founder)
+
+        let got = try BrocolisKeyAgreement.unwrapGroupKey(
+            blobBase64: blob,
+            fromPeerPublicBase64: founder.publicKey.rawRepresentation.base64EncodedString(),
+            myPrivate: member)
+
+        XCTAssertEqual(got, groupKey)
+        XCTAssertEqual(
+            BrocolisKeyAgreement.groupFingerprint(groupKeyBase64: got),
+            BrocolisKeyAgreement.groupFingerprint(groupKeyBase64: groupKey))
+    }
+
+    func testGroupKeyDistributedToSeveralMembersIsIdentical() throws {
+        let founder = Curve25519.KeyAgreement.PrivateKey()
+        let members = [Curve25519.KeyAgreement.PrivateKey(),
+                       Curve25519.KeyAgreement.PrivateKey(),
+                       Curve25519.KeyAgreement.PrivateKey()]
+        let groupKey = BrocolisKeyAgreement.generateGroupKeyBase64()
+        let founderPub = founder.publicKey.rawRepresentation.base64EncodedString()
+
+        for member in members {
+            let blob = try BrocolisKeyAgreement.wrapGroupKey(
+                groupKeyBase64: groupKey,
+                forPeerPublicBase64: member.publicKey.rawRepresentation.base64EncodedString(),
+                myPrivate: founder)
+            let got = try BrocolisKeyAgreement.unwrapGroupKey(
+                blobBase64: blob, fromPeerPublicBase64: founderPub, myPrivate: member)
+            XCTAssertEqual(got, groupKey)
+        }
+    }
+
+    func testIntruderCannotUnwrapGroupKey() throws {
+        let founder = Curve25519.KeyAgreement.PrivateKey()
+        let member = Curve25519.KeyAgreement.PrivateKey()
+        let intruder = Curve25519.KeyAgreement.PrivateKey()
+        let groupKey = BrocolisKeyAgreement.generateGroupKeyBase64()
+
+        let blob = try BrocolisKeyAgreement.wrapGroupKey(
+            groupKeyBase64: groupKey,
+            forPeerPublicBase64: member.publicKey.rawRepresentation.base64EncodedString(),
+            myPrivate: founder)
+
+        // L'intrus tente avec sa clé privée + la clé publique du fondateur.
+        XCTAssertThrowsError(try BrocolisKeyAgreement.unwrapGroupKey(
+            blobBase64: blob,
+            fromPeerPublicBase64: founder.publicKey.rawRepresentation.base64EncodedString(),
+            myPrivate: intruder))
+    }
+
+    func testGroupKeyUsableForEncryptionAcrossMembers() throws {
+        let founder = Curve25519.KeyAgreement.PrivateKey()
+        let member = Curve25519.KeyAgreement.PrivateKey()
+        let groupKey = BrocolisKeyAgreement.generateGroupKeyBase64()
+        let blob = try BrocolisKeyAgreement.wrapGroupKey(
+            groupKeyBase64: groupKey,
+            forPeerPublicBase64: member.publicKey.rawRepresentation.base64EncodedString(),
+            myPrivate: founder)
+        let memberKeyB64 = try BrocolisKeyAgreement.unwrapGroupKey(
+            blobBase64: blob,
+            fromPeerPublicBase64: founder.publicKey.rawRepresentation.base64EncodedString(),
+            myPrivate: member)
+
+        let founderKey = try BrocolisCrypto.symmetricKey(fromBase64: groupKey)
+        let memberKey = try BrocolisCrypto.symmetricKey(fromBase64: memberKeyB64)
+        let token = try BrocolisCrypto.encryptToken(Data("message de groupe 🥦".utf8), key: founderKey)
+        let inner = String(token.dropFirst(BrocolisCrypto.tokenPrefix.count)
+            .dropLast(BrocolisCrypto.tokenSuffix.count))
+        let plain = try BrocolisCrypto.decryptToken(base64: inner, key: memberKey)
+        XCTAssertEqual(String(decoding: plain, as: UTF8.self), "message de groupe 🥦")
+    }
+
     func testFingerprintIsOrderIndependent() throws {
         // L'empreinte ne dépend pas de "qui dérive" : A↔B == B↔A (déjà couvert),
         // ici on vérifie aussi qu'elle est stable sur plusieurs dérivations.

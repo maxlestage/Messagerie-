@@ -11,13 +11,10 @@ même **code court** d'échanger automatiquement leurs **clés publiques X25519*
 - Stockage **éphémère** (TTL 10 min). Plafond de participants par code
   **configurable** via `MAX_PEERS` (défaut 16).
 
-> ⚠️ **Groupe (3+)** : relever le plafond permet à N personnes de se *rejoindre*
-> sous un code, mais la dérivation automatique de l'app reste **par paire**
-> (X25519 entre 2 clés publiques). Pour une vraie **clé de groupe commune**, les
-> membres doivent convenir de la même clé autrement — le plus simple : une
-> personne la **génère et la partage**, les autres l'**importent** (déjà
-> possible dans l'app). L'emballage de clé de groupe (une clé distribuée
-> chiffrée à chaque membre) n'est pas implémenté.
+- **Groupe (3+)** : un fondateur génère une clé de groupe et la **distribue
+  emballée (chiffrée) pour chaque membre** via X25519 (routes `/wrap`). Le
+  serveur stocke des **blobs chiffrés** qu'il ne peut pas déballer. Tous les
+  membres obtiennent ainsi la même clé automatiquement.
 
 ## Lancer
 
@@ -41,10 +38,15 @@ Dans l'app (écran **Appairage**), renseigne l'URL du serveur :
 ## API
 
 ```
-POST /pair   { code, peerId, pub }   -> { peers: [{ peerId, pub }, ...] }
-GET  /pair?code=...&peerId=...        -> { peers: [...] }
-GET  /health                          -> "ok"
+POST /pair   { code, peerId, pub }                          -> { peers: [{ peerId, pub }, ...] }
+GET  /pair?code=...&peerId=...                               -> { peers: [...] }
+POST /wrap   { code, fromPeerId, fromPub, items:[{toPeerId, blob}] } -> { ok, count }
+GET  /wrap?code=...&peerId=...                               -> { wrap: { from, fromPub, blob } | null }
+GET  /health                                                -> "ok"
 ```
+
+`blob` est la clé de groupe chiffrée pour un membre (AES-256-GCM, clé d'emballage
+dérivée par X25519). Le serveur ne peut pas la déballer.
 
 `pub` est une clé publique X25519 (32 octets, base64). L'app publie la sienne
 puis sonde jusqu'à recevoir celle du correspondant, et dérive la clé partagée.

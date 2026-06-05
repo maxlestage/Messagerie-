@@ -61,15 +61,23 @@ dérivée comme d'habitude.
 > Le code court ne sert qu'à se *rejoindre* : la sécurité réelle vient de X25519
 > et de la vérification de l'empreinte.
 
-### Groupe (3+)
+### Groupe (3+) — automatique
 
-Le **chiffrement** est de groupe par nature : toute personne ayant la clé lit
-les jetons. Le **serveur de rendez-vous** accepte plusieurs participants par
-code (plafond `MAX_PEERS`, défaut 16). En revanche, la **dérivation automatique
-reste par paire** (X25519 entre 2 clés). Pour une **clé de groupe commune**, le
-plus simple aujourd'hui : une personne **génère la clé et la partage**, les
-autres l'**importent** (menu Clé partagée). La distribution automatique d'une
-clé de groupe (emballée pour chaque membre) n'est pas implémentée.
+Tout le monde saisit le même code, puis :
+
+1. Les **membres** touchent **Rejoindre le groupe** (ils publient leur clé
+   publique et attendent).
+2. Le **fondateur** touche **Créer le groupe** : l'app génère une clé de groupe
+   AES aléatoire et la **distribue, emballée (chiffrée) pour chaque membre** via
+   X25519. Chaque membre la **déballe** avec sa clé privée.
+
+Résultat : tous partagent **la même clé** automatiquement, sans copier-coller,
+et l'extension fonctionne pour tout le groupe. Comparez l'**empreinte** (dérivée
+de la clé de groupe) : elle doit être identique pour tous.
+
+Le serveur ne voit que des **clés publiques** et des **blobs chiffrés** ; il ne
+peut pas déballer la clé de groupe. Plafond de participants par code :
+`MAX_PEERS` (défaut 16).
 
 ## Interopérable avec brocolis
 
