@@ -253,3 +253,38 @@ final class BrocolisCryptoTests: XCTestCase {
             .dropLast(BrocolisCrypto.tokenSuffix.count))
     }
 }
+
+/// Tests des helpers purs d'expiration (sans App Group).
+final class BrocolisExpiryTests: XCTestCase {
+
+    func testTTLZeroMeansNoExpiry() {
+        XCTAssertNil(BrocolisKeyStore.computeExpiry(ttlSeconds: 0, from: Date()))
+    }
+
+    func testTTLProducesFutureExpiry() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let exp = BrocolisKeyStore.computeExpiry(ttlSeconds: 3600, from: now)
+        XCTAssertEqual(exp, now.addingTimeInterval(3600))
+    }
+
+    func testNilExpiryIsNeverExpired() {
+        XCTAssertFalse(BrocolisKeyStore.isExpired(expiresAt: nil, now: Date()))
+    }
+
+    func testFutureExpiryNotExpired() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let future = now.addingTimeInterval(60)
+        XCTAssertFalse(BrocolisKeyStore.isExpired(expiresAt: future, now: now))
+    }
+
+    func testPastExpiryIsExpired() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let past = now.addingTimeInterval(-1)
+        XCTAssertTrue(BrocolisKeyStore.isExpired(expiresAt: past, now: now))
+    }
+
+    func testExactBoundaryIsExpired() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        XCTAssertTrue(BrocolisKeyStore.isExpired(expiresAt: now, now: now))
+    }
+}

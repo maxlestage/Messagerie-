@@ -228,6 +228,40 @@ test('le fondateur distribue une clé de groupe à plusieurs membres', async () 
   }
 });
 
+test('rotation : une nouvelle distribution remplace l’ancienne clé', async () => {
+  const server = createRendezvous();
+  const port = await listen(server);
+  try {
+    const code = 'ROT001';
+    const founder = newPeer();
+    const bob = newPeer();
+    await api(port, 'POST', '/pair', { code, peerId: 'bob', pub: bob.rawPub.toString('base64') });
+
+    const wk = deriveWrapKey(founder.privateKey, bob.rawPub, founder.rawPub);
+
+    const key1 = crypto.randomBytes(32);
+    await api(port, 'POST', '/wrap', {
+      code, fromPeerId: 'founder', fromPub: founder.rawPub.toString('base64'),
+      items: [{ toPeerId: 'bob', blob: wrap(wk, key1) }],
+    });
+    const got1 = await api(port, 'GET', `/wrap?code=${code}&peerId=bob`);
+    assert.deepStrictEqual(unwrap(wk, got1.json.wrap.blob), key1);
+
+    // Rotation : le fondateur redistribue une nouvelle clé.
+    const key2 = crypto.randomBytes(32);
+    await api(port, 'POST', '/wrap', {
+      code, fromPeerId: 'founder', fromPub: founder.rawPub.toString('base64'),
+      items: [{ toPeerId: 'bob', blob: wrap(wk, key2) }],
+    });
+    const got2 = await api(port, 'GET', `/wrap?code=${code}&peerId=bob`);
+    const rotated = unwrap(wk, got2.json.wrap.blob);
+    assert.deepStrictEqual(rotated, key2);
+    assert.ok(!rotated.equals(key1), 'la clé après rotation doit différer');
+  } finally {
+    server.close();
+  }
+});
+
 test('un intrus ne peut pas déballer la clé d’un autre membre', async () => {
   const founder = newPeer();
   const bob = newPeer();

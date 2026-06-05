@@ -23,6 +23,8 @@ enum BrocolisKeyStore {
     private static let serverURLName = "rendezvous_server_url"
     private static let privateKeyName = "x25519_private_b64"
     private static let fingerprintName = "pairing_fingerprint"
+    private static let ttlName = "key_ttl_seconds"
+    private static let expiresAtName = "key_expires_at"
 
     private static var defaults: UserDefaults? {
         UserDefaults(suiteName: appGroup)
@@ -36,11 +38,14 @@ enum BrocolisKeyStore {
 
     static func setKey(_ base64: String) {
         defaults?.set(base64.trimmingCharacters(in: .whitespacesAndNewlines), forKey: keyName)
+        // Une nouvelle clé réarme l'horloge d'expiration selon le TTL choisi.
+        setKeyExpiresAt(computeExpiry(ttlSeconds: keyTTLSeconds, from: Date()))
     }
 
     static func clearKey() {
         defaults?.removeObject(forKey: keyName)
         defaults?.removeObject(forKey: fingerprintName)
+        defaults?.removeObject(forKey: expiresAtName)
         // Sans clé, on ne peut pas rester actif.
         setActive(false)
     }
@@ -98,5 +103,55 @@ enum BrocolisKeyStore {
     static func symmetricKey() -> SymmetricKey? {
         guard let b64 = keyBase64 else { return nil }
         return try? BrocolisCrypto.symmetricKey(fromBase64: b64)
+    }
+
+    // MARK: Rotation / expiration de la clé
+
+    /// Durée de validité choisie, en secondes (0 = jamais d'expiration).
+    static var keyTTLSeconds: Int {
+        defaults?.integer(forKey: ttlName) ?? 0
+    }
+
+    /// Définit le TTL et réapplique l'expiration à la clé courante.
+    static func setKeyTTL(_ seconds: Int) {
+        defaults?.set(max(0, seconds), forKey: ttlName)
+        reapplyExpiry()
+    }
+
+    /// Date d'expiration de la clé courante (nil = pas d'expiration).
+    static var keyExpiresAt: Date? {
+        guard let d = defaults, d.object(forKey: expiresAtName) != nil else { return nil }
+        let t = d.double(forKey: expiresAtName)
+        return t > 0 ? Date(timeIntervalSince1970: t) : nil
+    }
+
+    private static func setKeyExpiresAt(_ date: Date?) {
+        if let date {
+            defaults?.set(date.timeIntervalSince1970, forKey: expiresAtName)
+        } else {
+            defaults?.removeObject(forKey: expiresAtName)
+        }
+    }
+
+    /// La clé courante est-elle expirée ?
+    static var isExpired: Bool {
+        isExpired(expiresAt: keyExpiresAt, now: Date())
+    }
+
+    /// Recalcule l'expiration de la clé courante à partir du TTL.
+    static func reapplyExpiry() {
+        guard hasKey else { setKeyExpiresAt(nil); return }
+        setKeyExpiresAt(computeExpiry(ttlSeconds: keyTTLSeconds, from: Date()))
+    }
+
+    // MARK: Helpers purs (testables, sans App Group)
+
+    static func computeExpiry(ttlSeconds: Int, from now: Date) -> Date? {
+        ttlSeconds > 0 ? now.addingTimeInterval(TimeInterval(ttlSeconds)) : nil
+    }
+
+    static func isExpired(expiresAt: Date?, now: Date) -> Bool {
+        guard let expiresAt else { return false }
+        return now >= expiresAt
     }
 }
