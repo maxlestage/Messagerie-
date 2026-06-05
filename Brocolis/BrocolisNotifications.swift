@@ -15,6 +15,27 @@ enum BrocolisNotifications {
     private static let noticeID = "brocolis.key.expiry.notice"
     private static let expiredID = "brocolis.key.expired"
 
+    /// Catégorie + action « Prolonger » attachées aux notifications d'expiration.
+    static let categoryID = "BROCOLIS_EXPIRY"
+    static let renewActionID = "BROCOLIS_RENEW"
+
+    /// Déclare la catégorie de notification avec l'action « Prolonger ».
+    /// À appeler une fois au lancement.
+    static func registerCategories() {
+        let renew = UNNotificationAction(
+            identifier: renewActionID,
+            title: "Prolonger la clé",
+            options: [] // s'exécute sans ouvrir l'app
+        )
+        let category = UNNotificationCategory(
+            identifier: categoryID,
+            actions: [renew],
+            intentIdentifiers: [],
+            options: []
+        )
+        UNUserNotificationCenter.current().setNotificationCategories([category])
+    }
+
     /// (Re)programme les notifications selon l'état actuel de la clé.
     /// À appeler après tout changement de clé/d'expiration et à l'ouverture.
     static func refresh() {
@@ -62,6 +83,7 @@ enum BrocolisNotifications {
         content.title = "Brocolis 🥦"
         content.body = body
         content.sound = .default
+        content.categoryIdentifier = categoryID // ajoute le bouton « Prolonger »
 
         let comps = Calendar.current.dateComponents(
             [.year, .month, .day, .hour, .minute, .second], from: fireDate)
