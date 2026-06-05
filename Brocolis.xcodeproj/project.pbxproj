@@ -18,6 +18,8 @@
 		2000000000000000000B0009 /* BrocolisKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0002 /* BrocolisKeyStore.swift */; };
 		2000000000000000000B000A /* BrocolisTransform.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0003 /* BrocolisTransform.swift */; };
 		2000000000000000000B000B /* BrocolisAction.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C000C /* BrocolisAction.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		2000000000000000000B000C /* BrocolisCryptoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C000D /* BrocolisCryptoTests.swift */; };
+		2000000000000000000B000D /* BrocolisTransformTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C000E /* BrocolisTransformTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -27,6 +29,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = 4000000000000000000A0002;
 			remoteInfo = BrocolisAction;
+		};
+		8000000000000000000A0004 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 4000000000000000000A0000 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 4000000000000000000A0001;
+			remoteInfo = Brocolis;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -57,6 +66,9 @@
 		1000000000000000000C000A /* BrocolisAction.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = BrocolisAction.entitlements; sourceTree = "<group>"; };
 		1000000000000000000C000B /* Brocolis.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Brocolis.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1000000000000000000C000C /* BrocolisAction.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BrocolisAction.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		1000000000000000000C000D /* BrocolisCryptoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrocolisCryptoTests.swift; sourceTree = "<group>"; };
+		1000000000000000000C000E /* BrocolisTransformTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrocolisTransformTests.swift; sourceTree = "<group>"; };
+		1000000000000000000C000F /* BrocolisTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BrocolisTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -74,6 +86,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		5000000000000000000A0009 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -83,6 +102,7 @@
 				3000000000000000000A0002 /* Brocolis */,
 				3000000000000000000A0003 /* Shared */,
 				3000000000000000000A0004 /* BrocolisAction */,
+				3000000000000000000A0006 /* BrocolisTests */,
 				3000000000000000000A0005 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -123,8 +143,18 @@
 			children = (
 				1000000000000000000C000B /* Brocolis.app */,
 				1000000000000000000C000C /* BrocolisAction.appex */,
+				1000000000000000000C000F /* BrocolisTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		3000000000000000000A0006 /* BrocolisTests */ = {
+			isa = PBXGroup;
+			children = (
+				1000000000000000000C000D /* BrocolisCryptoTests.swift */,
+				1000000000000000000C000E /* BrocolisTransformTests.swift */,
+			);
+			path = BrocolisTests;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -166,6 +196,24 @@
 			productReference = 1000000000000000000C000C /* BrocolisAction.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		4000000000000000000A0003 /* BrocolisTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 6000000000000000000A0004 /* Build configuration list for PBXNativeTarget "BrocolisTests" */;
+			buildPhases = (
+				5000000000000000000A0008 /* Sources */,
+				5000000000000000000A0009 /* Frameworks */,
+				5000000000000000000A000A /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				8000000000000000000A0003 /* PBXTargetDependency */,
+			);
+			name = BrocolisTests;
+			productName = BrocolisTests;
+			productReference = 1000000000000000000C000F /* BrocolisTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -181,6 +229,10 @@
 					};
 					4000000000000000000A0002 = {
 						CreatedOnToolsVersion = 15.0;
+					};
+					4000000000000000000A0003 = {
+						CreatedOnToolsVersion = 15.0;
+						TestTargetID = 4000000000000000000A0001;
 					};
 				};
 			};
@@ -200,6 +252,7 @@
 			targets = (
 				4000000000000000000A0001 /* Brocolis */,
 				4000000000000000000A0002 /* BrocolisAction */,
+				4000000000000000000A0003 /* BrocolisTests */,
 			);
 		};
 /* End PBXProject section */
@@ -214,6 +267,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		5000000000000000000A0007 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5000000000000000000A000A /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -246,6 +306,15 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		5000000000000000000A0008 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2000000000000000000B000C /* BrocolisCryptoTests.swift in Sources */,
+				2000000000000000000B000D /* BrocolisTransformTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -253,6 +322,11 @@
 			isa = PBXTargetDependency;
 			target = 4000000000000000000A0002 /* BrocolisAction */;
 			targetProxy = 8000000000000000000A0002 /* PBXContainerItemProxy */;
+		};
+		8000000000000000000A0003 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 4000000000000000000A0001 /* Brocolis */;
+			targetProxy = 8000000000000000000A0004 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -436,6 +510,44 @@
 			};
 			name = Release;
 		};
+		7000000000000000000A0007 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = rs.brocolis.messagerie.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Brocolis.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Brocolis";
+			};
+			name = Debug;
+		};
+		7000000000000000000A0008 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = rs.brocolis.messagerie.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Brocolis.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Brocolis";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -462,6 +574,15 @@
 			buildConfigurations = (
 				7000000000000000000A0005 /* Debug */,
 				7000000000000000000A0006 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		6000000000000000000A0004 /* Build configuration list for PBXNativeTarget "BrocolisTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7000000000000000000A0007 /* Debug */,
+				7000000000000000000A0008 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
