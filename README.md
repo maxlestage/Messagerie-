@@ -5,6 +5,10 @@ Petite app iOS native (Swift) qui ajoute le **chiffrement sélectif de
 de messagerie existante** (WhatsApp, iMessage, Messenger, Notes…) via une
 **Action Extension** dans le menu **Partager**.
 
+> 🌐 **Site** : une vitrine React (dans [`site/`](site/)) rend ce README et est
+> déployée sur **GitHub Pages** à chaque push sur `master` via
+> `.github/workflows/pages.yml`.
+
 ## Pourquoi une extension (et pas un proxy en arrière-plan)
 
 Sur un iPhone **non jailbreaké**, une app ne peut pas s'injecter dans une autre

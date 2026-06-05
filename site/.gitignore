@@ -1,0 +1,4 @@
+node_modules/
+dist/
+# Généré au build depuis le README du dépôt :
+public/README.md
