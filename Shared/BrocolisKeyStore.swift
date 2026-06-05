@@ -20,6 +20,9 @@ enum BrocolisKeyStore {
     static let appGroup = "group.rs.brocolis.messagerie"
     private static let keyName = "shared_aes_key_b64"
     private static let activeName = "is_active"
+    private static let serverURLName = "rendezvous_server_url"
+    private static let privateKeyName = "x25519_private_b64"
+    private static let fingerprintName = "pairing_fingerprint"
 
     private static var defaults: UserDefaults? {
         UserDefaults(suiteName: appGroup)
@@ -37,6 +40,7 @@ enum BrocolisKeyStore {
 
     static func clearKey() {
         defaults?.removeObject(forKey: keyName)
+        defaults?.removeObject(forKey: fingerprintName)
         // Sans clé, on ne peut pas rester actif.
         setActive(false)
     }
@@ -54,6 +58,39 @@ enum BrocolisKeyStore {
 
     static func setActive(_ value: Bool) {
         defaults?.set(value, forKey: activeName)
+    }
+
+    // MARK: Appairage automatique (X25519)
+
+    /// URL du serveur de rendez-vous (ex. https://relais.example.com).
+    static var serverURL: String {
+        defaults?.string(forKey: serverURLName) ?? ""
+    }
+
+    static func setServerURL(_ value: String) {
+        defaults?.set(value.trimmingCharacters(in: .whitespacesAndNewlines), forKey: serverURLName)
+    }
+
+    /// Clé privée X25519 locale (base64), persistée entre les appairages.
+    static var privateKeyBase64: String? {
+        defaults?.string(forKey: privateKeyName)
+    }
+
+    static func setPrivateKeyBase64(_ value: String) {
+        defaults?.set(value, forKey: privateKeyName)
+    }
+
+    /// Empreinte du dernier appairage réussi (à comparer avec le correspondant).
+    static var pairingFingerprint: String? {
+        defaults?.string(forKey: fingerprintName)
+    }
+
+    static func setPairingFingerprint(_ value: String?) {
+        if let value {
+            defaults?.set(value, forKey: fingerprintName)
+        } else {
+            defaults?.removeObject(forKey: fingerprintName)
+        }
     }
 
 

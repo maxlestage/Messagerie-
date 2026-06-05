@@ -2,7 +2,7 @@
 //  RootView.swift
 //  Brocolis 🥦
 //
-//  État « Actif » + gestion de la clé partagée + mode d'emploi de l'extension.
+//  État « Actif » + appairage automatique (X25519) + gestion manuelle de la clé.
 //
 
 import SwiftUI
@@ -13,8 +13,10 @@ struct RootView: View {
 
     @State private var keyBase64: String? = BrocolisKeyStore.keyBase64
     @State private var isActive = BrocolisKeyStore.isActive
+    @State private var fingerprint: String? = BrocolisKeyStore.pairingFingerprint
     @State private var importText = ""
     @State private var alertMessage: String?
+    @State private var showPairing = false
 
     private var hasKey: Bool { keyBase64 != nil }
 
@@ -22,6 +24,7 @@ struct RootView: View {
         NavigationStack {
             Form {
                 statusSection
+                pairingSection
                 howToSection
                 keySection
                 generateSection
@@ -30,11 +33,10 @@ struct RootView: View {
             }
             .navigationTitle("Brocolis 🥦")
             .onChange(of: scenePhase) { phase in
-                if phase == .active {
-                    // Resynchronise l'UI avec l'état partagé au retour dans l'app.
-                    keyBase64 = BrocolisKeyStore.keyBase64
-                    isActive = BrocolisKeyStore.isActive
-                }
+                if phase == .active { reload() }
+            }
+            .sheet(isPresented: $showPairing, onDismiss: reload) {
+                NavigationStack { PairingView() }
             }
             .alert(
                 "Brocolis",
@@ -63,7 +65,7 @@ struct RootView: View {
             Text("État")
         } footer: {
             if !hasKey {
-                Text("Génère ou importe une clé pour pouvoir activer Brocolis.")
+                Text("Appaire-toi à un correspondant ou crée une clé pour pouvoir activer Brocolis.")
             } else if isActive {
                 Text("Brocolis reste actif tant que tu ne le désactives pas (ou que tu ne fermes pas l’app). L’extension Partager chiffre/déchiffre dans tes autres apps.")
             } else {
@@ -82,6 +84,26 @@ struct RootView: View {
         )
     }
 
+    // MARK: Appairage automatique
+
+    private var pairingSection: some View {
+        Section {
+            Button {
+                showPairing = true
+            } label: {
+                Label("Appairer automatiquement", systemImage: "person.2.badge.key.fill")
+            }
+            if let fp = fingerprint {
+                LabeledContent("Empreinte", value: fp)
+                    .font(.system(.footnote, design: .monospaced))
+            }
+        } header: {
+            Text("Correspondant")
+        } footer: {
+            Text("Échange la clé automatiquement avec un correspondant via un code court (X25519) — sans copier la clé. Compare l’empreinte de vive voix pour vérifier qu’il n’y a pas d’interception.")
+        }
+    }
+
     // MARK: Mode d'emploi
 
     private var howToSection: some View {
@@ -91,7 +113,7 @@ struct RootView: View {
         }
     }
 
-    // MARK: Clé
+    // MARK: Clé (manuel)
 
     private var keySection: some View {
         Section("Clé partagée") {
@@ -120,19 +142,20 @@ struct RootView: View {
             Button {
                 let b64 = BrocolisCrypto.generateKeyBase64()
                 BrocolisKeyStore.setKey(b64)
-                keyBase64 = b64
+                BrocolisKeyStore.setPairingFingerprint(nil)
+                reload()
             } label: {
                 Label("Générer une nouvelle clé", systemImage: "key.fill")
             }
         } header: {
-            Text("Générer")
+            Text("Générer (manuel)")
         } footer: {
-            Text("Crée une clé AES-256 aléatoire (équivalent de `brocolis keygen`). Transmets-la par un canal sûr.")
+            Text("Crée une clé AES-256 aléatoire à partager manuellement (équivalent de `brocolis keygen`).")
         }
     }
 
     private var importSection: some View {
-        Section("Importer") {
+        Section("Importer (manuel)") {
             TextField("Clé base64 (32 octets)", text: $importText, axis: .vertical)
                 .font(.system(.footnote, design: .monospaced))
                 .autocorrectionDisabled()
@@ -150,20 +173,28 @@ struct RootView: View {
         Section {
             Button(role: .destructive) {
                 BrocolisKeyStore.clearKey()
-                keyBase64 = nil
-                isActive = BrocolisKeyStore.isActive
+                reload()
             } label: {
                 Label("Supprimer la clé", systemImage: "trash")
             }
         }
     }
 
+    // MARK: Logique
+
+    private func reload() {
+        keyBase64 = BrocolisKeyStore.keyBase64
+        isActive = BrocolisKeyStore.isActive
+        fingerprint = BrocolisKeyStore.pairingFingerprint
+    }
+
     private func importKey() {
         do {
             _ = try BrocolisCrypto.symmetricKey(fromBase64: importText)
             BrocolisKeyStore.setKey(importText)
-            keyBase64 = BrocolisKeyStore.keyBase64
+            BrocolisKeyStore.setPairingFingerprint(nil)
             importText = ""
+            reload()
             alertMessage = "Clé importée."
         } catch {
             alertMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription

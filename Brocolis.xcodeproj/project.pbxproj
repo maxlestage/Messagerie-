@@ -20,6 +20,11 @@
 		2000000000000000000B000B /* BrocolisAction.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C000C /* BrocolisAction.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		2000000000000000000B000C /* BrocolisCryptoTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C000D /* BrocolisCryptoTests.swift */; };
 		2000000000000000000B000D /* BrocolisTransformTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C000E /* BrocolisTransformTests.swift */; };
+		2000000000000000000B000E /* BrocolisKeyAgreement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0010 /* BrocolisKeyAgreement.swift */; };
+		2000000000000000000B000F /* BrocolisKeyAgreement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0010 /* BrocolisKeyAgreement.swift */; };
+		2000000000000000000B0010 /* PairingClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0011 /* PairingClient.swift */; };
+		2000000000000000000B0011 /* PairingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0012 /* PairingView.swift */; };
+		2000000000000000000B0012 /* BrocolisKeyAgreementTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0013 /* BrocolisKeyAgreementTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -69,6 +74,10 @@
 		1000000000000000000C000D /* BrocolisCryptoTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrocolisCryptoTests.swift; sourceTree = "<group>"; };
 		1000000000000000000C000E /* BrocolisTransformTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrocolisTransformTests.swift; sourceTree = "<group>"; };
 		1000000000000000000C000F /* BrocolisTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = BrocolisTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		1000000000000000000C0010 /* BrocolisKeyAgreement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrocolisKeyAgreement.swift; sourceTree = "<group>"; };
+		1000000000000000000C0011 /* PairingClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingClient.swift; sourceTree = "<group>"; };
+		1000000000000000000C0012 /* PairingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingView.swift; sourceTree = "<group>"; };
+		1000000000000000000C0013 /* BrocolisKeyAgreementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrocolisKeyAgreementTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -112,6 +121,8 @@
 			children = (
 				1000000000000000000C0004 /* BrocolisApp.swift */,
 				1000000000000000000C0005 /* RootView.swift */,
+				1000000000000000000C0011 /* PairingClient.swift */,
+				1000000000000000000C0012 /* PairingView.swift */,
 				1000000000000000000C0006 /* Assets.xcassets */,
 				1000000000000000000C0007 /* Brocolis.entitlements */,
 			);
@@ -124,6 +135,7 @@
 				1000000000000000000C0001 /* BrocolisCrypto.swift */,
 				1000000000000000000C0002 /* BrocolisKeyStore.swift */,
 				1000000000000000000C0003 /* BrocolisTransform.swift */,
+				1000000000000000000C0010 /* BrocolisKeyAgreement.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -153,6 +165,7 @@
 			children = (
 				1000000000000000000C000D /* BrocolisCryptoTests.swift */,
 				1000000000000000000C000E /* BrocolisTransformTests.swift */,
+				1000000000000000000C0013 /* BrocolisKeyAgreementTests.swift */,
 			);
 			path = BrocolisTests;
 			sourceTree = "<group>";
@@ -289,9 +302,12 @@
 			files = (
 				2000000000000000000B0001 /* BrocolisApp.swift in Sources */,
 				2000000000000000000B0002 /* RootView.swift in Sources */,
+				2000000000000000000B0010 /* PairingClient.swift in Sources */,
+				2000000000000000000B0011 /* PairingView.swift in Sources */,
 				2000000000000000000B0003 /* BrocolisCrypto.swift in Sources */,
 				2000000000000000000B0004 /* BrocolisKeyStore.swift in Sources */,
 				2000000000000000000B0005 /* BrocolisTransform.swift in Sources */,
+				2000000000000000000B000E /* BrocolisKeyAgreement.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -303,6 +319,7 @@
 				2000000000000000000B0008 /* BrocolisCrypto.swift in Sources */,
 				2000000000000000000B0009 /* BrocolisKeyStore.swift in Sources */,
 				2000000000000000000B000A /* BrocolisTransform.swift in Sources */,
+				2000000000000000000B000F /* BrocolisKeyAgreement.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -312,6 +329,7 @@
 			files = (
 				2000000000000000000B000C /* BrocolisCryptoTests.swift in Sources */,
 				2000000000000000000B000D /* BrocolisTransformTests.swift in Sources */,
+				2000000000000000000B0012 /* BrocolisKeyAgreementTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

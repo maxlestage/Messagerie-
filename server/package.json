@@ -1,0 +1,11 @@
+{
+  "name": "messagerie-brocolis-rendezvous",
+  "version": "1.0.0",
+  "description": "Serveur de rendez-vous X25519 pour Brocolis 🥦 — n'échange que des clés publiques, jamais la clé secrète.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node --test"
+  },
+  "private": true
+}
