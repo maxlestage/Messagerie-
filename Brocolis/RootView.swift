@@ -147,7 +147,14 @@ struct RootView: View {
                 Label("Clé expirée — renouvelle-la", systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
             } else {
-                LabeledContent("Expire le", value: expires.formatted(date: .abbreviated, time: .shortened))
+                let lead = BrocolisKeyStore.notificationLead(ttlSeconds: keyTTL) ?? 0
+                let soon = expires.timeIntervalSinceNow <= lead
+                Label {
+                    Text("Expire \(expires.formatted(.relative(presentation: .named)))")
+                } icon: {
+                    Image(systemName: soon ? "exclamationmark.triangle.fill" : "clock")
+                }
+                .foregroundStyle(soon ? .orange : .secondary)
             }
         } else {
             Text("Pas d’expiration").foregroundStyle(.secondary)
@@ -245,6 +252,7 @@ struct RootView: View {
         isActive = BrocolisKeyStore.isActive
         fingerprint = BrocolisKeyStore.pairingFingerprint
         keyTTL = BrocolisKeyStore.keyTTLSeconds
+        BrocolisNotifications.refresh()
     }
 
     private func importKey() {

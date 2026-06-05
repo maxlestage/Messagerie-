@@ -88,6 +88,11 @@ peut pas déballer la clé de groupe. Plafond de participants par code :
 - **Purge automatique à l'ouverture** : au lancement et au retour au premier
   plan, l'app **efface** une clé périmée (ce qui désactive Brocolis) et le
   signale. La clé expirée ne traîne donc pas sur l'appareil.
+- **Préavis d'expiration** : une **notification locale** prévient avant
+  l'échéance (≈ 1 h avant pour les longues durées, sinon la moitié du TTL),
+  même app fermée, plus une notification à l'expiration. L'écran affiche aussi
+  « Expire dans … » et passe en alerte quand l'échéance approche. (iOS demande
+  l'autorisation de notifier la première fois qu'une clé a une durée de vie.)
 - **Rotation** : pour un groupe, le fondateur relance **Créer le groupe** → une
   **nouvelle clé** est générée et redistribuée (le `/wrap` du serveur écrase
   l'ancienne) ; les membres la récupèrent en re-touchant **Rejoindre le

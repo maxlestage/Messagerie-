@@ -163,4 +163,18 @@ enum BrocolisKeyStore {
         guard let expiresAt else { return false }
         return now >= expiresAt
     }
+
+    /// Délai de préavis avant expiration : ~1 h pour les longues durées, sinon
+    /// la moitié du TTL. `nil` s'il n'y a pas d'expiration.
+    static func notificationLead(ttlSeconds: Int) -> TimeInterval? {
+        guard ttlSeconds > 0 else { return nil }
+        return min(3600, TimeInterval(ttlSeconds) / 2)
+    }
+
+    /// Date à laquelle envoyer le préavis (`nil` si non applicable ou déjà passée).
+    static func noticeFireDate(expiresAt: Date?, ttlSeconds: Int, now: Date) -> Date? {
+        guard let expiresAt, let lead = notificationLead(ttlSeconds: ttlSeconds) else { return nil }
+        let fire = expiresAt.addingTimeInterval(-lead)
+        return fire > now ? fire : nil
+    }
 }
