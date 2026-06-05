@@ -1,95 +1,82 @@
-# Messagerie 🥦 — messagerie chiffrée (React Native) bâtie sur [brocolis](https://github.com/maxlestage/brocolis)
+# Brocolis 🥦 — extension de chiffrement qui se greffe sur tes apps de messagerie (iOS)
 
-Application **React Native (Expo + TypeScript)** de messagerie qui réutilise le
-**chiffrement sélectif** du proxy [brocolis 🥦](https://github.com/maxlestage/brocolis).
-Pensée pour **iPhone** (tourne dans **Expo Go**), sans dépendance native exotique.
+Petite app iOS native (Swift) qui ajoute le **chiffrement sélectif de
+[brocolis 🥦](https://github.com/maxlestage/brocolis)** à **n'importe quelle app
+de messagerie existante** (WhatsApp, iMessage, Messenger, Notes…) via une
+**Action Extension** dans le menu **Partager**.
 
-Le principe est identique à brocolis : seul le contenu **explicitement marqué**
-est chiffré. Tu écris un message ; chaque segment entre `((doubles parenthèses))`
-est remplacé, **avant stockage**, par un jeton chiffré `[[BROCOLIS:v1:<base64>]]`
-(AES-256-GCM). À l'affichage, les jetons sont déchiffrés à la volée avec la clé
-partagée. Le clair des parties secrètes n'est donc **jamais** écrit sur disque.
+## Pourquoi une extension (et pas un proxy en arrière-plan)
 
-> ⚠️ Projet de démonstration / éducatif.
+Sur un iPhone **non jailbreaké**, une app ne peut pas s'injecter dans une autre
+(sandbox), et un proxy MITM en arrière-plan façon brocolis est **bloqué par le
+TLS pinning** de WhatsApp/iMessage. Le moyen pris en charge par iOS pour « se
+greffer » sur les apps existantes, c'est l'**extension système**. Ici on utilise
+une **Action Extension** sur le texte sélectionné.
 
-## Pourquoi « s'appuie sur brocolis »
+## Comment ça marche
 
-Le format du jeton est **interopérable au format près** avec la crate Rust de
-brocolis :
+1. Ouvre l'app **Brocolis 🥦** une fois pour **générer ou importer** la clé
+   partagée (équivalent de `brocolis keygen`). Transmets cette clé à ton
+   correspondant par un canal sûr.
+2. Dans **n'importe quelle app**, sélectionne du texte → **Partager** →
+   **Brocolis 🥦**. L'extension :
+   - **chiffre** les segments `((entre doubles parenthèses))` (ou toute la
+     sélection si aucun marqueur) en jetons `[[BROCOLIS:v1:…]]` ;
+   - **déchiffre** automatiquement si la sélection contient des jetons.
+3. Touche **Copier**, puis colle le résultat dans la conversation.
 
-| Élément         | brocolis (Rust, `aes-gcm`)              | Messagerie 🥦 (JS, `@noble/ciphers`)     |
-| --------------- | --------------------------------------- | ---------------------------------------- |
-| Clé             | base64 de 32 octets (`brocolis keygen`) | identique                                |
-| Préfixe/suffixe | `[[BROCOLIS:v1:` … `]]`                  | identique                                |
-| Marqueurs clair | `((` … `))`                             | identiques                               |
-| Empaquetage     | `nonce(12) ‖ ciphertext ‖ tag(16)`      | identique (`AES-GCM`, tag de 16 octets)  |
+La clé est partagée entre l'app et l'extension via un **App Group**.
 
-Une clé générée par `brocolis keygen` se colle telle quelle dans l'app, et un
-jeton produit par l'app est déchiffrable par brocolis (et inversement). Le test
-`__tests__/brocolisCrypto.test.ts` vérifie ce format.
+## Interopérable avec brocolis
 
-## Stack technique
+Même format de jeton (`[[BROCOLIS:v1:…]]`, AES-256-GCM,
+`nonce(12) ‖ ciphertext ‖ tag(16)` = représentation `combined` de CryptoKit) :
+une clé `brocolis keygen` fonctionne dans l'app, et les jetons sont
+déchiffrables par brocolis (et inversement).
 
-- **Expo SDK 51** / React Native 0.74 / TypeScript
-- `@noble/ciphers` — AES-256-GCM en JS pur (pas de module natif)
-- `@scure/base` — base64
-- `expo-crypto` — aléa CSPRNG (clé, nonce, UUID)
-- `expo-secure-store` — clé partagée dans le Trousseau iOS
-- `@react-native-async-storage/async-storage` — conversations (JSON)
-- `@react-navigation/native-stack` — navigation
+## Structure
+
+```
+Brocolis.xcodeproj
+Shared/                       # code partagé app + extension
+  BrocolisCrypto.swift        # AES-256-GCM, format de jeton brocolis
+  BrocolisKeyStore.swift      # clé partagée via App Group
+  BrocolisTransform.swift     # chiffre/déchiffre en un geste (auto-détection)
+Brocolis/                     # app hôte (gestion de la clé)
+  BrocolisApp.swift, RootView.swift, Assets, Brocolis.entitlements
+BrocolisAction/               # Action Extension (menu Partager)
+  ActionViewController.swift, Info.plist, BrocolisAction.entitlements
+```
 
 ## Lancer le projet
 
-Pré-requis : Node 18+, l'app **Expo Go** sur ton iPhone.
+Pré-requis : **Xcode 15+**, iOS 16+.
 
 ```sh
-npm install
-npm start          # puis scanne le QR code avec Expo Go (iPhone)
-# ou : npm run ios  (simulateur iOS, sur macOS avec Xcode)
+open Brocolis.xcodeproj
 ```
 
-Tests unitaires (chiffrement / interopérabilité) :
+Dans Xcode, pour **chaque** cible (`Brocolis` et `BrocolisAction`) :
 
-```sh
-npm test
-```
+1. **Signing & Capabilities** → choisis ton équipe de signature.
+2. Vérifie la capacité **App Groups** avec le groupe
+   `group.rs.brocolis.messagerie` activé sur les **deux** cibles (ou remplace
+   par ton propre identifiant de groupe, identique des deux côtés et dans
+   `BrocolisKeyStore.appGroup`).
+3. Sélectionne le schéma **Brocolis**, un iPhone/simulateur, puis **Run**.
 
-### Premier usage
+Pour tester l'extension : lance l'app (la clé), puis va dans une app avec du
+texte (Notes, Messages…), sélectionne du texte → **Partager** → **Brocolis 🥦**.
 
-1. Touche 🔑 (en haut à gauche) → **Générer une nouvelle clé** (ou importe une
-   clé `brocolis keygen`).
-2. Crée une conversation (✏️ en haut à droite).
-3. Écris un message avec un secret, ex. :
-   `Le code du coffre est ((1234)) à ne pas oublier`.
-4. Envoie : seul `1234` est stocké chiffré (`[[BROCOLIS:v1:…]]`). Via le menu ⋯
-   → **Voir le texte chiffré**, tu constates ce qui voyage réellement.
-5. Partage la même clé avec un correspondant pour qu'il lise le clair. Le menu ⋯
-   → **Recevoir un message** permet de coller un message reçu.
+## Sécurité — limites
 
-## Architecture
-
-```
-App.tsx                        # navigation + providers
-src/
-  crypto/brocolisCrypto.ts     # chiffrement sélectif AES-256-GCM
-  models/types.ts              # Message, Conversation, params de navigation
-  state/AppContext.tsx         # clé (SecureStore) + conversations (AsyncStorage)
-  components/MessageBubble.tsx
-  screens/                     # Conversations, Chat, Key
-__tests__/brocolisCrypto.test.ts
-```
-
-## Sécurité — limites connues
-
-- App de **démonstration** : pas de transport réseau intégré (l'échange se fait
-  par copier-coller / partage, à la main).
-- Le chiffrement protège uniquement les parties **marquées** ; les métadonnées
-  (titres, horodatages) et le texte non marqué restent en clair.
-- Clé **symétrique** partagée : sa diffusion doit passer par un canal sûr, comme
-  pour brocolis.
+- L'extension protège le contenu **marqué** (ou la sélection) ; elle ne chiffre
+  pas automatiquement tout ce que tu envoies — c'est un geste explicite.
+- La clé est en **App Group** (`UserDefaults` du conteneur partagé) pour la
+  démo ; pour la production, préférer un groupe d'accès **Trousseau** partagé.
+- Clé **symétrique** : sa diffusion doit passer par un canal sûr, comme brocolis.
 
 ## Licence
 
-Ce projet accompagne brocolis, propriété de **LESTAGE Maxime Nathan**. Voir le
-dépôt brocolis pour les termes de licence applicables. Fourni « TEL QUEL », sans
-garantie. Utilisation à vos propres risques.
+Accompagne brocolis, propriété de **LESTAGE Maxime Nathan**. Voir le dépôt
+brocolis pour les termes. Fourni « TEL QUEL », sans garantie.
