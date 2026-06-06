@@ -1,7 +1,7 @@
 # Brocolis 🥦 — extension de chiffrement qui se greffe sur tes apps de messagerie (iOS)
 
 Petite app iOS native (Swift) qui ajoute le **chiffrement sélectif de
-[brocolis 🥦](https://github.com/maxlestage/brocolis)** à **n'importe quelle app
+[brocolis 🥦](https://maxlestage.github.io/brocolis/)** à **n'importe quelle app
 de messagerie existante** (WhatsApp, iMessage, Messenger, Notes…) via une
 **Action Extension** dans le menu **Partager**.
 

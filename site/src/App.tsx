@@ -7,7 +7,7 @@ import type { I18nKey } from "./i18n/dict";
 import { Navbar } from "./components/Navbar";
 
 const REPO_URL = "https://github.com/maxlestage/Messagerie-";
-const BROCOLIS_URL = "https://github.com/maxlestage/brocolis";
+const BROCOLIS_URL = "https://maxlestage.github.io/brocolis/";
 
 const FEATURES: { icon: string; title: I18nKey; text: I18nKey }[] = [
   { icon: "🧩", title: "feat.graft.t", text: "feat.graft.d" },
