@@ -1,4 +1,5 @@
 node_modules/
 dist/
-# Généré au build depuis le README du dépôt :
+# Générés au build depuis le dépôt :
 public/README.md
+public/LICENSE.txt

@@ -224,6 +224,19 @@ a { color: var(--link); }
 .legal h1 { font-size: clamp(1.8rem, 6vw, 2.4rem); margin: 0 0 14px; }
 .legal p { color: var(--ink); margin: 0 0 14px; }
 .legal-copyright { font-weight: 600; }
+.legal-note { color: var(--muted); font-size: 13px; margin-bottom: 10px; }
+.license-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink);
+}
 .legal-warranty {
   color: var(--muted);
   font-size: 14px;
