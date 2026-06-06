@@ -5,6 +5,12 @@ import rehypeHighlight from "rehype-highlight";
 import { useT } from "./i18n/LangContext";
 import type { I18nKey } from "./i18n/dict";
 import { Navbar } from "./components/Navbar";
+import { LicensePage } from "./components/LicensePage";
+
+type Route = "home" | "license";
+function getRoute(): Route {
+  return window.location.hash.startsWith("#/license") ? "license" : "home";
+}
 
 const REPO_URL = "https://github.com/maxlestage/Messagerie-";
 const BROCOLIS_URL = "https://maxlestage.github.io/brocolis/";
@@ -45,6 +51,25 @@ const FEATURES: { icon: string; title: I18nKey; text: I18nKey }[] = [
 export default function App() {
   const t = useT();
   const [readme, setReadme] = useState<string | null>(null);
+  const [route, setRoute] = useState<Route>(getRoute());
+
+  useEffect(() => {
+    const onHash = () => setRoute(getRoute());
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+
+  // Au changement de page, remonte en haut (licence) ou rejoint l'ancre (accueil).
+  useEffect(() => {
+    if (route === "license") {
+      window.scrollTo(0, 0);
+      return;
+    }
+    const h = window.location.hash;
+    if (h.length > 1 && !h.startsWith("#/")) {
+      document.getElementById(h.slice(1))?.scrollIntoView();
+    }
+  }, [route]);
 
   useEffect(() => {
     fetch("README.md")
@@ -57,6 +82,10 @@ export default function App() {
     <>
       <Navbar />
       <div className="page">
+        {route === "license" ? (
+          <LicensePage />
+        ) : (
+          <>
         <header className="hero" id="top">
           <div className="hero-inner">
           <img
@@ -106,6 +135,8 @@ export default function App() {
           </article>
         )}
       </main>
+          </>
+        )}
 
       <footer className="footer">
         <p dangerouslySetInnerHTML={{ __html: t("footer.html") }} />
