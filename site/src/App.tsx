@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import Markdown from "react-markdown";
+import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import { useT } from "./i18n/LangContext";
@@ -8,6 +8,30 @@ import { Navbar } from "./components/Navbar";
 
 const REPO_URL = "https://github.com/maxlestage/Messagerie-";
 const BROCOLIS_URL = "https://maxlestage.github.io/brocolis/";
+
+// Les liens relatifs du README (LICENSE, site/, server/…) doivent pointer vers
+// le dépôt GitHub, pas vers le site. On garde tels quels les liens absolus/ancres.
+function resolveHref(href?: string): string {
+  if (!href) return "#";
+  if (/^(https?:|mailto:|#)/i.test(href)) return href;
+  const clean = href.replace(/^\.?\//, "");
+  const kind = href.endsWith("/") ? "tree" : "blob";
+  return `${REPO_URL}/${kind}/master/${clean}`;
+}
+
+const mdComponents: Components = {
+  a({ href, children }) {
+    const url = resolveHref(href);
+    const external = /^https?:/i.test(url);
+    return external ? (
+      <a href={url} target="_blank" rel="noopener noreferrer">
+        {children}
+      </a>
+    ) : (
+      <a href={url}>{children}</a>
+    );
+  },
+};
 
 const FEATURES: { icon: string; title: I18nKey; text: I18nKey }[] = [
   { icon: "🧩", title: "feat.graft.t", text: "feat.graft.d" },
@@ -72,7 +96,11 @@ export default function App() {
           </p>
         ) : (
           <article className="markdown">
-            <Markdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+            <Markdown
+              remarkPlugins={[remarkGfm]}
+              rehypePlugins={[rehypeHighlight]}
+              components={mdComponents}
+            >
               {readme}
             </Markdown>
           </article>
