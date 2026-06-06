@@ -54,6 +54,8 @@ export const DICT = {
     "license.warranty": "Le logiciel est fourni « TEL QUEL », sans aucune garantie, explicite ou implicite. En aucun cas l'auteur ne pourra être tenu responsable d'un quelconque dommage. Utilisation à vos propres risques.",
     "license.viewFile": "Voir le fichier LICENSE complet →",
     "license.back": "← Retour à l'accueil",
+    "license.note": "Texte original de la licence (français) :",
+    "license.unavailable": "Licence indisponible — voir le fichier sur GitHub :",
     "footer.html": `Brocolis messageries 🥦 — chiffrement sélectif pour tes messageries, bâti sur <a href="${BROCOLIS}">brocolis</a>. Le contenu de cette page reflète le README du dépôt.`,
   },
   en: {
@@ -106,6 +108,8 @@ export const DICT = {
     "license.warranty": "The software is provided “AS IS”, without warranty of any kind, express or implied. In no event shall the author be liable for any damages. Use at your own risk.",
     "license.viewFile": "View the full LICENSE file →",
     "license.back": "← Back to home",
+    "license.note": "Original license text (French):",
+    "license.unavailable": "License unavailable — see the file on GitHub:",
     "footer.html": `Brocolis messaging 🥦 — selective encryption for your messaging apps, built on <a href="${BROCOLIS}">brocolis</a>. This page mirrors the repository README.`,
   },
   es: {
@@ -158,6 +162,8 @@ export const DICT = {
     "license.warranty": "El software se proporciona «TAL CUAL», sin garantía de ningún tipo, expresa o implícita. En ningún caso el autor será responsable de daño alguno. Úsalo bajo tu propia responsabilidad.",
     "license.viewFile": "Ver el archivo LICENSE completo →",
     "license.back": "← Volver al inicio",
+    "license.note": "Texto original de la licencia (francés):",
+    "license.unavailable": "Licencia no disponible — consulta el archivo en GitHub:",
     "footer.html": `Brocolis mensajería 🥦 — cifrado selectivo para tus mensajerías, basado en <a href="${BROCOLIS}">brocolis</a>. Esta página refleja el README del repositorio.`,
   },
 } as const;
