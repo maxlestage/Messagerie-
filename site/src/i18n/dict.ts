@@ -1,7 +1,7 @@
 export const LANGS = ["fr", "en", "es"] as const;
 export type Lang = (typeof LANGS)[number];
 
-const BROCOLIS = "https://github.com/maxlestage/brocolis";
+const BROCOLIS = "https://maxlestage.github.io/brocolis/";
 
 export const DICT = {
   fr: {
