@@ -4,11 +4,13 @@ import type { I18nKey } from "../i18n/dict";
 import { Switchers } from "./Switchers";
 
 const REPO_URL = "https://github.com/maxlestage/Messagerie-";
+const BROCOLIS_URL = "https://maxlestage.github.io/brocolis/";
 
 const NAV_ITEMS: ReadonlyArray<{ href: string; key: I18nKey; external?: boolean }> = [
   { href: "#features", key: "nav.features" },
   { href: "#doc", key: "nav.doc" },
   { href: "#/license", key: "nav.license" },
+  { href: BROCOLIS_URL, key: "nav.brocolis", external: true },
   { href: REPO_URL, key: "nav.github", external: true },
 ];
 
