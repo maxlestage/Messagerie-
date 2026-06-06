@@ -17,6 +17,7 @@ export const DICT = {
     "nav.features": "Fonctionnalités",
     "nav.doc": "Documentation",
     "nav.github": "GitHub",
+    "nav.brocolis": "brocolis",
     "nav.menu": "Menu",
     "switch.lang": "Langue",
     "switch.theme": "Thème",
@@ -80,7 +81,7 @@ MARCHANDE ET D'ADÉQUATION À UN USAGE PARTICULIER. EN AUCUN CAS L'AUTEUR NE
 POURRA ÊTRE TENU RESPONSABLE D'UN QUELCONQUE DOMMAGE, DIRECT OU INDIRECT,
 DÉCOULANT DE L'UTILISATION OU DE L'IMPOSSIBILITÉ D'UTILISER CE LOGICIEL.
 UTILISATION À VOS PROPRES RISQUES.`,
-    "footer.html": `Brocolis messageries 🥦 — chiffrement sélectif pour tes messageries, bâti sur <a href="${BROCOLIS}">brocolis</a>. Le contenu de cette page reflète le README du dépôt.`,
+    "footer.tagline": "Brocolis messageries 🥦 — chiffrement sélectif pour tes messageries. Le contenu de cette page reflète le README du dépôt.",
   },
   en: {
     "meta.title": "Brocolis messaging — selective encryption",
@@ -95,6 +96,7 @@ UTILISATION À VOS PROPRES RISQUES.`,
     "nav.features": "Features",
     "nav.doc": "Documentation",
     "nav.github": "GitHub",
+    "nav.brocolis": "brocolis",
     "nav.menu": "Menu",
     "switch.lang": "Language",
     "switch.theme": "Theme",
@@ -156,7 +158,7 @@ IMPLIED, INCLUDING BUT NOT LIMITED TO THE IMPLIED WARRANTIES OF MERCHANTABILITY
 AND FITNESS FOR A PARTICULAR PURPOSE. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
 ANY DAMAGE, DIRECT OR INDIRECT, ARISING FROM THE USE OF OR INABILITY TO USE THIS
 SOFTWARE. USE AT YOUR OWN RISK.`,
-    "footer.html": `Brocolis messaging 🥦 — selective encryption for your messaging apps, built on <a href="${BROCOLIS}">brocolis</a>. This page mirrors the repository README.`,
+    "footer.tagline": "Brocolis messaging 🥦 — selective encryption for your messaging apps. This page mirrors the repository README.",
   },
   es: {
     "meta.title": "Brocolis mensajería — cifrado selectivo",
@@ -171,6 +173,7 @@ SOFTWARE. USE AT YOUR OWN RISK.`,
     "nav.features": "Funciones",
     "nav.doc": "Documentación",
     "nav.github": "GitHub",
+    "nav.brocolis": "brocolis",
     "nav.menu": "Menú",
     "switch.lang": "Idioma",
     "switch.theme": "Tema",
@@ -232,7 +235,7 @@ IMPLÍCITA, INCLUIDAS, ENTRE OTRAS, LAS GARANTÍAS IMPLÍCITAS DE COMERCIABILIDA
 ADECUACIÓN A UN FIN DETERMINADO. EN NINGÚN CASO EL AUTOR SERÁ RESPONSABLE DE
 NINGÚN DAÑO, DIRECTO O INDIRECTO, DERIVADO DEL USO O LA IMPOSIBILIDAD DE USAR
 ESTE SOFTWARE. ÚSALO BAJO TU PROPIA RESPONSABILIDAD.`,
-    "footer.html": `Brocolis mensajería 🥦 — cifrado selectivo para tus mensajerías, basado en <a href="${BROCOLIS}">brocolis</a>. Esta página refleja el README del repositorio.`,
+    "footer.tagline": "Brocolis mensajería 🥦 — cifrado selectivo para tus mensajerías. Esta página refleja el README del repositorio.",
   },
 } as const;
 

@@ -295,6 +295,20 @@ a { color: var(--link); }
   font-size: 14px;
   text-align: center;
 }
+.footer-links {
+  display: flex;
+  gap: 18px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.footer-links a {
+  color: var(--link);
+  text-decoration: none;
+  font-weight: 600;
+}
+.footer-links a:hover { text-decoration: underline; }
+.footer-tagline { margin: 0 auto; max-width: 640px; }
 
 /* ---------- Responsive ---------- */
 @media (max-width: 640px) {

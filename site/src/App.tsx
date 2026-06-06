@@ -139,7 +139,12 @@ export default function App() {
         )}
 
       <footer className="footer">
-        <p dangerouslySetInnerHTML={{ __html: t("footer.html") }} />
+        <nav className="footer-links" aria-label={t("nav.menu")}>
+          <a href="#/license">{t("nav.license")}</a>
+          <a href={REPO_URL} target="_blank" rel="noopener noreferrer">{t("cta.repo")}</a>
+          <a href={BROCOLIS_URL} target="_blank" rel="noopener noreferrer">brocolis</a>
+        </nav>
+        <p className="footer-tagline">{t("footer.tagline")}</p>
       </footer>
       </div>
     </>
