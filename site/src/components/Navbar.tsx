@@ -8,6 +8,7 @@ const REPO_URL = "https://github.com/maxlestage/Messagerie-";
 const NAV_ITEMS: ReadonlyArray<{ href: string; key: I18nKey; external?: boolean }> = [
   { href: "#features", key: "nav.features" },
   { href: "#doc", key: "nav.doc" },
+  { href: "#/license", key: "nav.license" },
   { href: REPO_URL, key: "nav.github", external: true },
 ];
 

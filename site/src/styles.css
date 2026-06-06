@@ -219,6 +219,20 @@ a { color: var(--link); }
 .card h3 { margin: 8px 0 6px; font-size: 18px; }
 .card p { margin: 0; color: var(--muted); font-size: 15px; }
 
+/* ---------- Page Licence ---------- */
+.legal { padding: 40px 0 24px; max-width: 720px; }
+.legal h1 { font-size: clamp(1.8rem, 6vw, 2.4rem); margin: 0 0 14px; }
+.legal p { color: var(--ink); margin: 0 0 14px; }
+.legal-copyright { font-weight: 600; }
+.legal-warranty {
+  color: var(--muted);
+  font-size: 14px;
+  background: var(--surface);
+  border-left: 4px solid var(--green);
+  padding: 12px 14px;
+  border-radius: 8px;
+}
+
 /* ---------- README ---------- */
 .readme { padding: 36px 0 8px; }
 .readme-title { font-size: 14px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 0; }
