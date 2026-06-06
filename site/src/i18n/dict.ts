@@ -54,8 +54,32 @@ export const DICT = {
     "license.warranty": "Le logiciel est fourni « TEL QUEL », sans aucune garantie, explicite ou implicite. En aucun cas l'auteur ne pourra être tenu responsable d'un quelconque dommage. Utilisation à vos propres risques.",
     "license.viewFile": "Voir le fichier LICENSE complet →",
     "license.back": "← Retour à l'accueil",
-    "license.note": "Texte original de la licence (français) :",
+    "license.note": "Texte de la licence :",
     "license.unavailable": "Licence indisponible — voir le fichier sur GitHub :",
+    "license.full": `Copyright © 2026 LESTAGE Maxime Nathan. Tous droits réservés.
+
+Licence propriétaire — All rights reserved.
+
+Ce logiciel (« Brocolis 🥦 », l'application iOS, son extension, le serveur de
+rendez-vous et le site) ainsi que son code source sont la propriété exclusive de
+LESTAGE Maxime Nathan. Ils ne peuvent être copiés, modifiés, distribués, publiés
+ni utilisés, en tout ou partie, sans autorisation écrite préalable de l'auteur.
+
+Aucun droit, licence ou titre n'est concédé sur le code source. Toute copie,
+modification, distribution ou utilisation en violation de la présente licence
+est strictement interdite et passible de poursuites.
+
+Ce logiciel accompagne le projet brocolis
+(https://github.com/maxlestage/brocolis), également propriété exclusive de
+LESTAGE Maxime Nathan ; ses termes de licence propriétaire s'appliquent
+également.
+
+LE LOGICIEL EST FOURNI « TEL QUEL », SANS AUCUNE GARANTIE, EXPLICITE OU
+IMPLICITE, Y COMPRIS, SANS S'Y LIMITER, LES GARANTIES IMPLICITES DE QUALITÉ
+MARCHANDE ET D'ADÉQUATION À UN USAGE PARTICULIER. EN AUCUN CAS L'AUTEUR NE
+POURRA ÊTRE TENU RESPONSABLE D'UN QUELCONQUE DOMMAGE, DIRECT OU INDIRECT,
+DÉCOULANT DE L'UTILISATION OU DE L'IMPOSSIBILITÉ D'UTILISER CE LOGICIEL.
+UTILISATION À VOS PROPRES RISQUES.`,
     "footer.html": `Brocolis messageries 🥦 — chiffrement sélectif pour tes messageries, bâti sur <a href="${BROCOLIS}">brocolis</a>. Le contenu de cette page reflète le README du dépôt.`,
   },
   en: {
@@ -108,8 +132,30 @@ export const DICT = {
     "license.warranty": "The software is provided “AS IS”, without warranty of any kind, express or implied. In no event shall the author be liable for any damages. Use at your own risk.",
     "license.viewFile": "View the full LICENSE file →",
     "license.back": "← Back to home",
-    "license.note": "Original license text (French):",
+    "license.note": "License text:",
     "license.unavailable": "License unavailable — see the file on GitHub:",
+    "license.full": `Copyright © 2026 LESTAGE Maxime Nathan. All rights reserved.
+
+Proprietary license — All rights reserved.
+
+This software (“Brocolis 🥦”, the iOS app, its extension, the rendezvous server
+and the website) and its source code are the exclusive property of LESTAGE
+Maxime Nathan. They may not be copied, modified, distributed, published or used,
+in whole or in part, without the author's prior written permission.
+
+No right, license or title is granted over the source code. Any copy,
+modification, distribution or use in violation of this license is strictly
+prohibited and liable to prosecution.
+
+This software accompanies the brocolis project
+(https://github.com/maxlestage/brocolis), also the exclusive property of LESTAGE
+Maxime Nathan; its proprietary license terms apply as well.
+
+THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE IMPLIED WARRANTIES OF MERCHANTABILITY
+AND FITNESS FOR A PARTICULAR PURPOSE. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY DAMAGE, DIRECT OR INDIRECT, ARISING FROM THE USE OF OR INABILITY TO USE THIS
+SOFTWARE. USE AT YOUR OWN RISK.`,
     "footer.html": `Brocolis messaging 🥦 — selective encryption for your messaging apps, built on <a href="${BROCOLIS}">brocolis</a>. This page mirrors the repository README.`,
   },
   es: {
@@ -162,8 +208,30 @@ export const DICT = {
     "license.warranty": "El software se proporciona «TAL CUAL», sin garantía de ningún tipo, expresa o implícita. En ningún caso el autor será responsable de daño alguno. Úsalo bajo tu propia responsabilidad.",
     "license.viewFile": "Ver el archivo LICENSE completo →",
     "license.back": "← Volver al inicio",
-    "license.note": "Texto original de la licencia (francés):",
+    "license.note": "Texto de la licencia:",
     "license.unavailable": "Licencia no disponible — consulta el archivo en GitHub:",
+    "license.full": `Copyright © 2026 LESTAGE Maxime Nathan. Todos los derechos reservados.
+
+Licencia propietaria — All rights reserved.
+
+Este software («Brocolis 🥦», la aplicación iOS, su extensión, el servidor de
+encuentro y el sitio web) y su código fuente son propiedad exclusiva de LESTAGE
+Maxime Nathan. No pueden ser copiados, modificados, distribuidos, publicados ni
+utilizados, en todo o en parte, sin autorización escrita previa del autor.
+
+No se concede ningún derecho, licencia ni título sobre el código fuente.
+Cualquier copia, modificación, distribución o uso que infrinja esta licencia
+está estrictamente prohibido y es objeto de acciones legales.
+
+Este software acompaña al proyecto brocolis
+(https://github.com/maxlestage/brocolis), también propiedad exclusiva de LESTAGE
+Maxime Nathan; se aplican igualmente sus términos de licencia propietaria.
+
+EL SOFTWARE SE PROPORCIONA «TAL CUAL», SIN GARANTÍA DE NINGÚN TIPO, EXPRESA O
+IMPLÍCITA, INCLUIDAS, ENTRE OTRAS, LAS GARANTÍAS IMPLÍCITAS DE COMERCIABILIDAD Y
+ADECUACIÓN A UN FIN DETERMINADO. EN NINGÚN CASO EL AUTOR SERÁ RESPONSABLE DE
+NINGÚN DAÑO, DIRECTO O INDIRECTO, DERIVADO DEL USO O LA IMPOSIBILIDAD DE USAR
+ESTE SOFTWARE. ÚSALO BAJO TU PROPIA RESPONSABILIDAD.`,
     "footer.html": `Brocolis mensajería 🥦 — cifrado selectivo para tus mensajerías, basado en <a href="${BROCOLIS}">brocolis</a>. Esta página refleja el README del repositorio.`,
   },
 } as const;
