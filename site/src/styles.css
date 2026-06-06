@@ -1,15 +1,51 @@
-:root {
-  --green: #4a9e4a;
-  --green-dark: #2e7d2e;
-  --ink: #1b1b1b;
-  --muted: #666;
+/* ---------- Thèmes (data-theme sur <html>) ---------- */
+:root,
+:root[data-theme="green"] {
+  --green: #2f9e4a;
+  --green-dark: #1f6d2c;
+  --link: var(--green-dark);
+  --bg: #eef5ef;
+  --ink: #16201a;
+  --muted: #566b5c;
+  --surface: #ffffff;
+  --border: #d7e6db;
+  --code-bg: #e6f1e8;
+  --hero-from: #dcefe0;
+  --pill-active-bg: var(--green);
+  --pill-active-ink: #ffffff;
+}
+
+:root[data-theme="light"] {
+  --green: #2f9e4a;
+  --green-dark: #1f6d2c;
+  --link: var(--green-dark);
   --bg: #ffffff;
-  --bg-soft: #f4f8f4;
-  --border: #e2e8e2;
+  --ink: #1b1b1b;
+  --muted: #666666;
+  --surface: #f6f8f6;
+  --border: #e6e6e6;
+  --code-bg: #f0f2f0;
+  --hero-from: #eef7ef;
+  --pill-active-bg: var(--green);
+  --pill-active-ink: #ffffff;
+}
+
+:root[data-theme="dark"] {
+  --green: #4cc66a;
+  --green-dark: #39a854;
+  --link: #6fd98a;
+  --bg: #0d1410;
+  --ink: #e7efe9;
+  --muted: #9fb2a5;
+  --surface: #161d18;
+  --border: #26302a;
+  --code-bg: #18241c;
+  --hero-from: #13241a;
+  --pill-active-bg: var(--green);
+  --pill-active-ink: #08160c;
 }
 
 * { box-sizing: border-box; }
-
 html { scroll-behavior: smooth; }
 
 body {
@@ -19,9 +55,10 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   line-height: 1.6;
   overflow-x: hidden;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
-a { color: var(--green-dark); }
+a { color: var(--link); }
 
 .page {
   max-width: 980px;
@@ -29,11 +66,39 @@ a { color: var(--green-dark); }
   padding: 0 20px;
 }
 
-/* Hero */
+/* ---------- Barre des switchers ---------- */
+.topbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 0 0;
+}
+.switchers { display: flex; gap: 10px; flex-wrap: wrap; }
+.switcher {
+  display: flex;
+  gap: 2px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px;
+}
+.pill {
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  padding: 5px 11px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+}
+.pill.active { background: var(--pill-active-bg); color: var(--pill-active-ink); }
+
+/* ---------- Hero ---------- */
 .hero {
   text-align: center;
-  padding: 72px 16px 40px;
-  background: radial-gradient(1200px 400px at 50% -10%, #e9f5e9, transparent);
+  padding: 40px 16px 40px;
+  background: radial-gradient(1200px 400px at 50% -10%, var(--hero-from), transparent);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -49,9 +114,9 @@ a { color: var(--green-dark); }
   width: clamp(120px, 34vw, 180px);
   height: auto;
   border-radius: 24px;
-  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.14);
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.18);
 }
-.hero h1 { font-size: clamp(2.2rem, 9vw, 56px); margin: 8px 0 6px; letter-spacing: -1px; }
+.hero h1 { font-size: clamp(2.2rem, 9vw, 56px); margin: 14px 0 6px; letter-spacing: -1px; }
 .tagline { font-size: 20px; color: var(--muted); margin: 0 auto 22px; max-width: 640px; }
 .cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
 .btn {
@@ -62,12 +127,12 @@ a { color: var(--green-dark); }
   text-decoration: none;
   color: var(--ink);
   font-weight: 600;
-  background: #fff;
+  background: var(--surface);
 }
 .btn.primary { background: var(--green); border-color: var(--green); color: #fff; }
 .btn:hover { filter: brightness(0.97); }
 
-/* Features */
+/* ---------- Cartes ---------- */
 .features {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
@@ -75,7 +140,7 @@ a { color: var(--green-dark); }
   padding: 24px 0 8px;
 }
 .card {
-  background: var(--bg-soft);
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 18px;
@@ -84,9 +149,10 @@ a { color: var(--green-dark); }
 .card h3 { margin: 8px 0 6px; font-size: 18px; }
 .card p { margin: 0; color: var(--muted); font-size: 15px; }
 
-/* README */
+/* ---------- README ---------- */
 .readme { padding: 36px 0 8px; }
-.readme-title { font-size: 14px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+.readme-title { font-size: 14px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 0; }
+.readme-note { font-size: 13px; color: var(--muted); margin-top: 4px; }
 .loading { color: var(--muted); }
 
 .markdown { font-size: 16px; overflow-wrap: anywhere; word-break: break-word; }
@@ -96,7 +162,7 @@ a { color: var(--green-dark); }
 .markdown h3 { font-size: clamp(1.1rem, 4vw, 1.25rem); }
 .markdown a { overflow-wrap: anywhere; }
 .markdown code {
-  background: #f0f2f0;
+  background: var(--code-bg);
   padding: .15em .4em;
   border-radius: 5px;
   font-size: .9em;
@@ -113,17 +179,17 @@ a { color: var(--green-dark); }
 .markdown pre code { background: transparent; padding: 0; }
 .markdown table { border-collapse: collapse; width: 100%; overflow: auto; display: block; }
 .markdown th, .markdown td { border: 1px solid var(--border); padding: 8px 10px; text-align: left; }
-.markdown th { background: var(--bg-soft); }
+.markdown th { background: var(--surface); }
 .markdown blockquote {
   margin: 1em 0;
   padding: .4em 1em;
   border-left: 4px solid var(--green);
-  background: var(--bg-soft);
-  color: #444;
+  background: var(--surface);
+  color: var(--muted);
 }
 .markdown img { max-width: 100%; }
 
-/* Footer */
+/* ---------- Footer ---------- */
 .footer {
   margin-top: 48px;
   padding: 28px 0 56px;
@@ -133,21 +199,15 @@ a { color: var(--green-dark); }
   text-align: center;
 }
 
-/* Responsive : on resserre et on centre sur petits écrans. */
+/* ---------- Responsive ---------- */
 @media (max-width: 640px) {
   .page { padding: 0 14px; }
-  .hero { padding: 48px 12px 28px; }
+  .hero { padding: 28px 12px 28px; }
   .logo { font-size: 60px; }
-  .hero h1 { font-size: 40px; }
   .tagline { font-size: 17px; }
   .cta { width: 100%; }
   .btn { flex: 1 1 auto; text-align: center; }
   .features { grid-template-columns: 1fr; }
   .markdown { font-size: 15px; }
   .markdown pre { font-size: 13px; }
-}
-
-@media (max-width: 380px) {
-  .hero h1 { font-size: 34px; }
-  .logo { font-size: 52px; }
 }

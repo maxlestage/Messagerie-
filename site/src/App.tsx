@@ -1,94 +1,76 @@
-import { useEffect, useState } from 'react';
-import Markdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import rehypeHighlight from 'rehype-highlight';
+import { useEffect, useState } from "react";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import rehypeHighlight from "rehype-highlight";
+import { useT } from "./i18n/LangContext";
+import type { I18nKey } from "./i18n/dict";
+import { Switchers } from "./components/Switchers";
 
-const REPO_URL = 'https://github.com/maxlestage/Messagerie-';
-const BROCOLIS_URL = 'https://github.com/maxlestage/brocolis';
+const REPO_URL = "https://github.com/maxlestage/Messagerie-";
+const BROCOLIS_URL = "https://github.com/maxlestage/brocolis";
 
-const features = [
-  {
-    icon: '🧩',
-    title: 'Se greffe sur tes apps',
-    text: "Extension de partage iOS : sélectionne du texte dans WhatsApp, iMessage, Notes… → Partager → Brocolis 🥦.",
-  },
-  {
-    icon: '🔒',
-    title: 'Chiffrement sélectif',
-    text: "Seuls les ((secrets)) deviennent des jetons [[BROCOLIS:v1:…]] (AES-256-GCM). Le service distant ne voit que du chiffré.",
-  },
-  {
-    icon: '🤝',
-    title: 'Appairage automatique',
-    text: "Échange de clés X25519 via un code court : chaque appareil obtient la clé de l’autre, sans copier-coller.",
-  },
-  {
-    icon: '👥',
-    title: 'Clé de groupe',
-    text: "Un fondateur génère une clé de groupe et la distribue chiffrée à chaque membre (key-wrapping X25519).",
-  },
-  {
-    icon: '⏳',
-    title: 'Rotation & expiration',
-    text: "Validité configurable, purge automatique à l’ouverture, préavis par notification et action « Prolonger ».",
-  },
-  {
-    icon: '🥦',
-    title: 'Compatible brocolis',
-    text: "Même format de jeton que le proxy Rust brocolis : interopérable des deux côtés.",
-  },
+const FEATURES: { icon: string; title: I18nKey; text: I18nKey }[] = [
+  { icon: "🧩", title: "feat.graft.t", text: "feat.graft.d" },
+  { icon: "🔒", title: "feat.crypto.t", text: "feat.crypto.d" },
+  { icon: "🤝", title: "feat.pair.t", text: "feat.pair.d" },
+  { icon: "👥", title: "feat.group.t", text: "feat.group.d" },
+  { icon: "⏳", title: "feat.rotate.t", text: "feat.rotate.d" },
+  { icon: "🥦", title: "feat.interop.t", text: "feat.interop.d" },
 ];
 
 export default function App() {
+  const t = useT();
   const [readme, setReadme] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch('README.md')
+    fetch("README.md")
       .then((r) => (r.ok ? r.text() : Promise.reject(r.status)))
       .then(setReadme)
-      .catch(() => setReadme(''));
+      .catch(() => setReadme(""));
   }, []);
 
   return (
     <div className="page">
+      <div className="topbar">
+        <Switchers />
+      </div>
+
       <header className="hero">
         <div className="hero-inner">
           <img
             className="logo-img"
             src={`${import.meta.env.BASE_URL}photo.png`}
-            alt="Brocolis messageries 🥦"
+            alt={t("hero.alt")}
             width={180}
             height={180}
           />
           <h1>Brocolis messageries</h1>
-          <p className="tagline">
-            Chiffrement sélectif pour tes messageries — bâti sur{' '}
-            <a href={BROCOLIS_URL}>brocolis</a>.
-          </p>
+          <p className="tagline" dangerouslySetInnerHTML={{ __html: t("hero.tagline") }} />
           <div className="cta">
-            <a className="btn primary" href={REPO_URL}>Voir le dépôt</a>
-            <a className="btn" href={BROCOLIS_URL}>Projet brocolis</a>
+            <a className="btn primary" href={REPO_URL}>{t("cta.repo")}</a>
+            <a className="btn" href={BROCOLIS_URL}>{t("cta.brocolis")}</a>
           </div>
         </div>
       </header>
 
       <section className="features">
-        {features.map((f) => (
+        {FEATURES.map((f) => (
           <article className="card" key={f.title}>
             <div className="card-icon">{f.icon}</div>
-            <h3>{f.title}</h3>
-            <p>{f.text}</p>
+            <h3>{t(f.title)}</h3>
+            <p>{t(f.text)}</p>
           </article>
         ))}
       </section>
 
       <main className="readme">
-        <h2 className="readme-title">Documentation</h2>
+        <h2 className="readme-title">{t("doc.title")}</h2>
+        <p className="readme-note">{t("doc.note")}</p>
         {readme === null ? (
-          <p className="loading">Chargement du README…</p>
-        ) : readme === '' ? (
+          <p className="loading">{t("doc.loading")}</p>
+        ) : readme === "" ? (
           <p className="loading">
-            README indisponible — voir le <a href={REPO_URL}>dépôt</a>.
+            {t("doc.unavailable")} <a href={REPO_URL}>GitHub</a>
           </p>
         ) : (
           <article className="markdown">
@@ -100,11 +82,7 @@ export default function App() {
       </main>
 
       <footer className="footer">
-        <p>
-          Brocolis 🥦 — chiffrement sélectif pour tes messageries, bâti sur{' '}
-          <a href={BROCOLIS_URL}>brocolis</a>. Le contenu de cette page reflète le
-          README du dépôt.
-        </p>
+        <p dangerouslySetInnerHTML={{ __html: t("footer.html") }} />
       </footer>
     </div>
   );
