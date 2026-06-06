@@ -53,7 +53,13 @@ export default function App() {
     <div className="page">
       <header className="hero">
         <div className="hero-inner">
-          <div className="logo">🥦</div>
+          <img
+            className="logo-img"
+            src={`${import.meta.env.BASE_URL}brocolis.png`}
+            alt="Mascotte Brocolis 🥦"
+            width={180}
+            height={180}
+          />
           <h1>Brocolis messageries</h1>
           <p className="tagline">
             Chiffrement sélectif pour tes messageries — bâti sur{' '}
