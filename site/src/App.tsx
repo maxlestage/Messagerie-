@@ -55,8 +55,8 @@ export default function App() {
         <div className="hero-inner">
           <img
             className="logo-img"
-            src={`${import.meta.env.BASE_URL}brocolis.png`}
-            alt="Mascotte Brocolis 🥦"
+            src={`${import.meta.env.BASE_URL}photo.png`}
+            alt="Brocolis messageries 🥦"
             width={180}
             height={180}
           />
