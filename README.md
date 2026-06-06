@@ -190,5 +190,5 @@ cd server && npm test
 
 © 2026 **LESTAGE Maxime Nathan** — Tous droits réservés. Logiciel
 **propriétaire** : voir le fichier [`LICENSE`](LICENSE). Ce projet accompagne
-[brocolis](https://github.com/maxlestage/brocolis), également propriétaire.
+[brocolis](https://maxlestage.github.io/brocolis/), également propriétaire.
 Fourni « TEL QUEL », sans garantie.
