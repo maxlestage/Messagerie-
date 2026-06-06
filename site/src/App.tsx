@@ -4,7 +4,7 @@ import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import { useT } from "./i18n/LangContext";
 import type { I18nKey } from "./i18n/dict";
-import { Switchers } from "./components/Switchers";
+import { Navbar } from "./components/Navbar";
 
 const REPO_URL = "https://github.com/maxlestage/Messagerie-";
 const BROCOLIS_URL = "https://github.com/maxlestage/brocolis";
@@ -30,13 +30,11 @@ export default function App() {
   }, []);
 
   return (
-    <div className="page">
-      <div className="topbar">
-        <Switchers />
-      </div>
-
-      <header className="hero">
-        <div className="hero-inner">
+    <>
+      <Navbar />
+      <div className="page">
+        <header className="hero" id="top">
+          <div className="hero-inner">
           <img
             className="logo-img"
             src={`${import.meta.env.BASE_URL}photo.png`}
@@ -53,7 +51,7 @@ export default function App() {
         </div>
       </header>
 
-      <section className="features">
+      <section className="features" id="features">
         {FEATURES.map((f) => (
           <article className="card" key={f.title}>
             <div className="card-icon">{f.icon}</div>
@@ -63,7 +61,7 @@ export default function App() {
         ))}
       </section>
 
-      <main className="readme">
+      <main className="readme" id="doc">
         <h2 className="readme-title">{t("doc.title")}</h2>
         <p className="readme-note">{t("doc.note")}</p>
         {readme === null ? (
@@ -84,6 +82,7 @@ export default function App() {
       <footer className="footer">
         <p dangerouslySetInnerHTML={{ __html: t("footer.html") }} />
       </footer>
-    </div>
+      </div>
+    </>
   );
 }
