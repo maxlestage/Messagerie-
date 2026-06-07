@@ -64,6 +64,12 @@ function createRendezvous(options = {}) {
     prune();
     const url = new URL(req.url, 'http://localhost');
 
+    if (req.method === 'GET' && url.pathname === '/') {
+      res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
+      res.end('Serveur de rendez-vous Brocolis 🥦 — tout va bien.');
+      return;
+    }
+
     if (req.method === 'GET' && url.pathname === '/health') {
       res.writeHead(200, { 'content-type': 'text/plain' });
       res.end('ok');
