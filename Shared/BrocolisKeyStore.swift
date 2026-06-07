@@ -67,9 +67,11 @@ enum BrocolisKeyStore {
 
     // MARK: Appairage automatique (X25519)
 
-    /// URL du serveur de rendez-vous (ex. https://relais.example.com).
+    /// URL du serveur de rendez-vous. Par défaut : l'instance Heroku du projet.
+    static let defaultServerURL = "https://brocolismessageriesiphone-de6b42e2c835.herokuapp.com"
+
     static var serverURL: String {
-        defaults?.string(forKey: serverURLName) ?? ""
+        defaults?.string(forKey: serverURLName) ?? defaultServerURL
     }
 
     static func setServerURL(_ value: String) {

@@ -30,7 +30,7 @@ struct PairingView: View {
             }
 
             Section("Serveur de rendez-vous") {
-                TextField("https://relais.example.com", text: $serverURL)
+                TextField(BrocolisKeyStore.defaultServerURL, text: $serverURL)
                     .keyboardType(.URL)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
