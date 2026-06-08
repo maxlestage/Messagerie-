@@ -1,0 +1,11 @@
+{
+  "name": "brocolis-rendezvous-deploy",
+  "private": true,
+  "description": "Déploiement Heroku (buildpack Node) du serveur de rendez-vous situé dans server/.",
+  "scripts": {
+    "start": "node server/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
