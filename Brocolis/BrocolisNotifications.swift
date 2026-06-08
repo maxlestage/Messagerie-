@@ -2,9 +2,9 @@
 //  BrocolisNotifications.swift
 //  Brocolis 🥦 (app uniquement)
 //
-//  Préavis d'expiration via notifications locales : une alerte « ta clé expire
-//  bientôt » avant l'échéance (même app fermée), et une à l'expiration. Les
-//  notifications sont reprogrammées à chaque changement de clé / de durée.
+//  Préavis d'expiration PAR CLÉ via notifications locales : pour chaque clé
+//  ayant une durée de vie, une alerte avant l'échéance + une à l'expiration.
+//  L'action « Prolonger » porte l'id de la clé concernée.
 //
 
 import Foundation
@@ -12,25 +12,22 @@ import UserNotifications
 
 enum BrocolisNotifications {
 
-    private static let noticeID = "brocolis.key.expiry.notice"
-    private static let expiredID = "brocolis.key.expired"
-
-    /// Catégorie + actions attachées aux notifications d'expiration.
     static let categoryID = "BROCOLIS_EXPIRY"
     static let renewActionID = "BROCOLIS_RENEW"
     static let openRenewActionID = "BROCOLIS_OPEN_RENEW"
+    static let keyIdInfoKey = "keyId"
 
-    /// Déclare la catégorie de notification avec ses actions. À appeler au lancement.
+    /// Déclare la catégorie avec ses actions. À appeler au lancement.
     static func registerCategories() {
         let renew = UNNotificationAction(
             identifier: renewActionID,
             title: "Prolonger la clé",
-            options: [] // s'exécute sans ouvrir l'app
+            options: []
         )
         let openRenew = UNNotificationAction(
             identifier: openRenewActionID,
             title: "Ouvrir pour renouveler",
-            options: [.foreground] // ouvre l'app sur l'écran d'appairage
+            options: [.foreground]
         )
         let category = UNNotificationCategory(
             identifier: categoryID,
@@ -41,46 +38,36 @@ enum BrocolisNotifications {
         UNUserNotificationCenter.current().setNotificationCategories([category])
     }
 
-    /// (Re)programme les notifications selon l'état actuel de la clé.
-    /// À appeler après tout changement de clé/d'expiration et à l'ouverture.
+    /// (Re)programme les notifications pour TOUTES les clés à durée de vie.
     static func refresh() {
         let center = UNUserNotificationCenter.current()
+        center.removeAllPendingNotificationRequests()
 
-        // Pas de clé ou pas d'expiration → on n'embête pas l'utilisateur.
-        guard BrocolisKeyStore.hasKey, BrocolisKeyStore.keyTTLSeconds > 0 else {
-            center.removePendingNotificationRequests(withIdentifiers: [noticeID, expiredID])
-            return
-        }
+        let keys = BrocolisKeyStore.keys.filter { $0.ttlSeconds > 0 && $0.expiresAt != nil }
+        guard !keys.isEmpty else { return }
 
         center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
-            guard granted else {
-                center.removePendingNotificationRequests(withIdentifiers: [noticeID, expiredID])
-                return
+            guard granted else { return }
+            let now = Date()
+            for k in keys {
+                guard let exp = k.expiresAt else { continue }
+                if let fire = BrocolisKeyStore.noticeFireDate(
+                    expiresAt: exp, ttlSeconds: k.ttlSeconds, now: now) {
+                    add(center: center, id: "brocolis.notice.\(k.id)", keyId: k.id, fireDate: fire,
+                        body: "Ta clé « \(k.name) » expire bientôt. Pense à la renouveler.")
+                }
+                if exp > now {
+                    add(center: center, id: "brocolis.expired.\(k.id)", keyId: k.id, fireDate: exp,
+                        body: "Ta clé « \(k.name) » a expiré. Renouvelle-la pour continuer.")
+                }
             }
-            schedule(center: center)
-        }
-    }
-
-    private static func schedule(center: UNUserNotificationCenter) {
-        center.removePendingNotificationRequests(withIdentifiers: [noticeID, expiredID])
-
-        let now = Date()
-        let ttl = BrocolisKeyStore.keyTTLSeconds
-        let expiresAt = BrocolisKeyStore.keyExpiresAt
-
-        if let fire = BrocolisKeyStore.noticeFireDate(expiresAt: expiresAt, ttlSeconds: ttl, now: now) {
-            add(center: center, id: noticeID, fireDate: fire,
-                body: "Ta clé de chiffrement expire bientôt. Pense à la renouveler.")
-        }
-        if let expiresAt, expiresAt > now {
-            add(center: center, id: expiredID, fireDate: expiresAt,
-                body: "Ta clé a expiré. Renouvelle-la ou ré-appaire-toi pour continuer.")
         }
     }
 
     private static func add(
         center: UNUserNotificationCenter,
         id: String,
+        keyId: String,
         fireDate: Date,
         body: String
     ) {
@@ -88,7 +75,8 @@ enum BrocolisNotifications {
         content.title = "Brocolis 🥦"
         content.body = body
         content.sound = .default
-        content.categoryIdentifier = categoryID // ajoute le bouton « Prolonger »
+        content.categoryIdentifier = categoryID
+        content.userInfo = [keyIdInfoKey: keyId]
 
         let comps = Calendar.current.dateComponents(
             [.year, .month, .day, .hour, .minute, .second], from: fireDate)
