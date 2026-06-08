@@ -2,7 +2,8 @@
 //  RootView.swift
 //  Brocolis 🥦
 //
-//  État « Actif » + appairage automatique (X25519) + gestion manuelle de la clé.
+//  État « Actif » + appairage + gestion de PLUSIEURS clés nommées.
+//  La clé sélectionnée chiffre ; au déchiffrement, toutes les clés sont essayées.
 //
 
 import SwiftUI
@@ -12,13 +13,21 @@ struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @ObservedObject private var router = AppRouter.shared
 
-    @State private var keyBase64: String? = BrocolisKeyStore.keyBase64
+    @State private var keys: [NamedKey] = BrocolisKeyStore.keys
+    @State private var selectedId: String? = BrocolisKeyStore.selectedKeyId
     @State private var isActive = BrocolisKeyStore.isActive
     @State private var fingerprint: String? = BrocolisKeyStore.pairingFingerprint
     @State private var keyTTL = BrocolisKeyStore.keyTTLSeconds
-    @State private var importText = ""
+
     @State private var alertMessage: String?
     @State private var showPairing = false
+    @State private var showGenerate = false
+    @State private var newKeyName = ""
+    @State private var showImport = false
+    @State private var importName = ""
+    @State private var importText = ""
+    @State private var renameTarget: NamedKey?
+    @State private var renameText = ""
 
     private let ttlOptions: [(label: String, seconds: Int)] = [
         ("Jamais", 0),
@@ -27,19 +36,20 @@ struct RootView: View {
         ("7 jours", 604_800),
     ]
 
-    private var hasKey: Bool { keyBase64 != nil }
+    private var hasKey: Bool { !keys.isEmpty }
+    private var selected: NamedKey? {
+        keys.first(where: { $0.id == selectedId }) ?? keys.first
+    }
 
     var body: some View {
         NavigationStack {
             Form {
                 statusSection
                 pairingSection
+                keysSection
+                if selected != nil { selectedKeySection }
                 if hasKey { expirySection }
                 howToSection
-                keySection
-                generateSection
-                importSection
-                if hasKey { deleteSection }
             }
             .navigationTitle("Brocolis 🥦")
             .onAppear {
@@ -54,6 +64,33 @@ struct RootView: View {
             }
             .sheet(isPresented: $showPairing, onDismiss: reload) {
                 NavigationStack { PairingView() }
+            }
+            .alert("Nouvelle clé", isPresented: $showGenerate) {
+                TextField("Nom (ex. Maman)", text: $newKeyName)
+                Button("Générer") {
+                    BrocolisKeyStore.addKey(name: newKeyName, base64: BrocolisCrypto.generateKeyBase64())
+                    reload()
+                }
+                Button("Annuler", role: .cancel) {}
+            } message: {
+                Text("Crée une clé AES-256 aléatoire, nommée, et la sélectionne.")
+            }
+            .alert("Importer une clé", isPresented: $showImport) {
+                TextField("Nom", text: $importName)
+                TextField("Clé base64 (32 octets)", text: $importText)
+                Button("Importer") { importKey() }
+                Button("Annuler", role: .cancel) {}
+            } message: {
+                Text("Colle la clé reçue d’un correspondant.")
+            }
+            .alert("Renommer la clé", isPresented: renameBinding) {
+                TextField("Nom", text: $renameText)
+                Button("OK") {
+                    if let t = renameTarget { BrocolisKeyStore.renameKey(id: t.id, name: renameText) }
+                    renameTarget = nil
+                    reload()
+                }
+                Button("Annuler", role: .cancel) { renameTarget = nil }
             }
             .alert(
                 "Brocolis",
@@ -82,11 +119,11 @@ struct RootView: View {
             Text("État")
         } footer: {
             if !hasKey {
-                Text("Appaire-toi à un correspondant ou crée une clé pour pouvoir activer Brocolis.")
+                Text("Ajoute au moins une clé pour pouvoir activer Brocolis.")
             } else if isActive {
-                Text("Brocolis reste actif tant que tu ne le désactives pas (ou que tu ne fermes pas l’app). L’extension Partager chiffre/déchiffre dans tes autres apps.")
+                Text("Brocolis reste actif tant que tu ne le désactives pas. L’extension Partager chiffre/déchiffre dans tes autres apps.")
             } else {
-                Text("Active Brocolis pour que l’extension Partager chiffre/déchiffre dans tes autres apps.")
+                Text("Active Brocolis pour que l’extension Partager fonctionne.")
             }
         }
     }
@@ -101,7 +138,11 @@ struct RootView: View {
         )
     }
 
-    // MARK: Appairage automatique
+    private var renameBinding: Binding<Bool> {
+        Binding(get: { renameTarget != nil }, set: { if !$0 { renameTarget = nil } })
+    }
+
+    // MARK: Appairage
 
     private var pairingSection: some View {
         Section {
@@ -117,11 +158,88 @@ struct RootView: View {
         } header: {
             Text("Correspondant")
         } footer: {
-            Text("Échange la clé automatiquement avec un correspondant via un code court (X25519) — sans copier la clé. Compare l’empreinte de vive voix pour vérifier qu’il n’y a pas d’interception.")
+            Text("Échange la clé via un code court (X25519). La clé reçue est ajoutée à ta liste.")
         }
     }
 
-    // MARK: Expiration / rotation
+    // MARK: Clés
+
+    private var keysSection: some View {
+        Section {
+            ForEach(keys) { key in
+                HStack {
+                    Image(systemName: key.id == selectedId ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(key.id == selectedId ? .green : .secondary)
+                    Text(key.name)
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    BrocolisKeyStore.selectKey(key.id)
+                    reload()
+                }
+                .swipeActions(edge: .trailing) {
+                    Button(role: .destructive) {
+                        BrocolisKeyStore.deleteKey(id: key.id)
+                        reload()
+                    } label: {
+                        Label("Supprimer", systemImage: "trash")
+                    }
+                    Button {
+                        renameTarget = key
+                        renameText = key.name
+                    } label: {
+                        Label("Renommer", systemImage: "pencil")
+                    }
+                    .tint(.blue)
+                }
+            }
+
+            Button {
+                newKeyName = ""
+                showGenerate = true
+            } label: {
+                Label("Générer une nouvelle clé", systemImage: "key.fill")
+            }
+            Button {
+                importName = ""
+                importText = ""
+                showImport = true
+            } label: {
+                Label("Importer une clé", systemImage: "square.and.arrow.down")
+            }
+        } header: {
+            Text("Clés")
+        } footer: {
+            if hasKey {
+                Text("La clé cochée sert à chiffrer. Au déchiffrement, toutes tes clés sont essayées. Glisse une clé pour la renommer ou la supprimer.")
+            } else {
+                Text("Aucune clé. Génère-en une, importe-en une, ou appaire-toi.")
+            }
+        }
+    }
+
+    private var selectedKeySection: some View {
+        Section("Clé sélectionnée") {
+            if let sel = selected {
+                Text(sel.name).font(.headline)
+                Text(sel.base64)
+                    .font(.system(.footnote, design: .monospaced))
+                    .textSelection(.enabled)
+                Button {
+                    UIPasteboard.general.string = sel.base64
+                    alertMessage = "Clé copiée dans le presse-papiers."
+                } label: {
+                    Label("Copier la clé", systemImage: "doc.on.doc")
+                }
+                ShareLink(item: sel.base64) {
+                    Label("Partager la clé", systemImage: "square.and.arrow.up")
+                }
+            }
+        }
+    }
+
+    // MARK: Expiration
 
     private var expirySection: some View {
         Section {
@@ -134,7 +252,7 @@ struct RootView: View {
         } header: {
             Text("Expiration")
         } footer: {
-            Text("Au-delà de la validité, l’extension refuse de chiffrer/déchiffrer tant que la clé n’est pas renouvelée. Pour un groupe, le fondateur relance « Créer le groupe » pour distribuer une nouvelle clé.")
+            Text("Au-delà de la validité, l’extension refuse de chiffrer tant que la clé n’est pas renouvelée.")
         }
     }
 
@@ -180,97 +298,31 @@ struct RootView: View {
         }
     }
 
-    // MARK: Clé (manuel)
-
-    private var keySection: some View {
-        Section("Clé partagée") {
-            if let key = keyBase64 {
-                Text(key)
-                    .font(.system(.footnote, design: .monospaced))
-                    .textSelection(.enabled)
-                Button {
-                    UIPasteboard.general.string = key
-                    alertMessage = "Clé copiée dans le presse-papiers."
-                } label: {
-                    Label("Copier la clé", systemImage: "doc.on.doc")
-                }
-                ShareLink(item: key) {
-                    Label("Partager la clé", systemImage: "square.and.arrow.up")
-                }
-            } else {
-                Label("Aucune clé configurée", systemImage: "exclamationmark.lock")
-                    .foregroundStyle(.orange)
-            }
-        }
-    }
-
-    private var generateSection: some View {
-        Section {
-            Button {
-                let b64 = BrocolisCrypto.generateKeyBase64()
-                BrocolisKeyStore.setKey(b64)
-                BrocolisKeyStore.setPairingFingerprint(nil)
-                reload()
-            } label: {
-                Label("Générer une nouvelle clé", systemImage: "key.fill")
-            }
-        } header: {
-            Text("Générer (manuel)")
-        } footer: {
-            Text("Crée une clé AES-256 aléatoire à partager manuellement (équivalent de `brocolis keygen`).")
-        }
-    }
-
-    private var importSection: some View {
-        Section("Importer (manuel)") {
-            TextField("Clé base64 (32 octets)", text: $importText, axis: .vertical)
-                .font(.system(.footnote, design: .monospaced))
-                .autocorrectionDisabled()
-                .textInputAutocapitalization(.never)
-            Button {
-                importKey()
-            } label: {
-                Label("Importer cette clé", systemImage: "square.and.arrow.down")
-            }
-            .disabled(importText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        }
-    }
-
-    private var deleteSection: some View {
-        Section {
-            Button(role: .destructive) {
-                BrocolisKeyStore.clearKey()
-                reload()
-            } label: {
-                Label("Supprimer la clé", systemImage: "trash")
-            }
-        }
-    }
-
     // MARK: Logique
 
-    /// Purge la clé si elle est périmée, prévient l'utilisateur, puis rafraîchit.
-    private func purgeIfNeeded() {
-        if BrocolisKeyStore.purgeExpiredKey() {
-            alertMessage = "La clé avait expiré : elle a été supprimée automatiquement. Renouvelle-la ou ré-appaire-toi."
-        }
-        reload()
-    }
-
     private func reload() {
-        keyBase64 = BrocolisKeyStore.keyBase64
+        keys = BrocolisKeyStore.keys
+        selectedId = BrocolisKeyStore.selectedKeyId ?? keys.first?.id
         isActive = BrocolisKeyStore.isActive
         fingerprint = BrocolisKeyStore.pairingFingerprint
         keyTTL = BrocolisKeyStore.keyTTLSeconds
         BrocolisNotifications.refresh()
     }
 
+    private func purgeIfNeeded() {
+        if BrocolisKeyStore.purgeExpiredKey() {
+            alertMessage = "Une clé avait expiré : elle a été supprimée automatiquement."
+        }
+        reload()
+    }
+
     private func importKey() {
+        let trimmed = importText.trimmingCharacters(in: .whitespacesAndNewlines)
         do {
-            _ = try BrocolisCrypto.symmetricKey(fromBase64: importText)
-            BrocolisKeyStore.setKey(importText)
-            BrocolisKeyStore.setPairingFingerprint(nil)
+            _ = try BrocolisCrypto.symmetricKey(fromBase64: trimmed)
+            BrocolisKeyStore.addKey(name: importName, base64: trimmed)
             importText = ""
+            importName = ""
             reload()
             alertMessage = "Clé importée."
         } catch {

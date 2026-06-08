@@ -20,9 +20,11 @@ une **Action Extension** sur le texte sélectionné.
 
 ## Comment ça marche
 
-1. Ouvre l'app **Brocolis 🥦** une fois pour **générer ou importer** la clé
-   partagée (équivalent de `brocolis keygen`). Transmets cette clé à ton
-   correspondant par un canal sûr.
+1. Ouvre l'app **Brocolis 🥦** pour gérer tes **clés nommées** (ex. « Maman »,
+   « Travail ») : génère‑en, importe‑en, ou appaire‑toi. La **clé sélectionnée**
+   sert à chiffrer ; au **déchiffrement, toutes tes clés sont essayées** (un
+   message d'un correspondant se déchiffre avec la clé qui lui correspond).
+   Transmets une clé par un canal sûr (ou utilise l'appairage).
 2. Mets l'interrupteur **Actif** sur ON. Brocolis **reste actif** tant que tu ne
    le repasses pas sur OFF (ou que tu ne fermes pas l'app).
 3. Dans **n'importe quelle app**, sélectionne du texte → **Partager** →

@@ -229,7 +229,8 @@ struct PairingView: View {
     // MARK: Application du résultat
 
     private func applyKey(_ keyB64: String, fingerprint fp: String, message: String, keepWorking: Bool = false) {
-        BrocolisKeyStore.setKey(keyB64)
+        let name = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        BrocolisKeyStore.addKey(name: name.isEmpty ? "Appairage" : name, base64: keyB64)
         BrocolisKeyStore.setPairingFingerprint(fp)
         BrocolisKeyStore.setActive(true)
         Task { @MainActor in

@@ -2,23 +2,34 @@
 //  BrocolisKeyStore.swift
 //  Brocolis 🥦 (partagé app + extension)
 //
-//  La clé symétrique partagée est stockée dans le conteneur de l'App Group, ce
-//  qui la rend lisible à la fois par l'app hôte (où on la génère/importe) et par
-//  l'Action Extension (qui chiffre/déchiffre dans les autres apps).
+//  Gère PLUSIEURS clés nommées, partagées via l'App Group (lisibles par l'app
+//  et l'extension). Une clé est « sélectionnée » : c'est elle qui chiffre. Au
+//  déchiffrement, l'extension essaie TOUTES les clés (un message d'un
+//  correspondant se déchiffre avec la clé correspondante).
 //
-//  Note sécurité : pour un usage de démonstration, on utilise les
-//  `UserDefaults` de l'App Group. La clé ne quitte jamais l'appareil. Pour un
-//  usage en production, préférer un groupe d'accès Trousseau (Keychain) partagé.
+//  Note sécurité : pour la démo, on utilise les `UserDefaults` de l'App Group.
+//  Les clés ne quittent jamais l'appareil. En production, préférer un groupe
+//  d'accès Trousseau (Keychain) partagé.
 //
 
 import Foundation
 import CryptoKit
 
+/// Une clé nommée.
+struct NamedKey: Codable, Identifiable, Equatable {
+    let id: String
+    var name: String
+    let base64: String
+}
+
 enum BrocolisKeyStore {
 
     /// ⚠️ Doit correspondre à l'App Group activé sur l'app ET l'extension.
     static let appGroup = "group.rs.brocolis.messagerie"
-    private static let keyName = "shared_aes_key_b64"
+
+    private static let legacyKeyName = "shared_aes_key_b64" // ancienne clé unique
+    private static let keysName = "keys_json"
+    private static let selectedIdName = "selected_key_id"
     private static let activeName = "is_active"
     private static let serverURLName = "rendezvous_server_url"
     private static let privateKeyName = "x25519_private_b64"
@@ -30,34 +41,142 @@ enum BrocolisKeyStore {
         UserDefaults(suiteName: appGroup)
     }
 
-    static var keyBase64: String? {
-        defaults?.string(forKey: keyName)
+    // MARK: - Liste de clés
+
+    /// Migration depuis l'ancienne clé unique, une seule fois.
+    private static func migrateIfNeeded() {
+        guard let d = defaults, d.data(forKey: keysName) == nil else { return }
+        var initial: [NamedKey] = []
+        if let legacy = d.string(forKey: legacyKeyName), !legacy.isEmpty {
+            let k = NamedKey(id: UUID().uuidString, name: "Ma clé", base64: legacy)
+            initial = [k]
+            d.set(k.id, forKey: selectedIdName)
+            d.removeObject(forKey: legacyKeyName)
+        }
+        saveKeys(initial)
     }
 
-    static var hasKey: Bool { keyBase64 != nil }
+    private static func loadKeys() -> [NamedKey] {
+        guard let data = defaults?.data(forKey: keysName),
+              let arr = try? JSONDecoder().decode([NamedKey].self, from: data) else { return [] }
+        return arr
+    }
 
-    static func setKey(_ base64: String) {
-        defaults?.set(base64.trimmingCharacters(in: .whitespacesAndNewlines), forKey: keyName)
-        // Une nouvelle clé réarme l'horloge d'expiration selon le TTL choisi.
+    private static func saveKeys(_ keys: [NamedKey]) {
+        if let data = try? JSONEncoder().encode(keys) {
+            defaults?.set(data, forKey: keysName)
+        }
+    }
+
+    /// Toutes les clés enregistrées.
+    static var keys: [NamedKey] {
+        migrateIfNeeded()
+        return loadKeys()
+    }
+
+    static var selectedKeyId: String? { defaults?.string(forKey: selectedIdName) }
+
+    /// Clé sélectionnée (sert à chiffrer). À défaut, la première.
+    static var selectedKey: NamedKey? {
+        let ks = keys
+        if let id = selectedKeyId, let k = ks.first(where: { $0.id == id }) { return k }
+        return ks.first
+    }
+
+    static func selectKey(_ id: String) {
+        defaults?.set(id, forKey: selectedIdName)
+    }
+
+    /// Ajoute une clé nommée, la sélectionne, et réarme l'expiration. Renvoie l'id.
+    @discardableResult
+    static func addKey(name: String, base64: String) -> String {
+        var ks = loadKeysAfterMigration()
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let key = NamedKey(
+            id: UUID().uuidString,
+            name: trimmedName.isEmpty ? "Clé \(ks.count + 1)" : trimmedName,
+            base64: base64.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        ks.append(key)
+        saveKeys(ks)
+        selectKey(key.id)
         setKeyExpiresAt(computeExpiry(ttlSeconds: keyTTLSeconds, from: Date()))
+        return key.id
     }
 
+    static func renameKey(id: String, name: String) {
+        var ks = loadKeysAfterMigration()
+        if let i = ks.firstIndex(where: { $0.id == id }) {
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            ks[i].name = trimmed.isEmpty ? ks[i].name : trimmed
+            saveKeys(ks)
+        }
+    }
+
+    static func deleteKey(id: String) {
+        var ks = loadKeysAfterMigration()
+        ks.removeAll { $0.id == id }
+        saveKeys(ks)
+        if selectedKeyId == id {
+            if let first = ks.first {
+                selectKey(first.id)
+            } else {
+                defaults?.removeObject(forKey: selectedIdName)
+                defaults?.removeObject(forKey: fingerprintName)
+                defaults?.removeObject(forKey: expiresAtName)
+                setActive(false)
+            }
+        }
+    }
+
+    private static func loadKeysAfterMigration() -> [NamedKey] {
+        migrateIfNeeded()
+        return loadKeys()
+    }
+
+    // MARK: - Accès clé (compat + usage)
+
+    static var hasKey: Bool { !keys.isEmpty }
+
+    /// Base64 de la clé sélectionnée (compatibilité).
+    static var keyBase64: String? { selectedKey?.base64 }
+
+    /// Clé symétrique sélectionnée (pour chiffrer).
+    static func symmetricKey() -> SymmetricKey? {
+        guard let b64 = selectedKey?.base64 else { return nil }
+        return try? BrocolisCrypto.symmetricKey(fromBase64: b64)
+    }
+
+    /// Toutes les clés symétriques (pour déchiffrer : on les essaie toutes).
+    static func allSymmetricKeys() -> [SymmetricKey] {
+        keys.compactMap { try? BrocolisCrypto.symmetricKey(fromBase64: $0.base64) }
+    }
+
+    /// Compat : remplace la clé sélectionnée, ou crée « Ma clé » s'il n'y en a pas.
+    static func setKey(_ base64: String) {
+        let trimmed = base64.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let sel = selectedKey {
+            var ks = loadKeysAfterMigration()
+            if let i = ks.firstIndex(where: { $0.id == sel.id }) {
+                ks[i] = NamedKey(id: sel.id, name: sel.name, base64: trimmed)
+                saveKeys(ks)
+            }
+            setKeyExpiresAt(computeExpiry(ttlSeconds: keyTTLSeconds, from: Date()))
+        } else {
+            addKey(name: "Ma clé", base64: trimmed)
+        }
+    }
+
+    /// Supprime la clé sélectionnée (compat « Supprimer la clé »).
     static func clearKey() {
-        defaults?.removeObject(forKey: keyName)
+        if let sel = selectedKey { deleteKey(id: sel.id) }
         defaults?.removeObject(forKey: fingerprintName)
         defaults?.removeObject(forKey: expiresAtName)
-        // Sans clé, on ne peut pas rester actif.
-        setActive(false)
     }
 
     // MARK: État « Actif »
-    //
-    // Quand `isActive == true`, l'extension chiffre/déchiffre. L'état persiste
-    // (App Group) tant que l'utilisateur ne le désactive pas. Il est aussi remis
-    // à `false` à la terminaison de l'app hôte (best effort, cf. AppDelegate).
 
     static var isActive: Bool {
-        // Actif seulement si une clé est présente.
         (defaults?.bool(forKey: activeName) ?? false) && hasKey
     }
 
@@ -100,13 +219,6 @@ enum BrocolisKeyStore {
         }
     }
 
-
-    /// Clé utilisable, ou `nil` si absente/invalide.
-    static func symmetricKey() -> SymmetricKey? {
-        guard let b64 = keyBase64 else { return nil }
-        return try? BrocolisCrypto.symmetricKey(fromBase64: b64)
-    }
-
     // MARK: Rotation / expiration de la clé
 
     /// Durée de validité choisie, en secondes (0 = jamais d'expiration).
@@ -146,12 +258,11 @@ enum BrocolisKeyStore {
         setKeyExpiresAt(computeExpiry(ttlSeconds: keyTTLSeconds, from: Date()))
     }
 
-    /// Si la clé courante est expirée, l'efface (et désactive Brocolis).
-    /// Renvoie `true` si une purge a eu lieu. À appeler au lancement de l'app.
+    /// Si la clé sélectionnée est expirée, l'efface (et désactive si plus de clé).
     @discardableResult
     static func purgeExpiredKey() -> Bool {
         guard hasKey, isExpired else { return false }
-        clearKey() // efface clé + empreinte + expiration, et désactive
+        clearKey()
         return true
     }
 
@@ -166,14 +277,11 @@ enum BrocolisKeyStore {
         return now >= expiresAt
     }
 
-    /// Délai de préavis avant expiration : ~1 h pour les longues durées, sinon
-    /// la moitié du TTL. `nil` s'il n'y a pas d'expiration.
     static func notificationLead(ttlSeconds: Int) -> TimeInterval? {
         guard ttlSeconds > 0 else { return nil }
         return min(3600, TimeInterval(ttlSeconds) / 2)
     }
 
-    /// Date à laquelle envoyer le préavis (`nil` si non applicable ou déjà passée).
     static func noticeFireDate(expiresAt: Date?, ttlSeconds: Int, now: Date) -> Date? {
         guard let expiresAt, let lead = notificationLead(ttlSeconds: ttlSeconds) else { return nil }
         let fire = expiresAt.addingTimeInterval(-lead)
