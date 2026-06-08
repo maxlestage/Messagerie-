@@ -1,0 +1,5 @@
+# Heroku en mode CONTENEUR (si `heroku stack:set container`).
+# Construit le serveur de rendez-vous depuis le Dockerfile à la racine.
+build:
+  docker:
+    web: Dockerfile

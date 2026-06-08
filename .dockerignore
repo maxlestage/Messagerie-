@@ -1,0 +1,7 @@
+.git
+**/node_modules
+site/dist
+site/.expo
+Brocolis.xcodeproj
+*.png
+*.jpeg
