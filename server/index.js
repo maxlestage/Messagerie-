@@ -32,48 +32,74 @@ const HOME_HTML = `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Brocolis 🥦 — serveur de rendez-vous</title>
 <style>
+  :root, :root[data-theme="green"] {
+    --bg: #e9f6ec; --bg-glow: #bfe6c8; --card: #ffffff; --card-border: #d6e8da;
+    --ink: #15321f; --muted: #45624f; --accent: #2f9e4a; --accent-dark: #1f6d2c;
+    --on-accent: #ffffff; --box-bg: #f1f8f3; --box-border: #dcebe0;
+    --pill-bg: #eef6f0; --pill-border: #d6e8da; --shadow: rgba(20,80,40,.12); --foot: #7b9484;
+  }
+  :root[data-theme="light"] {
+    --bg: #ffffff; --bg-glow: #eef7ef; --card: #f8faf8; --card-border: #e6e6e6;
+    --ink: #1b1b1b; --muted: #555555; --accent: #2f9e4a; --accent-dark: #1f6d2c;
+    --on-accent: #ffffff; --box-bg: #f3f5f3; --box-border: #e6e6e6;
+    --pill-bg: #eef0ee; --pill-border: #e0e0e0; --shadow: rgba(0,0,0,.08); --foot: #8a8a8a;
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d1410; --bg-glow: #13311e; --card: #161d18; --card-border: #26302a;
+    --ink: #e7efe9; --muted: #9fb2a5; --accent: #4cc66a; --accent-dark: #6fd98a;
+    --on-accent: #08160c; --box-bg: #12211a; --box-border: #26302a;
+    --pill-bg: #12211a; --pill-border: #26302a; --shadow: rgba(0,0,0,.5); --foot: #7b9484;
+  }
   * { box-sizing: border-box; }
   body {
     margin: 0; min-height: 100vh;
     display: flex; align-items: center; justify-content: center;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    color: #15321f;
-    background: radial-gradient(1200px 600px at 50% -10%, #bfe6c8, transparent), #e9f6ec;
-    padding: 24px;
+    color: var(--ink);
+    background: radial-gradient(1200px 600px at 50% -10%, var(--bg-glow), transparent), var(--bg);
+    padding: 24px; transition: background-color .25s ease, color .25s ease;
   }
   .card {
-    background: #fff; border: 1px solid #d6e8da; border-radius: 22px;
+    background: var(--card); border: 1px solid var(--card-border); border-radius: 22px;
     max-width: 560px; width: 100%; padding: 30px 26px 22px;
-    box-shadow: 0 20px 60px rgba(20,80,40,.12); text-align: center;
+    box-shadow: 0 20px 60px var(--shadow); text-align: center;
   }
   .veg { font-size: 84px; line-height: 1; display: inline-block; animation: bob 2.2s ease-in-out infinite; }
   @keyframes bob { 0%,100% { transform: translateY(0) rotate(-3deg); } 50% { transform: translateY(-12px) rotate(3deg); } }
   h1 { margin: 10px 0 4px; font-size: 26px; letter-spacing: -.3px; }
-  .status { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; color: #2f9e4a; margin: 6px 0 14px; }
-  .dot { width: 10px; height: 10px; border-radius: 50%; background: #2f9e4a; box-shadow: 0 0 0 0 rgba(47,158,74,.6); animation: pulse 1.6s infinite; }
+  .status { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; color: var(--accent); margin: 6px 0 14px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 0 rgba(47,158,74,.6); animation: pulse 1.6s infinite; }
   @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(47,158,74,.55);} 70% { box-shadow: 0 0 0 12px rgba(47,158,74,0);} 100% { box-shadow: 0 0 0 0 rgba(47,158,74,0);} }
-  .tagline { font-size: 18px; color: #2c4a36; margin: 0 auto 16px; max-width: 460px; }
-  .box { background: #f1f8f3; border: 1px solid #dcebe0; border-radius: 14px; padding: 14px 16px; text-align: left; margin: 14px 0; }
+  .tagline { font-size: 18px; color: var(--muted); margin: 0 auto 16px; max-width: 460px; }
+  .box { background: var(--box-bg); border: 1px solid var(--box-border); border-radius: 14px; padding: 14px 16px; text-align: left; margin: 14px 0; }
   .box h2 { margin: 0 0 6px; font-size: 15px; }
-  .box p { margin: 0; font-size: 14px; color: #45624f; }
-  .joke { font-style: italic; color: #5b7a64; font-size: 14px; margin: 10px 0 16px; }
+  .box p { margin: 0; font-size: 14px; color: var(--muted); }
+  .joke { font-style: italic; color: var(--muted); font-size: 14px; margin: 10px 0 16px; }
   .cta { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-bottom: 8px; }
-  .btn { text-decoration: none; padding: 11px 18px; border-radius: 11px; font-weight: 700; font-size: 15px; border: 1px solid #2f9e4a; }
-  .btn.primary { background: #2f9e4a; color: #fff; }
-  .btn.ghost { color: #1f6d2c; background: #fff; }
-  .langs { display: inline-flex; gap: 2px; background: #eef6f0; border: 1px solid #d6e8da; border-radius: 999px; padding: 3px; margin: 4px 0 14px; }
-  .lang { border: 0; background: transparent; cursor: pointer; font-weight: 700; font-size: 13px; padding: 6px 12px; border-radius: 999px; color: #15321f; }
-  .lang.active { background: #2f9e4a; color: #fff; }
-  footer { margin-top: 12px; font-size: 12.5px; color: #7b9484; }
+  .btn { text-decoration: none; padding: 11px 18px; border-radius: 11px; font-weight: 700; font-size: 15px; border: 1px solid var(--accent); }
+  .btn.primary { background: var(--accent); color: var(--on-accent); }
+  .btn.ghost { color: var(--accent-dark); background: var(--card); }
+  .switchers { display: inline-flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin: 4px 0 14px; }
+  .pills { display: inline-flex; gap: 2px; background: var(--pill-bg); border: 1px solid var(--pill-border); border-radius: 999px; padding: 3px; }
+  .lang, .theme { border: 0; background: transparent; cursor: pointer; font-weight: 700; font-size: 13px; padding: 6px 12px; border-radius: 999px; color: var(--ink); }
+  .lang.active, .theme.active { background: var(--accent); color: var(--on-accent); }
+  footer { margin-top: 12px; font-size: 12.5px; color: var(--foot); }
 </style>
 </head>
 <body>
   <main class="card">
     <div class="veg">🥦</div>
-    <div class="langs">
-      <button class="lang" data-lang="fr">FR</button>
-      <button class="lang" data-lang="en">EN</button>
-      <button class="lang" data-lang="es">ES</button>
+    <div class="switchers">
+      <div class="pills">
+        <button class="lang" data-lang="fr">FR</button>
+        <button class="lang" data-lang="en">EN</button>
+        <button class="lang" data-lang="es">ES</button>
+      </div>
+      <div class="pills">
+        <button class="theme" data-theme="green" title="Vert">🥦</button>
+        <button class="theme" data-theme="light" title="Clair">☀</button>
+        <button class="theme" data-theme="dark" title="Sombre">🌙</button>
+      </div>
     </div>
     <h1 data-i18n="title">Serveur de rendez-vous</h1>
     <div class="status"><span class="dot"></span><span data-i18n="status">En ligne — tout roule !</span></div>
@@ -144,11 +170,27 @@ const HOME_HTML = `<!doctype html>
     var n = (navigator.language || 'fr').slice(0, 2).toLowerCase();
     return I18N[n] ? n : 'fr';
   }
+  function applyTheme(theme){
+    document.documentElement.setAttribute('data-theme', theme);
+    var tb = document.querySelectorAll('.theme');
+    for (var i = 0; i < tb.length; i++){
+      tb[i].classList.toggle('active', tb[i].getAttribute('data-theme') === theme);
+    }
+    try { localStorage.setItem('brocolis.srv.theme', theme); } catch (e) {}
+  }
+  function detectTheme(){
+    try { var s = localStorage.getItem('brocolis.srv.theme'); if (s) return s; } catch (e) {}
+    return 'green';
+  }
   document.addEventListener('click', function(e){
-    var t = e.target.closest ? e.target.closest('.lang') : null;
-    if (t) apply(t.getAttribute('data-lang'));
+    if (!e.target.closest) return;
+    var l = e.target.closest('.lang');
+    if (l) { apply(l.getAttribute('data-lang')); return; }
+    var t = e.target.closest('.theme');
+    if (t) { applyTheme(t.getAttribute('data-theme')); }
   });
   apply(detect());
+  applyTheme(detectTheme());
 </script>
 </body>
 </html>`;
