@@ -174,6 +174,9 @@ struct RootView: View {
         Section("Comment ça marche") {
             Text("Sélectionne du texte dans n’importe quelle app de messagerie, ouvre le menu **Partager**, puis choisis **Brocolis 🥦** pour chiffrer tes ((secrets)) ou déchiffrer les jetons reçus.")
                 .font(.subheadline)
+            Text("⚠️ Le résultat chiffré est copié : **colle‑le en remplaçant ton texte d’origine**. Ne laisse pas la version en clair dans le message, sinon elle reste visible.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
         }
     }
 

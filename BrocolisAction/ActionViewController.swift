@@ -142,9 +142,9 @@ final class ActionViewController: UIViewController {
         textView.text = result.text
 
         // Brocolis étant actif, on copie directement le résultat pour réduire
-        // les gestes : il n'y a plus qu'à coller dans la conversation.
+        // les gestes : il n'y a plus qu'à coller EN REMPLAÇANT le texte d'origine.
         UIPasteboard.general.string = result.text
-        statusLabel.text = result.label + " — ✅ copié, colle dans la conversation."
+        statusLabel.text = result.label + " — ✅ Copié. Colle en remplaçant ton texte (n'envoie pas le clair)."
     }
 
     // MARK: Actions
@@ -152,7 +152,7 @@ final class ActionViewController: UIViewController {
     @objc private func copyResult() {
         guard !resultText.isEmpty else { return }
         UIPasteboard.general.string = resultText
-        statusLabel.text = "✅ Copié. Colle-le dans ta conversation."
+        statusLabel.text = "✅ Copié. Colle en remplaçant ton texte d'origine (n'envoie pas le clair)."
     }
 
     @objc private func done() {
