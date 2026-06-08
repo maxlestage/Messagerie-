@@ -48,8 +48,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     ) {
         switch response.actionIdentifier {
         case BrocolisNotifications.renewActionID:
-            // Prolonge la clé courante sans ouvrir l'app.
-            BrocolisKeyStore.reapplyExpiry()
+            // Prolonge la clé concernée (id transporté dans la notification).
+            if let keyId = response.notification.request.content.userInfo[BrocolisNotifications.keyIdInfoKey] as? String {
+                BrocolisKeyStore.reapplyExpiry(forKeyId: keyId)
+            }
             BrocolisNotifications.refresh()
         case BrocolisNotifications.openRenewActionID:
             // Ouvre l'app sur l'écran d'appairage pour une vraie rotation.

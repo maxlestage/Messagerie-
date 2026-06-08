@@ -2,24 +2,62 @@
 //  BrocolisKeyStore.swift
 //  Brocolis 🥦 (partagé app + extension)
 //
-//  Gère PLUSIEURS clés nommées, partagées via l'App Group (lisibles par l'app
-//  et l'extension). Une clé est « sélectionnée » : c'est elle qui chiffre. Au
-//  déchiffrement, l'extension essaie TOUTES les clés (un message d'un
-//  correspondant se déchiffre avec la clé correspondante).
+//  Gère PLUSIEURS clés nommées (chacune avec sa propre validité/expiration),
+//  partagées via l'App Group. La clé « sélectionnée » chiffre ; au déchiffrement
+//  l'extension essaie TOUTES les clés.
 //
-//  Note sécurité : pour la démo, on utilise les `UserDefaults` de l'App Group.
-//  Les clés ne quittent jamais l'appareil. En production, préférer un groupe
-//  d'accès Trousseau (Keychain) partagé.
+//  Note sécurité : pour la démo, `UserDefaults` de l'App Group. Les clés ne
+//  quittent jamais l'appareil. En production, préférer un Trousseau partagé.
 //
 
 import Foundation
 import CryptoKit
 
-/// Une clé nommée.
-struct NamedKey: Codable, Identifiable, Equatable {
+/// Une clé nommée, avec sa durée de validité propre.
+struct NamedKey: Identifiable, Equatable {
     let id: String
     var name: String
     let base64: String
+    var ttlSeconds: Int     // 0 = jamais d'expiration
+    var expiresAt: Date?    // calculée à l'ajout / au changement de TTL
+
+    init(
+        id: String = UUID().uuidString,
+        name: String,
+        base64: String,
+        ttlSeconds: Int = 0,
+        expiresAt: Date? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.base64 = base64
+        self.ttlSeconds = ttlSeconds
+        self.expiresAt = expiresAt
+    }
+}
+
+// Codable tolérant : les anciennes clés stockées (sans ttl/expiresAt) restent
+// décodables.
+extension NamedKey: Codable {
+    enum CodingKeys: String, CodingKey { case id, name, base64, ttlSeconds, expiresAt }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        base64 = try c.decode(String.self, forKey: .base64)
+        ttlSeconds = try c.decodeIfPresent(Int.self, forKey: .ttlSeconds) ?? 0
+        expiresAt = try c.decodeIfPresent(Date.self, forKey: .expiresAt)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(name, forKey: .name)
+        try c.encode(base64, forKey: .base64)
+        try c.encode(ttlSeconds, forKey: .ttlSeconds)
+        try c.encodeIfPresent(expiresAt, forKey: .expiresAt)
+    }
 }
 
 enum BrocolisKeyStore {
@@ -27,15 +65,13 @@ enum BrocolisKeyStore {
     /// ⚠️ Doit correspondre à l'App Group activé sur l'app ET l'extension.
     static let appGroup = "group.rs.brocolis.messagerie"
 
-    private static let legacyKeyName = "shared_aes_key_b64" // ancienne clé unique
+    private static let legacyKeyName = "shared_aes_key_b64"
     private static let keysName = "keys_json"
     private static let selectedIdName = "selected_key_id"
     private static let activeName = "is_active"
     private static let serverURLName = "rendezvous_server_url"
     private static let privateKeyName = "x25519_private_b64"
     private static let fingerprintName = "pairing_fingerprint"
-    private static let ttlName = "key_ttl_seconds"
-    private static let expiresAtName = "key_expires_at"
 
     private static var defaults: UserDefaults? {
         UserDefaults(suiteName: appGroup)
@@ -43,12 +79,11 @@ enum BrocolisKeyStore {
 
     // MARK: - Liste de clés
 
-    /// Migration depuis l'ancienne clé unique, une seule fois.
     private static func migrateIfNeeded() {
         guard let d = defaults, d.data(forKey: keysName) == nil else { return }
         var initial: [NamedKey] = []
         if let legacy = d.string(forKey: legacyKeyName), !legacy.isEmpty {
-            let k = NamedKey(id: UUID().uuidString, name: "Ma clé", base64: legacy)
+            let k = NamedKey(name: "Ma clé", base64: legacy)
             initial = [k]
             d.set(k.id, forKey: selectedIdName)
             d.removeObject(forKey: legacyKeyName)
@@ -68,6 +103,11 @@ enum BrocolisKeyStore {
         }
     }
 
+    private static func loadKeysAfterMigration() -> [NamedKey] {
+        migrateIfNeeded()
+        return loadKeys()
+    }
+
     /// Toutes les clés enregistrées.
     static var keys: [NamedKey] {
         migrateIfNeeded()
@@ -76,7 +116,6 @@ enum BrocolisKeyStore {
 
     static var selectedKeyId: String? { defaults?.string(forKey: selectedIdName) }
 
-    /// Clé sélectionnée (sert à chiffrer). À défaut, la première.
     static var selectedKey: NamedKey? {
         let ks = keys
         if let id = selectedKeyId, let k = ks.first(where: { $0.id == id }) { return k }
@@ -87,20 +126,21 @@ enum BrocolisKeyStore {
         defaults?.set(id, forKey: selectedIdName)
     }
 
-    /// Ajoute une clé nommée, la sélectionne, et réarme l'expiration. Renvoie l'id.
+    /// Ajoute une clé nommée (avec sa durée de validité), la sélectionne.
     @discardableResult
-    static func addKey(name: String, base64: String) -> String {
+    static func addKey(name: String, base64: String, ttlSeconds: Int = 0) -> String {
         var ks = loadKeysAfterMigration()
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let ttl = max(0, ttlSeconds)
         let key = NamedKey(
-            id: UUID().uuidString,
             name: trimmedName.isEmpty ? "Clé \(ks.count + 1)" : trimmedName,
-            base64: base64.trimmingCharacters(in: .whitespacesAndNewlines)
+            base64: base64.trimmingCharacters(in: .whitespacesAndNewlines),
+            ttlSeconds: ttl,
+            expiresAt: computeExpiry(ttlSeconds: ttl, from: Date())
         )
         ks.append(key)
         saveKeys(ks)
         selectKey(key.id)
-        setKeyExpiresAt(computeExpiry(ttlSeconds: keyTTLSeconds, from: Date()))
         return key.id
     }
 
@@ -123,22 +163,14 @@ enum BrocolisKeyStore {
             } else {
                 defaults?.removeObject(forKey: selectedIdName)
                 defaults?.removeObject(forKey: fingerprintName)
-                defaults?.removeObject(forKey: expiresAtName)
                 setActive(false)
             }
         }
     }
 
-    private static func loadKeysAfterMigration() -> [NamedKey] {
-        migrateIfNeeded()
-        return loadKeys()
-    }
-
     // MARK: - Accès clé (compat + usage)
 
     static var hasKey: Bool { !keys.isEmpty }
-
-    /// Base64 de la clé sélectionnée (compatibilité).
     static var keyBase64: String? { selectedKey?.base64 }
 
     /// Clé symétrique sélectionnée (pour chiffrer).
@@ -152,16 +184,17 @@ enum BrocolisKeyStore {
         keys.compactMap { try? BrocolisCrypto.symmetricKey(fromBase64: $0.base64) }
     }
 
-    /// Compat : remplace la clé sélectionnée, ou crée « Ma clé » s'il n'y en a pas.
+    /// Compat : remplace la clé sélectionnée, ou crée « Ma clé ».
     static func setKey(_ base64: String) {
         let trimmed = base64.trimmingCharacters(in: .whitespacesAndNewlines)
         if let sel = selectedKey {
             var ks = loadKeysAfterMigration()
             if let i = ks.firstIndex(where: { $0.id == sel.id }) {
-                ks[i] = NamedKey(id: sel.id, name: sel.name, base64: trimmed)
+                ks[i] = NamedKey(id: sel.id, name: sel.name, base64: trimmed,
+                                 ttlSeconds: sel.ttlSeconds,
+                                 expiresAt: computeExpiry(ttlSeconds: sel.ttlSeconds, from: Date()))
                 saveKeys(ks)
             }
-            setKeyExpiresAt(computeExpiry(ttlSeconds: keyTTLSeconds, from: Date()))
         } else {
             addKey(name: "Ma clé", base64: trimmed)
         }
@@ -171,7 +204,6 @@ enum BrocolisKeyStore {
     static func clearKey() {
         if let sel = selectedKey { deleteKey(id: sel.id) }
         defaults?.removeObject(forKey: fingerprintName)
-        defaults?.removeObject(forKey: expiresAtName)
     }
 
     // MARK: État « Actif »
@@ -197,7 +229,6 @@ enum BrocolisKeyStore {
         defaults?.set(value.trimmingCharacters(in: .whitespacesAndNewlines), forKey: serverURLName)
     }
 
-    /// Clé privée X25519 locale (base64), persistée entre les appairages.
     static var privateKeyBase64: String? {
         defaults?.string(forKey: privateKeyName)
     }
@@ -206,7 +237,6 @@ enum BrocolisKeyStore {
         defaults?.set(value, forKey: privateKeyName)
     }
 
-    /// Empreinte du dernier appairage réussi (à comparer avec le correspondant).
     static var pairingFingerprint: String? {
         defaults?.string(forKey: fingerprintName)
     }
@@ -219,50 +249,59 @@ enum BrocolisKeyStore {
         }
     }
 
-    // MARK: Rotation / expiration de la clé
+    // MARK: Validité / expiration — PAR CLÉ
 
-    /// Durée de validité choisie, en secondes (0 = jamais d'expiration).
-    static var keyTTLSeconds: Int {
-        defaults?.integer(forKey: ttlName) ?? 0
+    static func keyTTLSeconds(_ id: String) -> Int {
+        keys.first(where: { $0.id == id })?.ttlSeconds ?? 0
     }
 
-    /// Définit le TTL et réapplique l'expiration à la clé courante.
-    static func setKeyTTL(_ seconds: Int) {
-        defaults?.set(max(0, seconds), forKey: ttlName)
-        reapplyExpiry()
-    }
-
-    /// Date d'expiration de la clé courante (nil = pas d'expiration).
-    static var keyExpiresAt: Date? {
-        guard let d = defaults, d.object(forKey: expiresAtName) != nil else { return nil }
-        let t = d.double(forKey: expiresAtName)
-        return t > 0 ? Date(timeIntervalSince1970: t) : nil
-    }
-
-    private static func setKeyExpiresAt(_ date: Date?) {
-        if let date {
-            defaults?.set(date.timeIntervalSince1970, forKey: expiresAtName)
-        } else {
-            defaults?.removeObject(forKey: expiresAtName)
+    /// Définit la validité d'une clé et recalcule son expiration (à partir de maintenant).
+    static func setKeyTTL(_ seconds: Int, forKeyId id: String) {
+        var ks = loadKeysAfterMigration()
+        if let i = ks.firstIndex(where: { $0.id == id }) {
+            let ttl = max(0, seconds)
+            ks[i].ttlSeconds = ttl
+            ks[i].expiresAt = computeExpiry(ttlSeconds: ttl, from: Date())
+            saveKeys(ks)
         }
     }
 
-    /// La clé courante est-elle expirée ?
+    static func keyExpiresAt(_ id: String) -> Date? {
+        keys.first(where: { $0.id == id })?.expiresAt
+    }
+
+    static func isKeyExpired(_ id: String) -> Bool {
+        isExpired(expiresAt: keyExpiresAt(id), now: Date())
+    }
+
+    /// Réarme la validité d'une clé (renouvellement « Prolonger »).
+    static func reapplyExpiry(forKeyId id: String) {
+        var ks = loadKeysAfterMigration()
+        if let i = ks.firstIndex(where: { $0.id == id }) {
+            ks[i].expiresAt = computeExpiry(ttlSeconds: ks[i].ttlSeconds, from: Date())
+            saveKeys(ks)
+        }
+    }
+
+    /// La clé SÉLECTIONNÉE est-elle expirée ? (compat extension)
     static var isExpired: Bool {
-        isExpired(expiresAt: keyExpiresAt, now: Date())
+        guard let sel = selectedKey else { return false }
+        return isExpired(expiresAt: sel.expiresAt, now: Date())
     }
 
-    /// Recalcule l'expiration de la clé courante à partir du TTL.
-    static func reapplyExpiry() {
-        guard hasKey else { setKeyExpiresAt(nil); return }
-        setKeyExpiresAt(computeExpiry(ttlSeconds: keyTTLSeconds, from: Date()))
-    }
-
-    /// Si la clé sélectionnée est expirée, l'efface (et désactive si plus de clé).
+    /// Supprime TOUTES les clés expirées. Renvoie `true` si au moins une l'a été.
     @discardableResult
     static func purgeExpiredKey() -> Bool {
-        guard hasKey, isExpired else { return false }
-        clearKey()
+        let ks = loadKeysAfterMigration()
+        let now = Date()
+        let kept = ks.filter { !isExpired(expiresAt: $0.expiresAt, now: now) }
+        guard kept.count != ks.count else { return false }
+        saveKeys(kept)
+        if let sel = selectedKeyId, !kept.contains(where: { $0.id == sel }) {
+            if let first = kept.first { selectKey(first.id) }
+            else { defaults?.removeObject(forKey: selectedIdName) }
+        }
+        if kept.isEmpty { setActive(false) }
         return true
     }
 

@@ -17,7 +17,7 @@ struct RootView: View {
     @State private var selectedId: String? = BrocolisKeyStore.selectedKeyId
     @State private var isActive = BrocolisKeyStore.isActive
     @State private var fingerprint: String? = BrocolisKeyStore.pairingFingerprint
-    @State private var keyTTL = BrocolisKeyStore.keyTTLSeconds
+    @State private var keyTTL = BrocolisKeyStore.selectedKey?.ttlSeconds ?? 0
 
     @State private var alertMessage: String?
     @State private var showPairing = false
@@ -47,8 +47,7 @@ struct RootView: View {
                 statusSection
                 pairingSection
                 keysSection
-                if selected != nil { selectedKeySection }
-                if hasKey { expirySection }
+                selectedKeySection
                 howToSection
             }
             .navigationTitle("Brocolis 🥦")
@@ -219,9 +218,9 @@ struct RootView: View {
         }
     }
 
-    private var selectedKeySection: some View {
-        Section("Clé sélectionnée") {
-            if let sel = selected {
+    @ViewBuilder private var selectedKeySection: some View {
+        if let sel = selected {
+            Section("Clé sélectionnée") {
                 Text(sel.name).font(.headline)
                 Text(sel.base64)
                     .font(.system(.footnote, design: .monospaced))
@@ -236,43 +235,39 @@ struct RootView: View {
                     Label("Partager la clé", systemImage: "square.and.arrow.up")
                 }
             }
-        }
-    }
 
-    // MARK: Expiration
-
-    private var expirySection: some View {
-        Section {
-            Picker("Validité de la clé", selection: ttlBinding) {
-                ForEach(ttlOptions, id: \.seconds) { opt in
-                    Text(opt.label).tag(opt.seconds)
+            Section {
+                Picker("Validité", selection: ttlBinding(for: sel.id)) {
+                    ForEach(ttlOptions, id: \.seconds) { opt in
+                        Text(opt.label).tag(opt.seconds)
+                    }
                 }
+                expiryStatus(for: sel)
+            } header: {
+                Text("Expiration de « \(sel.name) »")
+            } footer: {
+                Text("Au-delà de la validité, l’extension refuse de chiffrer avec cette clé. Le déchiffrement reste possible jusqu’à ce qu’elle soit purgée à l’ouverture de l’app.")
             }
-            expiryStatus
-        } header: {
-            Text("Expiration")
-        } footer: {
-            Text("Au-delà de la validité, l’extension refuse de chiffrer tant que la clé n’est pas renouvelée.")
         }
     }
 
-    private var ttlBinding: Binding<Int> {
+    private func ttlBinding(for id: String) -> Binding<Int> {
         Binding(
             get: { keyTTL },
             set: { newValue in
-                BrocolisKeyStore.setKeyTTL(newValue)
-                keyTTL = BrocolisKeyStore.keyTTLSeconds
+                BrocolisKeyStore.setKeyTTL(newValue, forKeyId: id)
+                reload()
             }
         )
     }
 
-    @ViewBuilder private var expiryStatus: some View {
-        if let expires = BrocolisKeyStore.keyExpiresAt {
-            if BrocolisKeyStore.isExpired {
-                Label("Clé expirée — renouvelle-la", systemImage: "exclamationmark.triangle.fill")
+    @ViewBuilder private func expiryStatus(for key: NamedKey) -> some View {
+        if let expires = key.expiresAt {
+            if BrocolisKeyStore.isExpired(expiresAt: expires, now: Date()) {
+                Label("Expirée — renouvelle-la", systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
             } else {
-                let lead = BrocolisKeyStore.notificationLead(ttlSeconds: keyTTL) ?? 0
+                let lead = BrocolisKeyStore.notificationLead(ttlSeconds: key.ttlSeconds) ?? 0
                 let soon = expires.timeIntervalSinceNow <= lead
                 Label {
                     Text("Expire \(expires.formatted(.relative(presentation: .named)))")
@@ -305,7 +300,7 @@ struct RootView: View {
         selectedId = BrocolisKeyStore.selectedKeyId ?? keys.first?.id
         isActive = BrocolisKeyStore.isActive
         fingerprint = BrocolisKeyStore.pairingFingerprint
-        keyTTL = BrocolisKeyStore.keyTTLSeconds
+        keyTTL = BrocolisKeyStore.selectedKey?.ttlSeconds ?? 0
         BrocolisNotifications.refresh()
     }
 
