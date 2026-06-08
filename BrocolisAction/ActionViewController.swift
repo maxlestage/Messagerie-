@@ -124,15 +124,36 @@ final class ActionViewController: UIViewController {
             resultText = ""
             return
         }
+        // Déchiffrement : un message reçu peut être chiffré avec N'IMPORTE
+        // laquelle de tes clés → on les essaie toutes.
+        if BrocolisCrypto.containsToken(input) {
+            let keys = BrocolisKeyStore.allSymmetricKeys()
+            guard !keys.isEmpty else {
+                statusLabel.text = "🔑 Aucune clé configurée."
+                textView.text = "Ouvre l’app Brocolis 🥦 pour ajouter une clé, puis réessaie."
+                resultText = ""
+                return
+            }
+            let (text, n) = BrocolisCrypto.decryptTokens(input, keys: keys)
+            resultText = text
+            textView.text = text
+            UIPasteboard.general.string = text
+            statusLabel.text = n > 0
+                ? "🔓 \(n) segment(s) déchiffré(s) — ✅ copié."
+                : "Aucun jeton lisible avec tes clés."
+            return
+        }
+
+        // Chiffrement : avec la clé SÉLECTIONNÉE.
         guard let key = BrocolisKeyStore.symmetricKey() else {
             statusLabel.text = "🔑 Aucune clé configurée."
-            textView.text = "Ouvre l’app Brocolis 🥦 pour générer ou importer une clé, puis réessaie."
+            textView.text = "Ouvre l’app Brocolis 🥦 pour ajouter une clé, puis réessaie."
             resultText = ""
             return
         }
         guard !BrocolisKeyStore.isExpired else {
             statusLabel.text = "⌛️ Clé expirée."
-            textView.text = "Renouvelle la clé dans l’app Brocolis 🥦 (ou ré-appaire-toi), puis réessaie."
+            textView.text = "Renouvelle la clé dans l’app Brocolis 🥦, puis réessaie."
             resultText = ""
             return
         }
@@ -141,8 +162,8 @@ final class ActionViewController: UIViewController {
         resultText = result.text
         textView.text = result.text
 
-        // Brocolis étant actif, on copie directement le résultat pour réduire
-        // les gestes : il n'y a plus qu'à coller EN REMPLAÇANT le texte d'origine.
+        // Brocolis étant actif, on copie directement le résultat : il n'y a plus
+        // qu'à coller EN REMPLAÇANT le texte d'origine.
         UIPasteboard.general.string = result.text
         statusLabel.text = result.label + " — ✅ Copié. Colle en remplaçant ton texte (n'envoie pas le clair)."
     }

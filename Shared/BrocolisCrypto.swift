@@ -125,5 +125,40 @@ enum BrocolisCrypto {
         return (out, count)
     }
 
+    /// Déchiffre chaque jeton en **essayant plusieurs clés** : pour chaque jeton,
+    /// la première clé qui réussit gagne. Idéal quand on a une clé par
+    /// correspondant. Un jeton qu'aucune clé ne déchiffre est laissé tel quel.
+    @discardableResult
+    static func decryptTokens(_ input: String, keys: [SymmetricKey]) -> (text: String, count: Int) {
+        var out = ""
+        var count = 0
+        var rest = Substring(input)
+
+        while let start = rest.range(of: tokenPrefix) {
+            let afterPrefix = rest[start.upperBound...]
+            guard let end = afterPrefix.range(of: tokenSuffix) else { break }
+            let b64 = String(afterPrefix[afterPrefix.startIndex..<end.lowerBound])
+
+            out += rest[rest.startIndex..<start.lowerBound]
+
+            var decrypted: String?
+            for key in keys {
+                if let plain = try? decryptToken(base64: b64, key: key) {
+                    decrypted = String(decoding: plain, as: UTF8.self)
+                    break
+                }
+            }
+            if let plain = decrypted {
+                out += plain
+                count += 1
+            } else {
+                out += tokenPrefix + b64 + tokenSuffix
+            }
+            rest = afterPrefix[end.upperBound...]
+        }
+        out += rest
+        return (out, count)
+    }
+
     static func containsToken(_ text: String) -> Bool { text.contains(tokenPrefix) }
 }
