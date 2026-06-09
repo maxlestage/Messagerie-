@@ -95,7 +95,7 @@ export default function App() {
             width={180}
             height={180}
           />
-          <h1>Brocolis messageries</h1>
+          <h1>Brocolis 🥦 messageries</h1>
           <p className="tagline" dangerouslySetInnerHTML={{ __html: t("hero.tagline") }} />
           <div className="cta">
             <a className="btn primary" href={REPO_URL}>{t("cta.repo")}</a>
