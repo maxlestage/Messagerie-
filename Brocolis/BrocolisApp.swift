@@ -37,6 +37,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 
     func applicationWillTerminate(_ application: UIApplication) {
         BrocolisKeyStore.setActive(false)
+        BrocolisLiveActivity.sync(active: false)
     }
 
     /// Action « Prolonger » : réarme la validité de la clé courante (même clé),

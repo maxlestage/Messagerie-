@@ -127,12 +127,16 @@ Shared/                       # code partagé app + extension
   BrocolisKeyStore.swift      # clé + état actif + appairage (App Group)
   BrocolisTransform.swift     # chiffre/déchiffre en un geste (auto-détection)
   BrocolisKeyAgreement.swift  # accord de clé X25519 (ECDH + HKDF) + empreinte
+  BrocolisActivityAttributes.swift # attributs de la Live Activity 🥦
 Brocolis/                     # app hôte
   BrocolisApp.swift, RootView.swift, Assets, Brocolis.entitlements
   PairingView.swift           # écran d'appairage automatique
   PairingClient.swift         # client du serveur de rendez-vous
+  BrocolisLiveActivity.swift  # démarre/termine la Live Activity « actif »
 BrocolisAction/               # Action Extension (menu Partager)
   ActionViewController.swift, Info.plist, BrocolisAction.entitlements
+BrocolisStatus/               # extension widget : 🥦 dans la Dynamic Island
+  BrocolisStatusLiveActivity.swift, Info.plist
 BrocolisTests/                # tests XCTest (crypto, transform, accord de clé)
 server/                       # serveur de rendez-vous X25519 (Node)
 ```
@@ -144,6 +148,12 @@ Pré-requis : **Xcode 15+**, iOS 16+.
 ```sh
 open Brocolis.xcodeproj
 ```
+
+> 🥦 **Indicateur « actif »** : iOS n'autorise pas d'icône dans la barre de
+> statut système. À la place, quand Brocolis est activé, une **Live Activity**
+> affiche un 🥦 dans la **Dynamic Island** (iPhone 14 Pro et suivants) et une
+> bannière sur l'écran verrouillé (iOS 16.1+). Elle disparaît quand tu
+> désactives Brocolis (limite système : ~8 h, rouvre l'app pour la relancer).
 
 Dans Xcode, pour **chaque** cible (`Brocolis` et `BrocolisAction`) :
 
