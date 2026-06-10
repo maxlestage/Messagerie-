@@ -69,7 +69,6 @@ enum BrocolisKeyStore {
     private static let keysName = "keys_json"
     private static let selectedIdName = "selected_key_id"
     private static let activeName = "is_active"
-    private static let serverURLName = "rendezvous_server_url"
     private static let privateKeyName = "x25519_private_b64"
     private static let fingerprintName = "pairing_fingerprint"
 
@@ -218,16 +217,8 @@ enum BrocolisKeyStore {
 
     // MARK: Appairage automatique (X25519)
 
-    /// URL du serveur de rendez-vous. Par défaut : l'instance Heroku du projet.
-    static let defaultServerURL = "https://brocolismessageriesiphone-de6b42e2c835.herokuapp.com"
-
-    static var serverURL: String {
-        defaults?.string(forKey: serverURLName) ?? defaultServerURL
-    }
-
-    static func setServerURL(_ value: String) {
-        defaults?.set(value.trimmingCharacters(in: .whitespacesAndNewlines), forKey: serverURLName)
-    }
+    /// URL du serveur de rendez-vous, en dur : l'instance Heroku du projet.
+    static let serverURL = "https://brocolismessageriesiphone-de6b42e2c835.herokuapp.com"
 
     static var privateKeyBase64: String? {
         defaults?.string(forKey: privateKeyName)
