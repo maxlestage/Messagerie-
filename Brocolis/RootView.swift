@@ -133,6 +133,7 @@ struct RootView: View {
             set: { newValue in
                 BrocolisKeyStore.setActive(newValue)
                 isActive = BrocolisKeyStore.isActive
+                BrocolisLiveActivity.sync(active: isActive)
             }
         )
     }
@@ -302,6 +303,7 @@ struct RootView: View {
         fingerprint = BrocolisKeyStore.pairingFingerprint
         keyTTL = BrocolisKeyStore.selectedKey?.ttlSeconds ?? 0
         BrocolisNotifications.refresh()
+        BrocolisLiveActivity.sync(active: isActive)
     }
 
     private func purgeIfNeeded() {
