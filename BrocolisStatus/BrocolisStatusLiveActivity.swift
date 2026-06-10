@@ -14,6 +14,7 @@ import ActivityKit
 @main
 struct BrocolisStatusBundle: WidgetBundle {
     var body: some Widget {
+        BrocolisStatusWidget()
         BrocolisStatusLiveActivity()
     }
 }
