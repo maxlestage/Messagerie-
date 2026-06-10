@@ -13,7 +13,6 @@ import SwiftUI
 import CryptoKit
 
 struct PairingView: View {
-    @State private var serverURL = BrocolisKeyStore.serverURL
     @State private var code = ""
     @State private var status = ""
     @State private var fingerprint: String? = BrocolisKeyStore.pairingFingerprint
@@ -25,15 +24,8 @@ struct PairingView: View {
     var body: some View {
         Form {
             Section {
-                Text("Saisissez **le même code** sur tous les téléphones, sur le même serveur.")
+                Text("Saisissez **le même code** sur tous les téléphones.")
                     .font(.subheadline)
-            }
-
-            Section("Serveur de rendez-vous") {
-                TextField(BrocolisKeyStore.defaultServerURL, text: $serverURL)
-                    .keyboardType(.URL)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
             }
 
             Section("Code de jumelage") {
@@ -106,8 +98,7 @@ struct PairingView: View {
         Button(action: action) {
             Label(title, systemImage: systemImage)
         }
-        .disabled(isWorking || serverURL.trimmingCharacters(in: .whitespaces).isEmpty
-                  || code.trimmingCharacters(in: .whitespaces).isEmpty)
+        .disabled(isWorking || code.trimmingCharacters(in: .whitespaces).isEmpty)
     }
 
     private func randomCode(length: Int = 6) -> String {
@@ -117,7 +108,6 @@ struct PairingView: View {
     // MARK: Orchestration
 
     private func run(_ body: @escaping () async throws -> Void) {
-        BrocolisKeyStore.setServerURL(serverURL)
         code = code.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         isWorking = true
         fingerprint = nil
@@ -138,7 +128,7 @@ struct PairingView: View {
         if isWorking { isWorking = false }
     }
 
-    private var client: PairingClient { PairingClient(baseURL: serverURL.trimmingCharacters(in: .whitespaces)) }
+    private var client: PairingClient { PairingClient(baseURL: BrocolisKeyStore.serverURL) }
 
     // MARK: Flux — à deux
 
