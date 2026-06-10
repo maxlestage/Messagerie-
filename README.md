@@ -26,7 +26,9 @@ une **Action Extension** sur le texte sélectionné.
    message d'un correspondant se déchiffre avec la clé qui lui correspond).
    Transmets une clé par un canal sûr (ou utilise l'appairage).
 2. Mets l'interrupteur **Actif** sur ON. Brocolis **reste actif** tant que tu ne
-   le repasses pas sur OFF (ou que tu ne fermes pas l'app).
+   le repasses pas sur OFF (ou que tu ne fermes pas l'app). Quand c'est actif,
+   un **🥦 s'affiche dans la Dynamic Island** (et sur l'écran verrouillé) via
+   une Live Activity — voir plus bas.
 3. Dans **n'importe quelle app**, sélectionne du texte → **Partager** →
    **Brocolis 🥦**. Quand c'est actif, l'extension :
    - **chiffre** les segments `((entre doubles parenthèses))` (ou toute la
@@ -62,9 +64,10 @@ Plutôt que de copier-coller la clé symétrique, deux personnes peuvent
 3. L'app affiche une **empreinte de sécurité** : comparez-la de vive voix. Si
    elle est identique des deux côtés, personne n'a intercepté l'échange (MITM).
 
-Le serveur de rendez-vous est dans [`server/`](server/) (Node, sans dépendance).
-L'appairage active automatiquement Brocolis ; l'extension utilise ensuite la clé
-dérivée comme d'habitude.
+Le serveur de rendez-vous est dans [`server/`](server/) (Node, sans dépendance) ;
+l'instance de production tourne sur Heroku (URL ci-dessus, fixée en dur dans
+l'app). L'appairage active automatiquement Brocolis ; l'extension utilise
+ensuite la clé dérivée comme d'habitude.
 
 > Le code court ne sert qu'à se *rejoindre* : la sécurité réelle vient de X25519
 > et de la vérification de l'empreinte.
@@ -118,6 +121,24 @@ Même format de jeton (`[[BROCOLIS:v1:…]]`, AES-256-GCM,
 une clé `brocolis keygen` fonctionne dans l'app, et les jetons sont
 déchiffrables par brocolis (et inversement).
 
+## Interopérable avec Android (au niveau du protocole)
+
+Le protocole n'utilise **que des standards ouverts** — rien de propriétaire
+Apple : X25519 (RFC 7748, clés publiques en 32 octets bruts base64),
+HKDF-SHA256 (RFC 5869, sels `brocolis-x25519` / `brocolis-x25519-wrap`,
+info = concaténation triée des deux clés publiques) et AES-256-GCM (NIST).
+Un client Android peut donc s'appairer avec un iPhone et échanger des jetons,
+avec `java.security`/`javax.crypto` (X25519 natif depuis Android 13) ou
+Tink/libsodium pour les versions antérieures.
+
+C'est **vérifié par des tests** : [`server/interop.test.js`](server/interop.test.js)
+valide les primitives contre les vecteurs officiels des RFC (ceux-là mêmes que
+CryptoKit implémente), puis déroule le flux complet entre deux clients
+indépendants — appairage, même clé dérivée, même empreinte, clé de groupe
+emballée/déballée, jetons déchiffrés croisés dans les deux sens. Ce fichier
+sert aussi de **spécification exécutable** pour écrire le client Android
+(l'app Android elle-même reste à faire).
+
 ## Structure
 
 ```
@@ -155,13 +176,15 @@ open Brocolis.xcodeproj
 > bannière sur l'écran verrouillé (iOS 16.1+). Elle disparaît quand tu
 > désactives Brocolis (limite système : ~8 h, rouvre l'app pour la relancer).
 
-Dans Xcode, pour **chaque** cible (`Brocolis` et `BrocolisAction`) :
+Dans Xcode, pour **chaque** cible (`Brocolis`, `BrocolisAction` et
+`BrocolisStatus`) :
 
 1. **Signing & Capabilities** → choisis ton équipe de signature.
 2. Vérifie la capacité **App Groups** avec le groupe
-   `group.rs.brocolis.messagerie` activé sur les **deux** cibles (ou remplace
-   par ton propre identifiant de groupe, identique des deux côtés et dans
-   `BrocolisKeyStore.appGroup`).
+   `group.rs.brocolis.messagerie` activé sur `Brocolis` **et**
+   `BrocolisAction` (ou remplace par ton propre identifiant de groupe,
+   identique des deux côtés et dans `BrocolisKeyStore.appGroup`).
+   `BrocolisStatus` n'en a pas besoin.
 3. Sélectionne le schéma **Brocolis**, un iPhone/simulateur, puis **Run**.
 
 Pour tester l'extension : lance l'app (la clé), puis va dans une app avec du
@@ -183,8 +206,10 @@ Cmd+U dans Xcode   (ou : xcodebuild test -scheme Brocolis -destination 'platform
 ```
 
 Le **serveur de rendez-vous** a ses propres tests Node (exécutables partout) —
-ils vérifient le flux d'appairage et que **les deux appareils dérivent une clé
-identique** :
+ils vérifient le flux d'appairage, que **les deux appareils dérivent une clé
+identique**, et l'**interopérabilité iPhone ↔ Android** (vecteurs officiels
+RFC 7748 / RFC 5869 / NIST GCM + flux croisé complet, voir
+`server/interop.test.js`) :
 
 ```
 cd server && npm test
