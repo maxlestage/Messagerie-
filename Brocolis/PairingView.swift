@@ -223,6 +223,7 @@ struct PairingView: View {
         BrocolisKeyStore.addKey(name: name.isEmpty ? "Appairage" : name, base64: keyB64)
         BrocolisKeyStore.setPairingFingerprint(fp)
         BrocolisKeyStore.setActive(true)
+        BrocolisLiveActivity.sync(active: true)
         Task { @MainActor in
             fingerprint = fp
             status = message
