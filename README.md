@@ -156,8 +156,10 @@ Brocolis/                     # app hôte
   BrocolisLiveActivity.swift  # démarre/termine la Live Activity « actif »
 BrocolisAction/               # Action Extension (menu Partager)
   ActionViewController.swift, Info.plist, BrocolisAction.entitlements
-BrocolisStatus/               # extension widget : 🥦 dans la Dynamic Island
-  BrocolisStatusLiveActivity.swift, Info.plist
+BrocolisStatus/               # extension widget : Dynamic Island + écran d'accueil
+  BrocolisStatusLiveActivity.swift # Live Activity (🥦 quand actif)
+  BrocolisStatusWidget.swift  # widget accueil/verrouillage (état, clé, expiration)
+  Info.plist, BrocolisStatus.entitlements
 BrocolisTests/                # tests XCTest (crypto, transform, accord de clé)
 server/                       # serveur de rendez-vous X25519 (Node)
 ```
@@ -175,16 +177,20 @@ open Brocolis.xcodeproj
 > affiche un 🥦 dans la **Dynamic Island** (iPhone 14 Pro et suivants) et une
 > bannière sur l'écran verrouillé (iOS 16.1+). Elle disparaît quand tu
 > désactives Brocolis (limite système : ~8 h, rouvre l'app pour la relancer).
+>
+> 📱 **Widget** : un widget **Brocolis 🥦** (appui long sur l'écran d'accueil →
+> ➕ → Brocolis) montre en permanence l'état actif/inactif, la clé sélectionnée
+> et son expiration. Existe aussi en version **écran verrouillé** (cercle,
+> ligne, rectangle). Il se met à jour à chaque changement dans l'app.
 
 Dans Xcode, pour **chaque** cible (`Brocolis`, `BrocolisAction` et
 `BrocolisStatus`) :
 
 1. **Signing & Capabilities** → choisis ton équipe de signature.
 2. Vérifie la capacité **App Groups** avec le groupe
-   `group.rs.brocolis.messagerie` activé sur `Brocolis` **et**
-   `BrocolisAction` (ou remplace par ton propre identifiant de groupe,
-   identique des deux côtés et dans `BrocolisKeyStore.appGroup`).
-   `BrocolisStatus` n'en a pas besoin.
+   `group.rs.brocolis.messagerie` activé sur les **trois** cibles (ou
+   remplace par ton propre identifiant de groupe, identique partout et dans
+   `BrocolisKeyStore.appGroup`) — le widget lit l'état via ce groupe.
 3. Sélectionne le schéma **Brocolis**, un iPhone/simulateur, puis **Run**.
 
 Pour tester l'extension : lance l'app (la clé), puis va dans une app avec du
