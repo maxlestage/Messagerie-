@@ -10,6 +10,7 @@
 //
 
 import Foundation
+import WidgetKit
 
 #if canImport(ActivityKit)
 import ActivityKit
@@ -19,7 +20,9 @@ enum BrocolisLiveActivity {
 
     /// Aligne la Live Activity sur l'état « Actif ». Idempotent : ne démarre
     /// rien si elle tourne déjà, ne termine rien s'il n'y a rien à terminer.
+    /// Recharge aussi le widget d'écran d'accueil, qui lit le même état.
     static func sync(active: Bool) {
+        WidgetCenter.shared.reloadAllTimelines()
         #if canImport(ActivityKit)
         guard #available(iOS 16.1, *) else { return }
         Task {
