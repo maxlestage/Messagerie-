@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { useT } from "../i18n/LangContext";
 
 const LICENSE_FILE = "https://github.com/maxlestage/Messagerie-/blob/master/LICENSE";
@@ -15,7 +16,7 @@ export function LicensePage() {
         </a>
       </p>
       <p>
-        <a href="#/">{t("license.back")}</a>
+        <Link to="/">{t("license.back")}</Link>
       </p>
     </section>
   );
