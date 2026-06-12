@@ -10,6 +10,8 @@
     "dev": "vite",
     "prebuild": "npm run copy-readme",
     "build": "vite build",
+    "embed": "node embed-into-server.mjs",
+    "build:embed": "npm run build && npm run embed",
     "preview": "vite preview"
   },
   "dependencies": {
