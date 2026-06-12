@@ -5,3 +5,5 @@ site/.expo
 Brocolis.xcodeproj
 *.png
 *.jpeg
+# …mais on garde les assets de la vitrine pré-construite servie sur /site/.
+!server/public/**
