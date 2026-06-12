@@ -18,8 +18,51 @@
 'use strict';
 
 const http = require('http');
+const fs = require('fs');
+const path = require('path');
 
 const TTL_MS = 10 * 60 * 1000; // 10 min
+
+// Vitrine statique (le site React de site/, pré-construit dans public/) servie
+// sur /site/. L'API de rendez-vous reste sur /pair, /wrap, /health.
+const SITE_DIR = path.join(__dirname, 'public');
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.md': 'text/markdown; charset=utf-8',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.json': 'application/json; charset=utf-8',
+  '.woff2': 'font/woff2',
+};
+
+// Sert un fichier de la vitrine pour un chemin commençant par /site/.
+// Renvoie true si la requête a été traitée (fichier servi ou 404 vitrine).
+function serveSite(res, pathname) {
+  let rel = decodeURIComponent(pathname.slice('/site/'.length));
+  if (rel === '' || rel.endsWith('/')) rel += 'index.html';
+  // Garde anti-traversée : on résout puis on vérifie qu'on reste dans SITE_DIR.
+  const filePath = path.join(SITE_DIR, rel);
+  if (filePath !== SITE_DIR && !filePath.startsWith(SITE_DIR + path.sep)) {
+    res.writeHead(403, { 'content-type': 'text/plain' });
+    res.end('forbidden');
+    return true;
+  }
+  fs.readFile(filePath, (err, data) => {
+    if (err) {
+      res.writeHead(404, { 'content-type': 'text/plain' });
+      res.end('introuvable');
+      return;
+    }
+    res.writeHead(200, { 'content-type': MIME[path.extname(filePath)] || 'application/octet-stream' });
+    res.end(data);
+  });
+  return true;
+}
 const DEFAULT_MAX_PEERS = Number(process.env.MAX_PEERS) || 16;
 
 // Page d'accueil HTML rigolote et multilingue (FR/EN/ES). Sert juste de vitrine ;
@@ -110,7 +153,7 @@ const HOME_HTML = `<!doctype html>
     </div>
     <p class="joke" data-i18n="joke">Aucun brocoli n'a été blessé pendant le chiffrement.</p>
     <div class="cta">
-      <a class="btn primary" data-i18n="ctaApp" href="https://maxlestage.github.io/Messagerie-/">Découvrir l'app</a>
+      <a class="btn primary" data-i18n="ctaApp" href="/site/">Découvrir l'app</a>
       <a class="btn ghost" data-i18n="ctaBrocolis" href="https://maxlestage.github.io/brocolis/">Projet brocolis</a>
     </div>
     <footer data-i18n="footer">Hébergé avec amour et un peu de chlorophylle.</footer>
@@ -247,6 +290,17 @@ function createRendezvous(options = {}) {
       res.writeHead(200, { 'content-type': 'text/plain' });
       res.end('ok');
       return;
+    }
+
+    // Vitrine : /site -> /site/ (pour que les liens relatifs résolvent), puis
+    // sert les fichiers statiques pré-construits.
+    if (req.method === 'GET' && url.pathname === '/site') {
+      res.writeHead(302, { location: '/site/' });
+      res.end();
+      return;
+    }
+    if (req.method === 'GET' && url.pathname.startsWith('/site/')) {
+      if (serveSite(res, url.pathname)) return;
     }
 
     if (req.method === 'GET' && url.pathname === '/pair') {
