@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link, Route, Routes, useLocation } from "react-router-dom";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -6,11 +7,7 @@ import { useT } from "./i18n/LangContext";
 import type { I18nKey } from "./i18n/dict";
 import { Navbar } from "./components/Navbar";
 import { LicensePage } from "./components/LicensePage";
-
-type Route = "home" | "license";
-function getRoute(): Route {
-  return window.location.hash.startsWith("#/license") ? "license" : "home";
-}
+import { ServerPage } from "./components/ServerPage";
 
 const REPO_URL = "https://github.com/maxlestage/Messagerie-";
 const BROCOLIS_URL = "https://maxlestage.github.io/brocolis/";
@@ -48,28 +45,9 @@ const FEATURES: { icon: string; title: I18nKey; text: I18nKey }[] = [
   { icon: "🥦", title: "feat.interop.t", text: "feat.interop.d" },
 ];
 
-export default function App() {
+function HomePage() {
   const t = useT();
   const [readme, setReadme] = useState<string | null>(null);
-  const [route, setRoute] = useState<Route>(getRoute());
-
-  useEffect(() => {
-    const onHash = () => setRoute(getRoute());
-    window.addEventListener("hashchange", onHash);
-    return () => window.removeEventListener("hashchange", onHash);
-  }, []);
-
-  // Au changement de page, remonte en haut (licence) ou rejoint l'ancre (accueil).
-  useEffect(() => {
-    if (route === "license") {
-      window.scrollTo(0, 0);
-      return;
-    }
-    const h = window.location.hash;
-    if (h.length > 1 && !h.startsWith("#/")) {
-      document.getElementById(h.slice(1))?.scrollIntoView();
-    }
-  }, [route]);
 
   useEffect(() => {
     fetch("README.md")
@@ -80,14 +58,8 @@ export default function App() {
 
   return (
     <>
-      <Navbar />
-      <div className="page">
-        {route === "license" ? (
-          <LicensePage />
-        ) : (
-          <>
-        <header className="hero" id="top">
-          <div className="hero-inner">
+      <header className="hero" id="top">
+        <div className="hero-inner">
           <img
             className="logo-img"
             src={`${import.meta.env.BASE_URL}photo.png`}
@@ -99,6 +71,7 @@ export default function App() {
           <p className="tagline" dangerouslySetInnerHTML={{ __html: t("hero.tagline") }} />
           <div className="cta">
             <a className="btn primary" href={REPO_URL}>{t("cta.repo")}</a>
+            <Link className="btn" to="/serveur">{t("cta.server")}</Link>
             <a className="btn" href={BROCOLIS_URL}>{t("cta.brocolis")}</a>
           </div>
         </div>
@@ -135,17 +108,39 @@ export default function App() {
           </article>
         )}
       </main>
-          </>
-        )}
+    </>
+  );
+}
 
-      <footer className="footer">
-        <nav className="footer-links" aria-label={t("nav.menu")}>
-          <a href="#/license">{t("nav.license")}</a>
-          <a href={REPO_URL} target="_blank" rel="noopener noreferrer">{t("cta.repo")}</a>
-          <a href={BROCOLIS_URL} target="_blank" rel="noopener noreferrer">brocolis</a>
-        </nav>
-        <p className="footer-tagline">{t("footer.tagline")}</p>
-      </footer>
+export default function App() {
+  const t = useT();
+  const { pathname } = useLocation();
+
+  // À chaque changement de page, on repart du haut.
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [pathname]);
+
+  return (
+    <>
+      <Navbar />
+      <div className="page">
+        <Routes>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/license" element={<LicensePage />} />
+          <Route path="/serveur" element={<ServerPage />} />
+          <Route path="*" element={<HomePage />} />
+        </Routes>
+
+        <footer className="footer">
+          <nav className="footer-links" aria-label={t("nav.menu")}>
+            <Link to="/serveur">{t("nav.server")}</Link>
+            <Link to="/license">{t("nav.license")}</Link>
+            <a href={REPO_URL} target="_blank" rel="noopener noreferrer">{t("cta.repo")}</a>
+            <a href={BROCOLIS_URL} target="_blank" rel="noopener noreferrer">brocolis</a>
+          </nav>
+          <p className="footer-tagline">{t("footer.tagline")}</p>
+        </footer>
       </div>
     </>
   );
