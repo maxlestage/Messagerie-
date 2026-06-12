@@ -218,7 +218,7 @@ enum BrocolisKeyStore {
     // MARK: Appairage automatique (X25519)
 
     /// URL du serveur de rendez-vous, en dur : l'instance Heroku du projet.
-    static let serverURL = "https://brocolismessageriesiphone-de6b42e2c835.herokuapp.com"
+    static let serverURL = "https://brocolis-serveur-839b43057467.herokuapp.com"
 
     static var privateKeyBase64: String? {
         defaults?.string(forKey: privateKeyName)
