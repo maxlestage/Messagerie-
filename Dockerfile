@@ -5,9 +5,11 @@ FROM node:22-alpine
 
 WORKDIR /app
 
-# Le serveur n'a aucune dépendance externe : on copie juste ses sources.
+# Le serveur n'a aucune dépendance externe : on copie ses sources + la vitrine
+# pré-construite (servie sur /site/).
 COPY server/package.json ./
 COPY server/index.js ./
+COPY server/public ./public
 
 ENV NODE_ENV=production
 EXPOSE 8788

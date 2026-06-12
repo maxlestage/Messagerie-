@@ -5,10 +5,16 @@ Petite app iOS native (Swift) qui ajoute le **chiffrement sélectif de
 de messagerie existante** (WhatsApp, iMessage, Messenger, Notes…) via une
 **Action Extension** dans le menu **Partager**.
 
-> 🌐 **Site** : <https://maxlestage.github.io/Messagerie-/> — une vitrine React
-> (dans [`site/`](site/)) qui rend ce README, déployée sur **GitHub Pages** via
-> `.github/workflows/pages.yml`. Le déploiement part de la **branche par défaut**
-> du dépôt (contrainte de l'environnement `github-pages`).
+> 🌐 **Site vitrine** : une vitrine React (dans [`site/`](site/)) qui rend ce
+> README. Elle est **servie par le serveur de rendez-vous lui-même**, sur la
+> seconde page **`/site/`** :
+> <https://brocolis-serveur-839b43057467.herokuapp.com/site/>. Pas besoin d'un
+> hébergement séparé : une seule app Heroku sert l'API d'appairage **et** la
+> vitrine.
+>
+> Pour régénérer la vitrine embarquée après une modif du README ou du site :
+> `cd site && npm run build:embed` (construit `site/dist` et le recopie dans
+> [`server/public/`](server/public/), d'où le serveur la sert).
 
 ## Pourquoi une extension (et pas un proxy en arrière-plan)
 
