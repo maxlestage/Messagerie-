@@ -56,7 +56,7 @@ Plutôt que de copier-coller la clé symétrique, deux personnes peuvent
 
 1. Les deux ouvrent l'app → **Appairer automatiquement**, renseignent
    **le même code court** (ex. `ABC123`). Le serveur de rendez-vous est fixé
-   dans l'app : <https://brocolismessageriesiphone-de6b42e2c835.herokuapp.com>.
+   dans l'app : <https://brocolis-serveur-839b43057467.herokuapp.com>.
 2. Chaque téléphone publie sa **clé publique** sur le serveur de rendez-vous et
    récupère celle de l'autre, puis **dérive seul** la même clé AES (HKDF). La
    clé secrète n'est jamais transmise ; le serveur ne voit que des clés
