@@ -158,7 +158,8 @@ final class ActionViewController: UIViewController {
             return
         }
 
-        let result = BrocolisTransform.auto(input, key: key)
+        let result = BrocolisTransform.auto(
+            input, key: key, encryptWholeAlways: BrocolisKeyStore.encryptWholeAlways)
         resultText = result.text
         textView.text = result.text
 
