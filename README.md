@@ -37,13 +37,17 @@ une **Action Extension** sur le texte sélectionné.
    une Live Activity — voir plus bas.
 3. Dans **n'importe quelle app**, sélectionne du texte → **Partager** →
    **Brocolis 🥦**. Quand c'est actif, l'extension :
-   - **chiffre** les segments `((entre doubles parenthèses))` (ou toute la
-     sélection si aucun marqueur) en jetons `[[BROCOLIS:v1:…]]` ;
-   - **déchiffre** automatiquement si la sélection contient des jetons ;
+   - **chiffre toute la sélection** d'un bloc par défaut (réglage **« Tout
+     chiffrer »**, activé) — pas besoin de marquer le texte, même quand tu es
+     seul ;
+   - si tu **désactives** « Tout chiffrer », elle ne chiffre que les segments
+     `((entre doubles parenthèses))` et laisse le reste en clair ;
+   - **déchiffre** automatiquement si la sélection contient des jetons
+     `[[BROCOLIS:v1:…]]` (déchiffrement toujours prioritaire) ;
    - **copie** le résultat tout de suite — il n'y a plus qu'à coller.
 
-La clé **et l'état Actif** sont partagés entre l'app et l'extension via un
-**App Group**.
+La clé, l'état **Actif** et le réglage **« Tout chiffrer »** sont partagés
+entre l'app et l'extension via un **App Group**.
 
 ### État « Actif »
 

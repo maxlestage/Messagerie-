@@ -16,6 +16,7 @@ struct RootView: View {
     @State private var keys: [NamedKey] = BrocolisKeyStore.keys
     @State private var selectedId: String? = BrocolisKeyStore.selectedKeyId
     @State private var isActive = BrocolisKeyStore.isActive
+    @State private var encryptWhole = BrocolisKeyStore.encryptWholeAlways
     @State private var fingerprint: String? = BrocolisKeyStore.pairingFingerprint
     @State private var keyTTL = BrocolisKeyStore.selectedKey?.ttlSeconds ?? 0
 
@@ -45,6 +46,7 @@ struct RootView: View {
         NavigationStack {
             Form {
                 statusSection
+                encryptionSection
                 pairingSection
                 keysSection
                 selectedKeySection
@@ -125,6 +127,32 @@ struct RootView: View {
                 Text("Active Brocolis pour que l’extension Partager fonctionne.")
             }
         }
+    }
+
+    // MARK: Chiffrement
+
+    private var encryptionSection: some View {
+        Section {
+            Toggle(isOn: encryptWholeBinding) {
+                Label("Tout chiffrer", systemImage: "lock.rectangle.on.rectangle.fill")
+            }
+        } header: {
+            Text("Chiffrement")
+        } footer: {
+            Text(encryptWhole
+                 ? "Toute ta sélection est chiffrée d'un bloc, même quand tu es seul — pas besoin d'entourer le texte de ((…))."
+                 : "Seuls les passages entre ((…)) sont chiffrés ; le reste du texte reste en clair.")
+        }
+    }
+
+    private var encryptWholeBinding: Binding<Bool> {
+        Binding(
+            get: { encryptWhole },
+            set: { newValue in
+                BrocolisKeyStore.setEncryptWholeAlways(newValue)
+                encryptWhole = BrocolisKeyStore.encryptWholeAlways
+            }
+        )
     }
 
     private var activeBinding: Binding<Bool> {
@@ -300,6 +328,7 @@ struct RootView: View {
         keys = BrocolisKeyStore.keys
         selectedId = BrocolisKeyStore.selectedKeyId ?? keys.first?.id
         isActive = BrocolisKeyStore.isActive
+        encryptWhole = BrocolisKeyStore.encryptWholeAlways
         fingerprint = BrocolisKeyStore.pairingFingerprint
         keyTTL = BrocolisKeyStore.selectedKey?.ttlSeconds ?? 0
         BrocolisNotifications.refresh()

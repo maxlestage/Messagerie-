@@ -82,6 +82,35 @@ final class BrocolisTransformTests: XCTestCase {
         XCTAssertTrue(result.text.contains("((pas touché))"))
     }
 
+    func testEncryptWholeAlwaysIgnoresMarkers() throws {
+        // Mode « Tout chiffrer » : la sélection entière est chiffrée d'un bloc,
+        // même si elle contient des marqueurs ((…)).
+        let key = try newKey()
+        let result = BrocolisTransform.auto("avant ((secret)) après", key: key, encryptWholeAlways: true)
+        if case .encryptedWhole = result.outcome {
+            XCTAssertTrue(result.text.hasPrefix(BrocolisCrypto.tokenPrefix))
+            XCTAssertTrue(result.text.hasSuffix(BrocolisCrypto.tokenSuffix))
+            XCTAssertFalse(result.text.contains("secret"))
+            XCTAssertFalse(result.text.contains("avant"))
+        } else {
+            XCTFail("attendu .encryptedWhole, obtenu \(result.outcome)")
+        }
+        // Round-trip : on récupère le texte d'origine ENTIER, marqueurs compris.
+        let dec = BrocolisTransform.auto(result.text, key: key)
+        XCTAssertEqual(dec.text, "avant ((secret)) après")
+    }
+
+    func testEncryptWholeAlwaysStillDecryptsTokens() throws {
+        // Même en mode tout-chiffrer, un jeton présent est déchiffré (priorité).
+        let key = try newKey()
+        let token = try BrocolisCrypto.encryptToken(Data("z".utf8), key: key)
+        let r = BrocolisTransform.auto(token, key: key, encryptWholeAlways: true)
+        if case .decrypted = r.outcome {} else {
+            XCTFail("présence d'un jeton → doit déchiffrer même en mode tout-chiffrer")
+        }
+        XCTAssertEqual(r.text, "z")
+    }
+
     func testLabelsAreHumanReadable() throws {
         let key = try newKey()
         XCTAssertTrue(BrocolisTransform.auto("simple", key: key).label.contains("🔒"))

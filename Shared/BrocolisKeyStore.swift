@@ -69,6 +69,7 @@ enum BrocolisKeyStore {
     private static let keysName = "keys_json"
     private static let selectedIdName = "selected_key_id"
     private static let activeName = "is_active"
+    private static let encryptWholeName = "encrypt_whole_always"
     private static let privateKeyName = "x25519_private_b64"
     private static let fingerprintName = "pairing_fingerprint"
 
@@ -213,6 +214,20 @@ enum BrocolisKeyStore {
 
     static func setActive(_ value: Bool) {
         defaults?.set(value, forKey: activeName)
+    }
+
+    // MARK: Réglage « Tout chiffrer »
+
+    /// Si vrai, l'extension chiffre TOUTE la sélection d'un bloc (sans avoir à
+    /// marquer le texte avec `((…))`). Activé par défaut.
+    static var encryptWholeAlways: Bool {
+        guard let d = defaults else { return true }
+        if d.object(forKey: encryptWholeName) == nil { return true }
+        return d.bool(forKey: encryptWholeName)
+    }
+
+    static func setEncryptWholeAlways(_ value: Bool) {
+        defaults?.set(value, forKey: encryptWholeName)
     }
 
     // MARK: Appairage automatique (X25519)

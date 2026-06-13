@@ -4,6 +4,7 @@
 //
 //  Transformation « intelligente » d'une sélection de texte, en un seul geste :
 //   - si le texte contient des jetons `[[BROCOLIS:v1:...]]` → on déchiffre ;
+//   - sinon, en mode « tout chiffrer » → on chiffre TOUTE la sélection d'un bloc ;
 //   - sinon s'il contient des `((marqueurs))` → on chiffre ces segments ;
 //   - sinon → on chiffre toute la sélection comme un unique secret.
 //
@@ -35,13 +36,17 @@ struct BrocolisTransform {
         }
     }
 
-    static func auto(_ input: String, key: SymmetricKey) -> Result {
+    /// - Parameter encryptWholeAlways: si `true`, on chiffre toute la sélection
+    ///   d'un bloc sans tenir compte des marqueurs `((…))` (réglage « Tout
+    ///   chiffrer »). Le déchiffrement d'un jeton reste toujours prioritaire.
+    static func auto(_ input: String, key: SymmetricKey, encryptWholeAlways: Bool = false) -> Result {
         if BrocolisCrypto.containsToken(input) {
             let (text, n) = BrocolisCrypto.decryptTokens(input, key: key)
             return Result(text: text, outcome: .decrypted(count: n))
         }
 
-        if input.contains(BrocolisCrypto.plainOpen) && input.contains(BrocolisCrypto.plainClose) {
+        if !encryptWholeAlways,
+           input.contains(BrocolisCrypto.plainOpen) && input.contains(BrocolisCrypto.plainClose) {
             let (text, n) = BrocolisCrypto.encryptMarked(input, key: key)
             if n > 0 { return Result(text: text, outcome: .encryptedMarked(count: n)) }
         }
