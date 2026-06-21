@@ -49,6 +49,25 @@ une **Action Extension** sur le texte sélectionné.
 La clé, l'état **Actif** et le réglage **« Tout chiffrer »** sont partagés
 entre l'app et l'extension via un **App Group**.
 
+### Lire (et répondre) à la volée — écran « Conversation »
+
+Pour **ne plus déchiffrer message par message**, l'app a un écran **Conversation**
+(bouton **« Ouvrir la conversation »** en haut de l'écran principal) :
+
+- **colle toute la discussion** (ou Partage‑la vers Brocolis) → chaque ligne est
+  rendue **automatiquement, à la volée** : les messages chiffrés avec **une de
+  tes clés** s'affichent **en clair** (🔓), et ceux chiffrés avec **d'autres
+  clés restent chiffrés** (🔒 — « pour les autres ») ;
+- le **champ de saisie** chiffre **ta réponse au fil de la frappe** avec la clé
+  sélectionnée : un tap **copie le jeton** `[[BROCOLIS:v1:…]]`, tu n'as plus
+  qu'à le coller dans ta vraie messagerie.
+
+> ⚠️ **Limite iOS** : une app ne peut pas lire ni réécrire le contenu d'une
+> **autre** app (sandbox). Brocolis ne peut donc pas afficher le clair
+> directement *dans* WhatsApp/iMessage. L'écran Conversation est l'endroit où la
+> lecture/écriture devient **automatique** sans passer par le menu Partager pour
+> chaque message.
+
 ### État « Actif »
 
 - L'interrupteur dans l'app est l'unique contrôle fiable : actif jusqu'à ce que
@@ -157,10 +176,12 @@ Shared/                       # code partagé app + extension
   BrocolisCrypto.swift        # AES-256-GCM, format de jeton brocolis
   BrocolisKeyStore.swift      # clé + état actif + appairage (App Group)
   BrocolisTransform.swift     # chiffre/déchiffre en un geste (auto-détection)
+  BrocolisConversation.swift  # rend une discussion entière à la volée (logique pure)
   BrocolisKeyAgreement.swift  # accord de clé X25519 (ECDH + HKDF) + empreinte
   BrocolisActivityAttributes.swift # attributs de la Live Activity 🥦
 Brocolis/                     # app hôte
   BrocolisApp.swift, RootView.swift, Assets, Brocolis.entitlements
+  ConversationView.swift      # écran « Conversation » : lecture/écriture à la volée
   PairingView.swift           # écran d'appairage automatique
   PairingClient.swift         # client du serveur de rendez-vous
   BrocolisLiveActivity.swift  # démarre/termine la Live Activity « actif »
