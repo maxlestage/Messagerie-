@@ -45,6 +45,7 @@ struct RootView: View {
     var body: some View {
         NavigationStack {
             Form {
+                conversationSection
                 statusSection
                 encryptionSection
                 pairingSection
@@ -104,6 +105,22 @@ struct RootView: View {
             } message: {
                 Text(alertMessage ?? "")
             }
+        }
+    }
+
+    // MARK: Conversation (lecture/écriture à la volée)
+
+    private var conversationSection: some View {
+        Section {
+            NavigationLink {
+                ConversationView()
+            } label: {
+                Label("Ouvrir la conversation", systemImage: "text.bubble.fill")
+            }
+        } header: {
+            Text("Lire à la volée")
+        } footer: {
+            Text("Colle toute une discussion : Brocolis déchiffre automatiquement les messages protégés par tes clés et laisse 🔒 ceux des autres. Plus besoin de « traduire » message par message.")
         }
     }
 
