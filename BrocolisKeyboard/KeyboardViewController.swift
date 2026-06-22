@@ -18,6 +18,7 @@ import UIKit
 final class KeyboardViewController: UIInputViewController {
 
     private let statusLabel = UILabel()
+    private let readout = UITextView()
     private var actionButtons: [UIButton] = []
 
     override func viewDidLoad() {
@@ -40,6 +41,18 @@ final class KeyboardViewController: UIInputViewController {
         let bg = UIInputView(frame: .zero, inputViewStyle: .keyboard)
         bg.translatesAutoresizingMaskIntoConstraints = false
 
+        // Zone de lecture : affiche le message reçu EN CLAIR, sur le clavier,
+        // sans quitter l'app. Lecture seule, défilable pour les longs messages.
+        readout.font = .preferredFont(forTextStyle: .body)
+        readout.isEditable = false
+        readout.isScrollEnabled = true
+        readout.backgroundColor = .systemBackground
+        readout.layer.cornerRadius = 10
+        readout.textContainerInset = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
+        readout.translatesAutoresizingMaskIntoConstraints = false
+        readout.heightAnchor.constraint(greaterThanOrEqualToConstant: 64).isActive = true
+        showReadout("", placeholder: true)
+
         statusLabel.font = .preferredFont(forTextStyle: .footnote)
         statusLabel.textColor = .secondaryLabel
         statusLabel.numberOfLines = 2
@@ -48,18 +61,19 @@ final class KeyboardViewController: UIInputViewController {
 
         let globe = makeButton(title: "🌐", action: #selector(nextKeyboard))
         globe.titleLabel?.font = .systemFont(ofSize: 22)
+        let read = makeButton(title: "📋 Lire", action: #selector(readClipboardTapped))
         let encrypt = makeButton(title: "🔒 Chiffrer", action: #selector(encryptTapped))
         let decrypt = makeButton(title: "🔓 Déchiffrer", action: #selector(decryptTapped))
-        actionButtons = [encrypt, decrypt]
+        actionButtons = [read, encrypt, decrypt]
 
-        let row = UIStackView(arrangedSubviews: [globe, encrypt, decrypt])
+        let row = UIStackView(arrangedSubviews: [globe, read, encrypt, decrypt])
         row.axis = .horizontal
         row.distribution = .fillProportionally
         row.spacing = 8
         row.translatesAutoresizingMaskIntoConstraints = false
-        globe.widthAnchor.constraint(equalToConstant: 52).isActive = true
+        globe.widthAnchor.constraint(equalToConstant: 48).isActive = true
 
-        let stack = UIStackView(arrangedSubviews: [statusLabel, row])
+        let stack = UIStackView(arrangedSubviews: [readout, statusLabel, row])
         stack.axis = .vertical
         stack.spacing = 10
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -78,7 +92,7 @@ final class KeyboardViewController: UIInputViewController {
             stack.trailingAnchor.constraint(equalTo: bg.trailingAnchor, constant: -12),
             stack.bottomAnchor.constraint(equalTo: bg.bottomAnchor, constant: -12),
 
-            view.heightAnchor.constraint(greaterThanOrEqualToConstant: 130),
+            view.heightAnchor.constraint(greaterThanOrEqualToConstant: 210),
         ])
     }
 
@@ -114,7 +128,19 @@ final class KeyboardViewController: UIInputViewController {
             return
         }
         setEnabled(true)
-        statusLabel.text = "Tape ton message, puis « Chiffrer ». Le champ est remplacé sur place — aucune copie."
+        statusLabel.text = "Lire un reçu : copie-le, touche « Lire ». Envoyer : tape, puis « Chiffrer »."
+    }
+
+    /// Affiche du texte (ou un mode d'emploi) dans la zone de lecture.
+    private func showReadout(_ text: String, placeholder: Bool) {
+        if placeholder || text.isEmpty {
+            readout.text = "Pour lire un message reçu : appui long dessus → Copier, puis reviens ici et touche « 📋 Lire » — il s’affiche en clair, sans quitter l’app."
+            readout.textColor = .secondaryLabel
+        } else {
+            readout.text = text
+            readout.textColor = .label
+            readout.setContentOffset(.zero, animated: false)
+        }
     }
 
     private func setEnabled(_ enabled: Bool) {
@@ -148,6 +174,33 @@ final class KeyboardViewController: UIInputViewController {
 
     @objc private func nextKeyboard() {
         advanceToNextInputMode()
+    }
+
+    /// Lit le message reçu COPIÉ et l'affiche en clair sur le clavier, sans
+    /// changer d'application. (Accès complet requis pour lire le presse-papiers.)
+    @objc private func readClipboardTapped() {
+        guard guardReady() else { return }
+        let clip = UIPasteboard.general.string ?? ""
+        guard !clip.isEmpty else {
+            statusLabel.text = "Presse-papiers vide — copie d’abord le message reçu (appui long → Copier)."
+            showReadout("", placeholder: true)
+            return
+        }
+        let keys = BrocolisKeyStore.allSymmetricKeys()
+        guard !keys.isEmpty else {
+            statusLabel.text = "🔑 Aucune clé configurée."
+            return
+        }
+        guard BrocolisCrypto.containsToken(clip) else {
+            statusLabel.text = "Aucun message chiffré dans le presse-papiers."
+            showReadout(clip, placeholder: false)
+            return
+        }
+        let (text, n) = BrocolisCrypto.decryptTokens(clip, keys: keys)
+        showReadout(text, placeholder: false)
+        statusLabel.text = n > 0
+            ? "🔓 \(n) message(s) lu(s) — tu n’as pas quitté l’app."
+            : "Message chiffré avec une clé que tu n’as pas."
     }
 
     @objc private func encryptTapped() {
