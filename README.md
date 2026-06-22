@@ -24,6 +24,13 @@ TLS pinning** de WhatsApp/iMessage. Le moyen pris en charge par iOS pour « se
 greffer » sur les apps existantes, c'est l'**extension système**. Ici on utilise
 une **Action Extension** sur le texte sélectionné.
 
+> 🌍 **Disponible dans toutes les apps.** L'extension utilise la règle
+> d'activation `TRUEPREDICATE` : Brocolis 🥦 apparaît dans la feuille **Partager**
+> de **n'importe quelle app** (pas seulement celles qui exposent le texte d'une
+> manière particulière). Quand l'app partage du texte, Brocolis agit ; sinon, il
+> l'indique. Le **clavier** Brocolis, lui, est universel par construction : il
+> marche dans **tous** les champs de saisie.
+
 ## Comment ça marche
 
 1. Ouvre l'app **Brocolis 🥦** pour gérer tes **clés nommées** (ex. « Maman »,
