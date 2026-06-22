@@ -289,6 +289,52 @@ cd server && npm test
   partagé.
 - Clé **symétrique** : sa diffusion doit passer par un canal sûr, comme brocolis.
 
+## Publier sur TestFlight
+
+Brocolis est une app iOS native : elle se partage via **TestFlight**. Le projet
+est déjà prêt (équipe de signature, bundle IDs, App Group), il reste les étapes
+côté Apple.
+
+### Pré-requis
+- **Apple Developer Program** actif (compte payant). L'équipe de signature est
+  fixée dans le projet (`DEVELOPMENT_TEAM = 2FW8T4UX4L`).
+- **Xcode 15+**.
+
+### Identifiants à enregistrer (developer.apple.com)
+La signature automatique de Xcode peut les créer, sinon vérifie qu'existent :
+- les **3 App IDs** :
+  - `rs.brocolis.messagerie` (app)
+  - `rs.brocolis.messagerie.action` (Action Extension)
+  - `rs.brocolis.messagerie.status` (widget / Live Activity)
+- l'**App Group** `group.rs.brocolis.messagerie`, activé sur les **3** cibles.
+
+### Conformité export (chiffrement) — déjà déclarée
+L'app chiffre (AES‑256‑GCM, X25519). La clé
+**`ITSAppUsesNonExemptEncryption = YES`** est déclarée dans l'Info.plist généré
+de la cible `Brocolis` (réglage `INFOPLIST_KEY_ITSAppUsesNonExemptEncryption`).
+Comme la fonction principale de l'app **est** le chiffrement, prévois de fournir
+ton **auto‑classification d'export (ERN/CCATS)** dans App Store Connect au premier
+build. (Si tu estimes relever de l'exemption « chiffrement standard », repasse
+cette valeur à `NO` — c'est une décision juridique qui t'appartient.)
+
+### Étapes
+1. Sur **App Store Connect**, crée la fiche app avec le bundle ID
+   `rs.brocolis.messagerie` (icône 1024×1024 requise).
+2. Dans Xcode : scheme **Brocolis**, destination **Any iOS Device**, puis
+   **Product → Archive**.
+3. Dans l'Organizer : **Distribute App → App Store Connect → Upload**.
+4. App Store Connect → onglet **TestFlight** :
+   - **Test interne** (jusqu'à 100 testeurs de ton équipe) : disponible
+     quasi immédiatement, **sans revue**.
+   - **Test externe** (jusqu'à 10 000) : passe par une **Beta App Review**
+     (plus légère que la revue App Store).
+5. Invite les testeurs (e‑mail ou lien public). Ils installent l'app
+   **TestFlight** puis Brocolis.
+
+> Pas de push distant ici : Live Activities et notifications locales
+> fonctionnent en TestFlight sans configuration serveur. Le serveur de
+> rendez‑vous (Heroku) est public, rien à changer pour la distribution.
+
 ## Licence
 
 © 2026 **LESTAGE Maxime Nathan** — Tous droits réservés. Logiciel
