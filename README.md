@@ -175,7 +175,7 @@ Même format de jeton (`[[BROCOLIS:v1:…]]`, AES-256-GCM,
 une clé `brocolis keygen` fonctionne dans l'app, et les jetons sont
 déchiffrables par brocolis (et inversement).
 
-## Interopérable avec Android (au niveau du protocole)
+## Interopérable avec Android (app native disponible)
 
 Le protocole n'utilise **que des standards ouverts** — rien de propriétaire
 Apple : X25519 (RFC 7748, clés publiques en 32 octets bruts base64),
@@ -185,13 +185,30 @@ Un client Android peut donc s'appairer avec un iPhone et échanger des jetons,
 avec `java.security`/`javax.crypto` (X25519 natif depuis Android 13) ou
 Tink/libsodium pour les versions antérieures.
 
-C'est **vérifié par des tests** : [`server/interop.test.js`](server/interop.test.js)
+L'**app Android native existe désormais** et est à **parité fonctionnelle** avec
+cette app iOS — [**Messageries-kotlin**](https://github.com/maxlestage/Messageries-kotlin)
+(Kotlin / Jetpack Compose). Elle reprend, point par point, les mêmes
+fonctionnalités :
+
+| Fonction iOS | Équivalent Android |
+|---|---|
+| Action Extension (menu Partager) | Activité `PROCESS_TEXT` + Partager |
+| Écran Conversation (lecture à la volée) | `ConversationScreen` (logique pure partagée) |
+| Réglage « Tout chiffrer » | identique (activé par défaut) |
+| Clavier Brocolis (chiffre/déchiffre en place) | clavier IME `BrocolisKeyboardService` |
+| Widget (état/clé/expiration) | App Widget d'écran d'accueil |
+| Live Activity « actif » (Dynamic Island) | notification permanente silencieuse |
+| Appairage X25519 (1:1 + groupe) | identique (même serveur de rendez-vous) |
+| Rotation / expiration + préavis | identique (`AlarmManager`) |
+
+L'interopérabilité est **vérifiée par des tests** : [`server/interop.test.js`](server/interop.test.js)
 valide les primitives contre les vecteurs officiels des RFC (ceux-là mêmes que
 CryptoKit implémente), puis déroule le flux complet entre deux clients
 indépendants — appairage, même clé dérivée, même empreinte, clé de groupe
-emballée/déballée, jetons déchiffrés croisés dans les deux sens. Ce fichier
-sert aussi de **spécification exécutable** pour écrire le client Android
-(l'app Android elle-même reste à faire).
+emballée/déballée, jetons déchiffrés croisés dans les deux sens. Le cœur crypto
+Android rejoue les **mêmes vecteurs RFC/NIST** côté JVM, garantissant la
+compatibilité bit-à-bit : un message chiffré sur iPhone se déchiffre sur Android
+(et inversement).
 
 ## Structure
 
