@@ -46,6 +46,16 @@ une **Action Extension** sur le texte sélectionné.
      `[[BROCOLIS:v1:…]]` (déchiffrement toujours prioritaire) ;
    - **copie** le résultat tout de suite — il n'y a plus qu'à coller.
 
+> 📖 **Lire toute une conversation d'un coup, sans copier-coller.** Dans WhatsApp
+> (et la plupart des messageries), tu peux **sélectionner plusieurs messages**
+> (appui long sur un message → coche-en plusieurs) puis **Partager → Brocolis
+> 🥦**. L'extension **agrège tous les messages** sélectionnés et affiche **toute
+> la conversation en clair**, à l'écran, en un seul geste — c'est du *Partage*,
+> pas du copier-coller. (iOS interdit à une app de lire directement les bulles
+> d'une autre app ; le Partage multi-messages est le moyen le plus simple et
+> **fiable** d'y arriver — contrairement à l'OCR d'une capture, qui se trompe sur
+> le texte chiffré.)
+
 La clé, l'état **Actif** et le réglage **« Tout chiffrer »** sont partagés
 entre l'app et l'extension via un **App Group**.
 

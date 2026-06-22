@@ -7,6 +7,11 @@
 //  ou déchiffre les jetons [[BROCOLIS:v1:...]] avec la clé partagée (App Group),
 //  puis affiche le résultat avec un bouton « Copier ».
 //
+//  LECTURE D'UNE CONVERSATION ENTIÈRE, SANS COPIER-COLLER : dans WhatsApp (et la
+//  plupart des messageries), sélectionne PLUSIEURS messages (appui long → coche
+//  plusieurs) puis Partager → Brocolis 🥦. L'extension agrège tous les messages
+//  partagés et affiche toute la conversation en clair, d'un coup.
+//
 
 import UIKit
 import UniformTypeIdentifiers
@@ -77,37 +82,53 @@ final class ActionViewController: UIViewController {
 
     private func loadSelectedText(completion: @escaping (String) -> Void) {
         let items = (extensionContext?.inputItems as? [NSExtensionItem]) ?? []
+        let textType = UTType.plainText.identifier
 
-        // 1) Texte sélectionné directement disponible.
-        for item in items {
-            if let text = item.attributedContentText?.string, !text.isEmpty {
-                completion(text)
-                return
-            }
+        // On agrège le texte de TOUS les éléments partagés (et de toutes leurs
+        // pièces jointes), pour gérer la sélection de plusieurs messages d'un
+        // coup. Le résultat est assemblé dans l'ordre, en attendant les
+        // chargements asynchrones avec un DispatchGroup.
+        var pieces: [String?] = []          // ordre préservé, indexé
+        let group = DispatchGroup()
+        let lock = NSLock()
+
+        func store(_ text: String, at index: Int) {
+            guard !text.isEmpty else { return }
+            lock.lock(); pieces[index] = text; lock.unlock()
         }
 
-        // 2) Sinon, via une pièce jointe texte.
-        let textType = UTType.plainText.identifier
         for item in items {
-            for provider in item.attachments ?? [] where provider.hasItemConformingToTypeIdentifier(textType) {
+            // 1) Texte sélectionné directement porté par l'élément.
+            if let text = item.attributedContentText?.string, !text.isEmpty {
+                pieces.append(text)
+                continue
+            }
+            // 2) Sinon, chaque pièce jointe texte de l'élément.
+            for provider in item.attachments ?? []
+            where provider.hasItemConformingToTypeIdentifier(textType) {
+                let index = pieces.count
+                pieces.append(nil)
+                group.enter()
                 provider.loadItem(forTypeIdentifier: textType, options: nil) { data, _ in
-                    let text: String
+                    var text = ""
                     if let s = data as? String {
                         text = s
-                    } else if let url = data as? URL, let s = try? String(contentsOf: url, encoding: .utf8) {
+                    } else if let url = data as? URL,
+                              let s = try? String(contentsOf: url, encoding: .utf8) {
                         text = s
                     } else if let d = data as? Data, let s = String(data: d, encoding: .utf8) {
                         text = s
-                    } else {
-                        text = ""
                     }
-                    DispatchQueue.main.async { completion(text) }
+                    store(text, at: index)
+                    group.leave()
                 }
-                return
             }
         }
 
-        completion("")
+        group.notify(queue: .main) {
+            let joined = pieces.compactMap { $0 }.joined(separator: "\n")
+            completion(joined)
+        }
     }
 
     // MARK: Transformation
@@ -139,8 +160,8 @@ final class ActionViewController: UIViewController {
             textView.text = text
             UIPasteboard.general.string = text
             statusLabel.text = n > 0
-                ? "🔓 \(n) segment(s) déchiffré(s) — ✅ copié."
-                : "Aucun jeton lisible avec tes clés."
+                ? "🔓 \(n) message(s) en clair — lis ci-dessous. Aucune copie nécessaire."
+                : "Aucun message lisible avec tes clés (clé d’un autre ?)."
             return
         }
 
