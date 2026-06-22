@@ -139,7 +139,7 @@ struct RootView: View {
         } header: {
             Text("Envoyer sans copier")
         } footer: {
-            Text("Active le **Clavier Brocolis 🥦** (Réglages → Général → Clavier → Claviers → Ajouter), puis autorise l’**Accès complet** (nécessaire pour lire tes clés). Ensuite, dans n’importe quelle app : tape ton message, bascule sur Brocolis avec 🌐, touche **Chiffrer** — le texte est remplacé chiffré directement, sans copier-coller.")
+            Text("Active le **Clavier Brocolis 🥦** (Réglages → Général → Clavier → Claviers → Ajouter), puis autorise l’**Accès complet** (nécessaire pour lire tes clés et le presse-papiers). Ensuite, dans n’importe quelle app :\n\n• **Envoyer** : tape ton message, bascule sur Brocolis avec 🌐, touche **Chiffrer** — le texte est remplacé chiffré sur place, sans copier-coller.\n\n• **Lire un reçu** : appui long sur le message → Copier, bascule sur Brocolis avec 🌐, touche **📋 Lire** — il s’affiche en clair sur le clavier, sans quitter l’app.")
         }
     }
 
