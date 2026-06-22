@@ -46,6 +46,7 @@ struct RootView: View {
         NavigationStack {
             Form {
                 conversationSection
+                keyboardSection
                 statusSection
                 encryptionSection
                 pairingSection
@@ -121,6 +122,24 @@ struct RootView: View {
             Text("Lire à la volée")
         } footer: {
             Text("Colle toute une discussion : Brocolis déchiffre automatiquement les messages protégés par tes clés et laisse 🔒 ceux des autres. Plus besoin de « traduire » message par message.")
+        }
+    }
+
+    // MARK: Clavier (chiffrer sans copier)
+
+    private var keyboardSection: some View {
+        Section {
+            Button {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            } label: {
+                Label("Activer le clavier Brocolis 🥦", systemImage: "keyboard")
+            }
+        } header: {
+            Text("Envoyer sans copier")
+        } footer: {
+            Text("Active le **Clavier Brocolis 🥦** (Réglages → Général → Clavier → Claviers → Ajouter), puis autorise l’**Accès complet** (nécessaire pour lire tes clés). Ensuite, dans n’importe quelle app : tape ton message, bascule sur Brocolis avec 🌐, touche **Chiffrer** — le texte est remplacé chiffré directement, sans copier-coller.")
         }
     }
 
