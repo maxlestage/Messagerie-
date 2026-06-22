@@ -68,6 +68,26 @@ Pour **ne plus déchiffrer message par message**, l'app a un écran **Conversati
 > lecture/écriture devient **automatique** sans passer par le menu Partager pour
 > chaque message.
 
+### Envoyer chiffré **sans copier** — le Clavier Brocolis 🥦
+
+Pour ne plus jamais copier-coller à l'envoi, Brocolis fournit un **clavier
+personnalisé** qui chiffre/déchiffre **directement dans le champ de saisie**, sur
+place, dans **n'importe quelle app** (WhatsApp, iMessage, Notes…) :
+
+1. **Active-le une fois** : Réglages → Général → Clavier → Claviers → **Ajouter
+   un clavier** → **Brocolis 🥦**, puis touche-le et active **Autoriser l'accès
+   complet** (indispensable : sans ça, iOS isole le clavier et il ne voit pas tes
+   clés de l'App Group).
+2. **À l'usage** : tape ton message avec ton clavier habituel, bascule sur
+   Brocolis avec le **🌐**, puis touche **🔒 Chiffrer** → le contenu du champ est
+   **remplacé chiffré sur place**, prêt à envoyer, **sans aucune copie**. **🔓
+   Déchiffrer** fait l'inverse sur un brouillon chiffré.
+
+Le clavier respecte l'état **Actif**, la **clé sélectionnée** et l'**expiration**
+comme l'extension Partager (mêmes clés via l'App Group). C'est un clavier
+« action » : il ne remplace pas ta saisie habituelle, il ajoute juste les deux
+gestes chiffrer/déchiffrer.
+
 ### État « Actif »
 
 - L'interrupteur dans l'app est l'unique contrôle fiable : actif jusqu'à ce que
@@ -187,6 +207,8 @@ Brocolis/                     # app hôte
   BrocolisLiveActivity.swift  # démarre/termine la Live Activity « actif »
 BrocolisAction/               # Action Extension (menu Partager)
   ActionViewController.swift, Info.plist, BrocolisAction.entitlements
+BrocolisKeyboard/             # Clavier personnalisé (chiffre/déchiffre en place)
+  KeyboardViewController.swift, Info.plist, BrocolisKeyboard.entitlements
 BrocolisStatus/               # extension widget : Dynamic Island + écran d'accueil
   BrocolisStatusLiveActivity.swift # Live Activity (🥦 quand actif)
   BrocolisStatusWidget.swift  # widget accueil/verrouillage (état, clé, expiration)
@@ -214,14 +236,15 @@ open Brocolis.xcodeproj
 > et son expiration. Existe aussi en version **écran verrouillé** (cercle,
 > ligne, rectangle). Il se met à jour à chaque changement dans l'app.
 
-Dans Xcode, pour **chaque** cible (`Brocolis`, `BrocolisAction` et
-`BrocolisStatus`) :
+Dans Xcode, pour **chaque** cible (`Brocolis`, `BrocolisAction`,
+`BrocolisStatus` et `BrocolisKeyboard`) :
 
 1. **Signing & Capabilities** → choisis ton équipe de signature.
 2. Vérifie la capacité **App Groups** avec le groupe
-   `group.rs.brocolis.messagerie` activé sur les **trois** cibles (ou
+   `group.rs.brocolis.messagerie` activé sur les **quatre** cibles (ou
    remplace par ton propre identifiant de groupe, identique partout et dans
-   `BrocolisKeyStore.appGroup`) — le widget lit l'état via ce groupe.
+   `BrocolisKeyStore.appGroup`) — le widget et le clavier lisent l'état via ce
+   groupe.
 3. Sélectionne le schéma **Brocolis**, un iPhone/simulateur, puis **Run**.
 
 Pour tester l'extension : lance l'app (la clé), puis va dans une app avec du
