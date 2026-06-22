@@ -82,6 +82,11 @@ place, dans **n'importe quelle app** (WhatsApp, iMessage, Notes…) :
    Brocolis avec le **🌐**, puis touche **🔒 Chiffrer** → le contenu du champ est
    **remplacé chiffré sur place**, prêt à envoyer, **sans aucune copie**. **🔓
    Déchiffrer** fait l'inverse sur un brouillon chiffré.
+3. **Lire un message reçu sans changer d'app** : fais un **appui long → Copier**
+   sur le message chiffré reçu (tu restes dans WhatsApp/iMessage), bascule sur le
+   clavier Brocolis avec le **🌐**, puis touche **📋 Lire** → le message
+   s'affiche **en clair directement sur le clavier**. Tu lis sans jamais quitter
+   la conversation.
 
 Le clavier respecte l'état **Actif**, la **clé sélectionnée** et l'**expiration**
 comme l'extension Partager (mêmes clés via l'App Group). C'est un clavier
