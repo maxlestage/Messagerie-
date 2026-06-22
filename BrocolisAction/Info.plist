@@ -20,11 +20,12 @@
 	<dict>
 		<key>NSExtensionAttributes</key>
 		<dict>
+			<!-- Brocolis apparaît dans la feuille de Partage de TOUTES les apps,
+			     pas seulement celles qui exposent le texte via le mécanisme
+			     "SupportsText". On laisse l'extension décider à l'ouverture :
+			     si du texte est présent elle agit, sinon elle l'indique. -->
 			<key>NSExtensionActivationRule</key>
-			<dict>
-				<key>NSExtensionActivationSupportsText</key>
-				<true/>
-			</dict>
+			<string>TRUEPREDICATE</string>
 		</dict>
 		<key>NSExtensionPointIdentifier</key>
 		<string>com.apple.ui-services</string>
