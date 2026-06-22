@@ -2,8 +2,10 @@
 //  ActionViewController.swift
 //  Brocolis 🥦 — Action Extension
 //
-//  Apparaît dans le menu Partager quand du texte est sélectionné dans n'importe
-//  quelle app (WhatsApp, iMessage, Messenger, Notes…). Chiffre les ((secrets))
+//  Apparaît dans le menu Partager de N'IMPORTE QUELLE app (règle d'activation
+//  TRUEPREDICATE), pas seulement celles qui exposent le texte d'une manière
+//  précise. Si du texte est partagé, Brocolis agit ; sinon il l'indique.
+//  Chiffre les ((secrets))
 //  ou déchiffre les jetons [[BROCOLIS:v1:...]] avec la clé partagée (App Group),
 //  puis affiche le résultat avec un bouton « Copier ».
 //
@@ -135,8 +137,9 @@ final class ActionViewController: UIViewController {
 
     private func process(_ input: String) {
         guard !input.isEmpty else {
-            statusLabel.text = "Aucun texte sélectionné."
-            textView.text = ""
+            statusLabel.text = "Aucun texte ici."
+            textView.text = "Brocolis 🥦 travaille sur du texte. Sélectionne un ou plusieurs messages (ou du texte), puis Partager → Brocolis."
+            resultText = ""
             return
         }
         guard BrocolisKeyStore.isActive else {
