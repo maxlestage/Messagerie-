@@ -15,6 +15,7 @@ struct RootView: View {
 
     @State private var keys: [NamedKey] = BrocolisKeyStore.keys
     @State private var selectedId: String? = BrocolisKeyStore.selectedKeyId
+    @State private var recipientIds: [String] = BrocolisKeyStore.recipientKeyIds
     @State private var isActive = BrocolisKeyStore.isActive
     @State private var encryptWhole = BrocolisKeyStore.encryptWholeAlways
     @State private var fingerprint: String? = BrocolisKeyStore.pairingFingerprint
@@ -51,6 +52,7 @@ struct RootView: View {
                 encryptionSection
                 pairingSection
                 keysSection
+                recipientsSection
                 selectedKeySection
                 howToSection
             }
@@ -283,6 +285,52 @@ struct RootView: View {
         }
     }
 
+    // MARK: Destinataires (chiffrer pour plusieurs clés)
+
+    @ViewBuilder private var recipientsSection: some View {
+        if keys.count >= 2 {
+            Section {
+                ForEach(keys) { key in
+                    let on = recipientIds.contains(key.id)
+                    HStack {
+                        Image(systemName: on ? "checkmark.square.fill" : "square")
+                            .foregroundStyle(on ? .green : .secondary)
+                        Text(key.name)
+                        Spacer()
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture { toggleRecipient(key.id) }
+                }
+                if !recipientIds.isEmpty {
+                    Button("Tout décocher (revenir à la clé sélectionnée)") {
+                        recipientIds = []
+                        BrocolisKeyStore.setRecipientKeyIds([])
+                    }
+                    .font(.footnote)
+                }
+            } header: {
+                Text("Chiffrer pour")
+            } footer: {
+                if recipientIds.count >= 2 {
+                    Text("Le message sera lisible par **\(recipientIds.count) clés** à la fois (un seul jeton `v2`). Pratique pour écrire à plusieurs correspondants d’un coup.\n\n⚠️ Le format `v2` n’est lisible que par une app Brocolis à jour (pas par l’ancien proxy brocolis).")
+                } else if recipientIds.count == 1 {
+                    Text("Une seule clé cochée : message classique `v1`, lisible par les détenteurs de cette clé.")
+                } else {
+                    Text("Coche plusieurs clés pour qu’**un même message soit lisible par plusieurs correspondants à la fois**. Si tu ne coches rien, Brocolis chiffre pour la clé sélectionnée (point vert ci-dessus).")
+                }
+            }
+        }
+    }
+
+    private func toggleRecipient(_ id: String) {
+        if let i = recipientIds.firstIndex(of: id) {
+            recipientIds.remove(at: i)
+        } else {
+            recipientIds.append(id)
+        }
+        BrocolisKeyStore.setRecipientKeyIds(recipientIds)
+    }
+
     @ViewBuilder private var selectedKeySection: some View {
         if let sel = selected {
             Section("Clé sélectionnée") {
@@ -363,6 +411,7 @@ struct RootView: View {
     private func reload() {
         keys = BrocolisKeyStore.keys
         selectedId = BrocolisKeyStore.selectedKeyId ?? keys.first?.id
+        recipientIds = BrocolisKeyStore.recipientKeyIds
         isActive = BrocolisKeyStore.isActive
         encryptWhole = BrocolisKeyStore.encryptWholeAlways
         fingerprint = BrocolisKeyStore.pairingFingerprint
