@@ -225,6 +225,11 @@ final class KeyboardViewController: UIInputViewController {
         }
         let result = BrocolisTransform.auto(
             input, keys: encKeys, encryptWholeAlways: BrocolisKeyStore.encryptWholeAlways)
+        // Garde-fou : on ne remplace le champ QUE si c'est vraiment chiffré.
+        guard result.isEncrypted else {
+            statusLabel.text = "⚠️ Rien n'a été chiffré — le champ est laissé tel quel."
+            return
+        }
         replaceFieldText(with: result.text)
         let recipients = encKeys.count > 1 ? " · \(encKeys.count) destinataires" : ""
         statusLabel.text = result.label + recipients + " — prêt à envoyer."
