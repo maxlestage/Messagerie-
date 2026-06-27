@@ -216,18 +216,18 @@ final class KeyboardViewController: UIInputViewController {
             decrypt(input)
             return
         }
-        guard let key = BrocolisKeyStore.symmetricKey() else {
-            statusLabel.text = "🔑 Aucune clé sélectionnée."
-            return
-        }
-        guard !BrocolisKeyStore.isExpired else {
-            statusLabel.text = "⌛️ Clé expirée — renouvelle-la dans l’app."
+        let encKeys = BrocolisKeyStore.encryptionKeys()
+        guard !encKeys.isEmpty else {
+            statusLabel.text = BrocolisKeyStore.hasKey
+                ? "⌛️ Clé(s) destinataire(s) expirée(s) — prolonge-les dans l’app."
+                : "🔑 Aucune clé — ajoute-en une dans l’app."
             return
         }
         let result = BrocolisTransform.auto(
-            input, key: key, encryptWholeAlways: BrocolisKeyStore.encryptWholeAlways)
+            input, keys: encKeys, encryptWholeAlways: BrocolisKeyStore.encryptWholeAlways)
         replaceFieldText(with: result.text)
-        statusLabel.text = result.label + " — prêt à envoyer."
+        let recipients = encKeys.count > 1 ? " · \(encKeys.count) destinataires" : ""
+        statusLabel.text = result.label + recipients + " — prêt à envoyer."
     }
 
     @objc private func decryptTapped() {

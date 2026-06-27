@@ -168,29 +168,31 @@ final class ActionViewController: UIViewController {
             return
         }
 
-        // Chiffrement : avec la clé SÉLECTIONNÉE.
-        guard let key = BrocolisKeyStore.symmetricKey() else {
-            statusLabel.text = "🔑 Aucune clé configurée."
-            textView.text = "Ouvre l’app Brocolis 🥦 pour ajouter une clé, puis réessaie."
-            resultText = ""
-            return
-        }
-        guard !BrocolisKeyStore.isExpired else {
-            statusLabel.text = "⌛️ Clé expirée."
-            textView.text = "Renouvelle la clé dans l’app Brocolis 🥦, puis réessaie."
+        // Chiffrement : pour la (ou les) clé(s) destinataire(s) choisie(s).
+        let encKeys = BrocolisKeyStore.encryptionKeys()
+        guard !encKeys.isEmpty else {
+            if BrocolisKeyStore.hasKey {
+                statusLabel.text = "⌛️ Clé(s) destinataire(s) expirée(s)."
+                textView.text = "Prolonge une clé dans l’app Brocolis 🥦, puis réessaie."
+            } else {
+                statusLabel.text = "🔑 Aucune clé configurée."
+                textView.text = "Ouvre l’app Brocolis 🥦 pour ajouter une clé, puis réessaie."
+            }
             resultText = ""
             return
         }
 
         let result = BrocolisTransform.auto(
-            input, key: key, encryptWholeAlways: BrocolisKeyStore.encryptWholeAlways)
+            input, keys: encKeys, encryptWholeAlways: BrocolisKeyStore.encryptWholeAlways)
         resultText = result.text
         textView.text = result.text
 
         // Brocolis étant actif, on copie directement le résultat : il n'y a plus
         // qu'à coller EN REMPLAÇANT le texte d'origine.
         UIPasteboard.general.string = result.text
-        statusLabel.text = result.label + " — ✅ Copié. Colle en remplaçant ton texte (n'envoie pas le clair)."
+        let recipients = encKeys.count > 1 ? " · \(encKeys.count) destinataires" : ""
+        statusLabel.text = result.label + recipients
+            + " — ✅ Copié. Colle en remplaçant ton texte (n'envoie pas le clair)."
     }
 
     // MARK: Actions

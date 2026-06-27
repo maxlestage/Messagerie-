@@ -110,6 +110,26 @@ comme l'extension Partager (mêmes clés via l'App Group). C'est un clavier
 « action » : il ne remplace pas ta saisie habituelle, il ajoute juste les deux
 gestes chiffrer/déchiffrer.
 
+### Écrire à plusieurs personnes à la fois — destinataires multiples
+
+Par défaut, un message est chiffré pour **une** clé (la clé sélectionnée). Tu
+peux aussi le chiffrer pour **plusieurs clés en même temps** : dans l'app,
+section **« Chiffrer pour »**, coche plusieurs clés (ex. « Maman » + « Travail »).
+
+- Le message devient **lisible par tous les destinataires cochés**, mais reste
+  illisible pour les autres.
+- Techniquement, c'est un **chiffrement d'enveloppe** (jeton `[[BROCOLIS:v2:…]]`) :
+  le texte est chiffré **une seule fois** sous une clé de message aléatoire,
+  elle-même **emballée sous chaque clé** destinataire. Résultat : **un seul
+  jeton**, chacun lit en clair, **aucun cadenas résiduel** (contrairement à un
+  simple « un jeton par clé »).
+- En **lecture**, rien à régler : toutes tes clés sont déjà essayées, et les
+  jetons `v1` comme `v2` sont gérés.
+
+> ⚠️ Le format `v2` est **spécifique à Brocolis** : il est lisible par une app
+> Brocolis à jour, mais **pas par l'ancien proxy `brocolis` v1**. Pour rester
+> 100 % interopérable avec brocolis, n'utilise qu'**une** clé (jeton `v1`).
+
 ### État « Actif »
 
 - L'interrupteur dans l'app est l'unique contrôle fiable : actif jusqu'à ce que
