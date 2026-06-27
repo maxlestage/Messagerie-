@@ -40,18 +40,25 @@ struct BrocolisTransform {
     ///   d'un bloc sans tenir compte des marqueurs `((…))` (réglage « Tout
     ///   chiffrer »). Le déchiffrement d'un jeton reste toujours prioritaire.
     static func auto(_ input: String, key: SymmetricKey, encryptWholeAlways: Bool = false) -> Result {
+        auto(input, keys: [key], encryptWholeAlways: encryptWholeAlways)
+    }
+
+    /// Variante multi-destinataire : le chiffrement produit un jeton lisible par
+    /// TOUTES les clés fournies (`v2` si plusieurs, `v1` si une seule). Le
+    /// déchiffrement essaie toutes les clés.
+    static func auto(_ input: String, keys: [SymmetricKey], encryptWholeAlways: Bool = false) -> Result {
         if BrocolisCrypto.containsToken(input) {
-            let (text, n) = BrocolisCrypto.decryptTokens(input, key: key)
+            let (text, n) = BrocolisCrypto.decryptTokens(input, keys: keys)
             return Result(text: text, outcome: .decrypted(count: n))
         }
 
         if !encryptWholeAlways,
            input.contains(BrocolisCrypto.plainOpen) && input.contains(BrocolisCrypto.plainClose) {
-            let (text, n) = BrocolisCrypto.encryptMarked(input, key: key)
+            let (text, n) = BrocolisCrypto.encryptMarked(input, keys: keys)
             if n > 0 { return Result(text: text, outcome: .encryptedMarked(count: n)) }
         }
 
-        if let token = try? BrocolisCrypto.encryptToken(Data(input.utf8), key: key) {
+        if let token = BrocolisCrypto.sealToken(Data(input.utf8), keys: keys) {
             return Result(text: token, outcome: .encryptedWhole)
         }
 

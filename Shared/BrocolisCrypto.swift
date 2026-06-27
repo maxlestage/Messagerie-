@@ -9,9 +9,14 @@
 //    `[[BROCOLIS:v1:<base64>]]`.
 //  - Tout jeton `[[BROCOLIS:v1:<base64>]]` est déchiffré en clair.
 //
-//  Le jeton encode `nonce (12) || ciphertext || tag (16)`, ce qui correspond à
-//  la représentation `combined` de CryptoKit (`AES.GCM.SealedBox`) et à
+//  Le jeton v1 encode `nonce (12) || ciphertext || tag (16)`, ce qui correspond
+//  à la représentation `combined` de CryptoKit (`AES.GCM.SealedBox`) et à
 //  l'empaquetage de la crate Rust `aes-gcm`. Interopérable avec brocolis.
+//
+//  MULTI-DESTINATAIRE (`[[BROCOLIS:v2:…]]`) : chiffrement d'enveloppe. Le texte
+//  est chiffré une seule fois sous une clé de message aléatoire, elle-même
+//  emballée sous chaque clé destinataire. Un seul jeton, lisible en clair par
+//  tous les destinataires. Spécifique à Brocolis (non lu par le proxy v1).
 //
 
 import Foundation
@@ -19,7 +24,9 @@ import CryptoKit
 
 enum BrocolisCrypto {
 
+    static let tokenHead = "[[BROCOLIS:"
     static let tokenPrefix = "[[BROCOLIS:v1:"
+    static let tokenPrefixV2 = "[[BROCOLIS:v2:"
     static let tokenSuffix = "]]"
     static let plainOpen = "(("
     static let plainClose = "))"
@@ -27,6 +34,8 @@ enum BrocolisCrypto {
     static let keyLength = 32
     private static let nonceLength = 12
     private static let tagLength = 16
+    /// Taille fixe d'une clé de message emballée : nonce(12) + clé(32) + tag(16).
+    private static let wrappedKeyLength = 12 + 32 + 16
 
     enum CryptoError: LocalizedError {
         case badKeyLength(Int)
@@ -75,10 +84,91 @@ enum BrocolisCrypto {
         catch { throw CryptoError.aead }
     }
 
+    // MARK: Jeton multi-destinataire (v2, chiffrement d'enveloppe)
+
+    // Un jeton v2 chiffre le texte UNE seule fois sous une « clé de message »
+    // aléatoire, puis emballe cette clé sous CHAQUE clé destinataire. N'importe
+    // quel destinataire ouvre l'emballage qui lui correspond, récupère la clé de
+    // message et lit le texte. Un seul jeton, tout le monde lit en clair.
+    //
+    // Disposition du payload (puis base64) :
+    //   [0]                     format = 0x01
+    //   [1]                     N = nombre de destinataires (1…255)
+    //   [2 .. 2+60N)            N clés de message emballées (60 octets chacune)
+    //   [2+60N .. fin)          corps = AES-GCM(texte, cléDeMessage) « combined »
+
+    /// Chiffre `plaintext` pour PLUSIEURS clés en un seul jeton `v2`.
+    static func encryptTokenMulti(_ plaintext: Data, keys: [SymmetricKey]) throws -> String {
+        guard !keys.isEmpty, keys.count <= 255 else { throw CryptoError.aead }
+
+        let messageKey = SymmetricKey(size: .bits256)
+        let messageKeyRaw = messageKey.withUnsafeBytes { Data(Array($0)) }
+
+        let bodySealed = try AES.GCM.seal(plaintext, using: messageKey)
+        guard let body = bodySealed.combined else { throw CryptoError.aead }
+
+        var payload = Data([0x01, UInt8(keys.count)])
+        for key in keys {
+            let wrapSealed = try AES.GCM.seal(messageKeyRaw, using: key)
+            guard let wrapped = wrapSealed.combined, wrapped.count == wrappedKeyLength else {
+                throw CryptoError.aead
+            }
+            payload.append(wrapped)
+        }
+        payload.append(body)
+
+        return tokenPrefixV2 + payload.base64EncodedString() + tokenSuffix
+    }
+
+    /// Tente d'ouvrir un jeton `v2` avec un jeu de clés. Renvoie `nil` si aucune
+    /// des clés ne correspond (message « pour les autres »).
+    static func decryptTokenV2(base64 b64: String, keys: [SymmetricKey]) -> Data? {
+        guard let payload = Data(base64Encoded: b64), payload.count >= 2 else { return nil }
+        let bytes = [UInt8](payload)
+        guard bytes[0] == 0x01 else { return nil }
+
+        let n = Int(bytes[1])
+        let wrapsStart = 2
+        let bodyStart = wrapsStart + n * wrappedKeyLength
+        guard payload.count >= bodyStart + nonceLength + tagLength else { return nil }
+
+        let body = payload.subdata(in: bodyStart..<payload.count)
+
+        for i in 0..<n {
+            let s = wrapsStart + i * wrappedKeyLength
+            let wrapped = payload.subdata(in: s..<(s + wrappedKeyLength))
+            guard let wrapBox = try? AES.GCM.SealedBox(combined: wrapped) else { continue }
+            for key in keys {
+                guard let messageKeyRaw = try? AES.GCM.open(wrapBox, using: key) else { continue }
+                let messageKey = SymmetricKey(data: messageKeyRaw)
+                if let bodyBox = try? AES.GCM.SealedBox(combined: body),
+                   let plain = try? AES.GCM.open(bodyBox, using: messageKey) {
+                    return plain
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Scelle `plaintext` dans un jeton : `v1` pour une seule clé (compatible
+    /// brocolis), `v2` (enveloppe) dès qu'il y a plusieurs destinataires.
+    static func sealToken(_ plaintext: Data, keys: [SymmetricKey]) -> String? {
+        guard let first = keys.first else { return nil }
+        if keys.count == 1 { return try? encryptToken(plaintext, key: first) }
+        return try? encryptTokenMulti(plaintext, keys: keys)
+    }
+
     // MARK: Sélectif (best effort)
 
     @discardableResult
     static func encryptMarked(_ input: String, key: SymmetricKey) -> (text: String, count: Int) {
+        encryptMarked(input, keys: [key])
+    }
+
+    /// Variante multi-destinataire : chaque `((segment))` est scellé pour TOUTES
+    /// les clés (jeton `v2` si plusieurs, `v1` si une seule).
+    @discardableResult
+    static func encryptMarked(_ input: String, keys: [SymmetricKey]) -> (text: String, count: Int) {
         var out = ""
         var count = 0
         var rest = Substring(input)
@@ -89,7 +179,7 @@ enum BrocolisCrypto {
             let secret = afterOpen[afterOpen.startIndex..<close.lowerBound]
 
             out += rest[rest.startIndex..<open.lowerBound]
-            if let token = try? encryptToken(Data(secret.utf8), key: key) {
+            if let token = sealToken(Data(secret.utf8), keys: keys) {
                 out += token
                 count += 1
             } else {
@@ -103,26 +193,7 @@ enum BrocolisCrypto {
 
     @discardableResult
     static func decryptTokens(_ input: String, key: SymmetricKey) -> (text: String, count: Int) {
-        var out = ""
-        var count = 0
-        var rest = Substring(input)
-
-        while let start = rest.range(of: tokenPrefix) {
-            let afterPrefix = rest[start.upperBound...]
-            guard let end = afterPrefix.range(of: tokenSuffix) else { break }
-            let b64 = String(afterPrefix[afterPrefix.startIndex..<end.lowerBound])
-
-            out += rest[rest.startIndex..<start.lowerBound]
-            if let plain = try? decryptToken(base64: b64, key: key) {
-                out += String(decoding: plain, as: UTF8.self)
-                count += 1
-            } else {
-                out += tokenPrefix + b64 + tokenSuffix
-            }
-            rest = afterPrefix[end.upperBound...]
-        }
-        out += rest
-        return (out, count)
+        decryptTokens(input, keys: [key])
     }
 
     /// Déchiffre chaque jeton en **essayant plusieurs clés** : pour chaque jeton,
@@ -134,31 +205,43 @@ enum BrocolisCrypto {
         var count = 0
         var rest = Substring(input)
 
-        while let start = rest.range(of: tokenPrefix) {
-            let afterPrefix = rest[start.upperBound...]
-            guard let end = afterPrefix.range(of: tokenSuffix) else { break }
-            let b64 = String(afterPrefix[afterPrefix.startIndex..<end.lowerBound])
+        // On cherche n'importe quel jeton `[[BROCOLIS:…]]` (v1 ou v2) et on
+        // déchiffre selon sa version. Un jeton qu'aucune clé n'ouvre est laissé
+        // tel quel (message « pour les autres »).
+        while let start = rest.range(of: tokenHead) {
+            let afterHead = rest[start.upperBound...]
+            guard let end = afterHead.range(of: tokenSuffix) else { break }
+            let inner = String(afterHead[afterHead.startIndex..<end.lowerBound]) // "v1:…" / "v2:…"
 
             out += rest[rest.startIndex..<start.lowerBound]
 
             var decrypted: String?
-            for key in keys {
-                if let plain = try? decryptToken(base64: b64, key: key) {
+            if inner.hasPrefix("v1:") {
+                let b64 = String(inner.dropFirst(3))
+                for key in keys {
+                    if let plain = try? decryptToken(base64: b64, key: key) {
+                        decrypted = String(decoding: plain, as: UTF8.self)
+                        break
+                    }
+                }
+            } else if inner.hasPrefix("v2:") {
+                let b64 = String(inner.dropFirst(3))
+                if let plain = decryptTokenV2(base64: b64, keys: keys) {
                     decrypted = String(decoding: plain, as: UTF8.self)
-                    break
                 }
             }
+
             if let plain = decrypted {
                 out += plain
                 count += 1
             } else {
-                out += tokenPrefix + b64 + tokenSuffix
+                out += tokenHead + inner + tokenSuffix
             }
-            rest = afterPrefix[end.upperBound...]
+            rest = afterHead[end.upperBound...]
         }
         out += rest
         return (out, count)
     }
 
-    static func containsToken(_ text: String) -> Bool { text.contains(tokenPrefix) }
+    static func containsToken(_ text: String) -> Bool { text.contains(tokenHead) }
 }

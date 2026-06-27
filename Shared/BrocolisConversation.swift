@@ -94,15 +94,15 @@ enum BrocolisConversation {
         return (display, status, opened, locked)
     }
 
-    /// Compte les jetons `[[BROCOLIS:v1:…]]` bien formés dans le texte.
+    /// Compte les jetons `[[BROCOLIS:…]]` bien formés (v1 et v2) dans le texte.
     static func countTokens(_ input: String) -> Int {
         var count = 0
         var rest = Substring(input)
-        while let start = rest.range(of: BrocolisCrypto.tokenPrefix) {
-            let afterPrefix = rest[start.upperBound...]
-            guard let end = afterPrefix.range(of: BrocolisCrypto.tokenSuffix) else { break }
+        while let start = rest.range(of: BrocolisCrypto.tokenHead) {
+            let afterHead = rest[start.upperBound...]
+            guard let end = afterHead.range(of: BrocolisCrypto.tokenSuffix) else { break }
             count += 1
-            rest = afterPrefix[end.upperBound...]
+            rest = afterHead[end.upperBound...]
         }
         return count
     }
