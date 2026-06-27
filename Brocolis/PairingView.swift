@@ -95,10 +95,13 @@ struct PairingView: View {
     // MARK: UI helpers
 
     private func actionButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        // On ne désactive PLUS le bouton quand le code est vide : sinon il ne se
+        // passe rien quand on touche, sans explication. À la place, `run` détecte
+        // le code manquant et le signale clairement.
         Button(action: action) {
             Label(title, systemImage: systemImage)
         }
-        .disabled(isWorking || code.trimmingCharacters(in: .whitespaces).isEmpty)
+        .disabled(isWorking)
     }
 
     private func randomCode(length: Int = 6) -> String {
@@ -109,6 +112,11 @@ struct PairingView: View {
 
     private func run(_ body: @escaping () async throws -> Void) {
         code = code.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        // Garde-fou : sans code, on explique au lieu de rester inerte.
+        guard !code.isEmpty else {
+            status = "⚠️ Entre d’abord un code de jumelage (le MÊME que ton correspondant), ou touche « Générer » et partage-le-lui."
+            return
+        }
         isWorking = true
         fingerprint = nil
         task = Task {
