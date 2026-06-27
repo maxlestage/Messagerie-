@@ -34,6 +34,17 @@ struct BrocolisTransform {
             case .unchanged: return "Aucune transformation"
             }
         }
+
+        /// Vrai uniquement si le texte produit est RÉELLEMENT du chiffré. Sert de
+        /// garde-fou : on ne doit jamais présenter du clair comme « prêt à
+        /// envoyer ». De plus, on vérifie qu'il ne reste plus aucun clair marqué.
+        var isEncrypted: Bool {
+            switch outcome {
+            case .encryptedWhole: return true
+            case .encryptedMarked(let n): return n > 0
+            case .decrypted, .unchanged: return false
+            }
+        }
     }
 
     /// - Parameter encryptWholeAlways: si `true`, on chiffre toute la sélection
