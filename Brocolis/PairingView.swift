@@ -28,6 +28,30 @@ struct PairingView: View {
                     .font(.subheadline)
             }
 
+            // LED d'état : vert = tout bon (appairés), orange = en cours,
+            // rouge = échec, gris = en attente.
+            Section {
+                HStack(spacing: 14) {
+                    ZStack {
+                        Circle()
+                            .fill(ledColor)
+                            .frame(width: 24, height: 24)
+                            .shadow(color: ledColor.opacity(0.9),
+                                    radius: pairState == .success ? 9 : 3)
+                        if pairState == .working {
+                            Circle()
+                                .stroke(ledColor.opacity(0.5), lineWidth: 3)
+                                .frame(width: 24, height: 24)
+                        }
+                    }
+                    Text(ledLabel)
+                        .font(.subheadline)
+                        .foregroundStyle(pairState == .success ? .green : .primary)
+                    Spacer()
+                }
+                .animation(.easeInOut, value: pairState)
+            }
+
             Section("Code de jumelage") {
                 HStack {
                     TextField("ex. ABC123", text: $code)
@@ -90,6 +114,35 @@ struct PairingView: View {
         .navigationTitle("Appairage")
         .navigationBarTitleDisplayMode(.inline)
         .onDisappear { cancel() }
+    }
+
+    // MARK: État visuel (LED)
+
+    private enum PairState: Equatable { case idle, working, success, error }
+
+    private var pairState: PairState {
+        if isWorking { return .working }
+        if fingerprint != nil { return .success }
+        if status.hasPrefix("⚠️") { return .error }
+        return .idle
+    }
+
+    private var ledColor: Color {
+        switch pairState {
+        case .idle:    return .gray
+        case .working: return .orange
+        case .success: return .green
+        case .error:   return .red
+        }
+    }
+
+    private var ledLabel: String {
+        switch pairState {
+        case .idle:    return "En attente — saisis un code, puis lance l’appairage."
+        case .working: return "Appairage en cours…"
+        case .success: return "✅ Tout bon — clé en place, vous êtes appairés."
+        case .error:   return "Échec — vérifie le code et réessaie."
+        }
     }
 
     // MARK: UI helpers
