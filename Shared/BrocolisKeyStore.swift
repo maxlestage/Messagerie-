@@ -72,6 +72,7 @@ enum BrocolisKeyStore {
     private static let encryptWholeName = "encrypt_whole_always"
     private static let privateKeyName = "x25519_private_b64"
     private static let fingerprintName = "pairing_fingerprint"
+    private static let recipientIdsName = "recipient_key_ids"
 
     private static var defaults: UserDefaults? {
         UserDefaults(suiteName: appGroup)
@@ -183,6 +184,50 @@ enum BrocolisKeyStore {
     static func allSymmetricKeys() -> [SymmetricKey] {
         keys.compactMap { try? BrocolisCrypto.symmetricKey(fromBase64: $0.base64) }
     }
+
+    // MARK: - Destinataires multiples (chiffrement pour plusieurs clés)
+
+    /// IDs des clés destinataires choisies pour le CHIFFREMENT. Vide ⇒ on chiffre
+    /// pour la seule clé sélectionnée (comportement historique). On filtre les
+    /// ids qui ne correspondent plus à une clé existante.
+    static var recipientKeyIds: [String] {
+        guard let data = defaults?.data(forKey: recipientIdsName),
+              let arr = try? JSONDecoder().decode([String].self, from: data) else { return [] }
+        let existing = Set(keys.map { $0.id })
+        return arr.filter { existing.contains($0) }
+    }
+
+    static func setRecipientKeyIds(_ ids: [String]) {
+        if ids.isEmpty {
+            defaults?.removeObject(forKey: recipientIdsName)
+        } else if let data = try? JSONEncoder().encode(ids) {
+            defaults?.set(data, forKey: recipientIdsName)
+        }
+    }
+
+    /// Les clés NOMMÉES retenues pour chiffrer (hors clés expirées). Repli sur la
+    /// clé sélectionnée si aucun destinataire multiple n'est choisi.
+    static func encryptionNamedKeys() -> [NamedKey] {
+        let ids = recipientKeyIds
+        let chosen: [NamedKey]
+        if ids.isEmpty {
+            chosen = selectedKey.map { [$0] } ?? []
+        } else {
+            let byId = Dictionary(keys.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            chosen = ids.compactMap { byId[$0] }
+        }
+        let now = Date()
+        return chosen.filter { !isExpired(expiresAt: $0.expiresAt, now: now) }
+    }
+
+    /// Clés symétriques pour CHIFFRER (multi-destinataire si plusieurs).
+    static func encryptionKeys() -> [SymmetricKey] {
+        encryptionNamedKeys().compactMap { try? BrocolisCrypto.symmetricKey(fromBase64: $0.base64) }
+    }
+
+    /// Y a-t-il au moins une clé valable (non expirée) parmi les destinataires
+    /// choisis ? Sert à distinguer « aucune clé » de « toutes expirées ».
+    static var hasUsableEncryptionKey: Bool { !encryptionNamedKeys().isEmpty }
 
     /// Compat : remplace la clé sélectionnée, ou crée « Ma clé ».
     static func setKey(_ base64: String) {

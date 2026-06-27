@@ -246,6 +246,100 @@ final class BrocolisCryptoTests: XCTestCase {
         XCTAssertEqual(dec, "Note: ligne1\nligne2\tindent")
     }
 
+    // MARK: Multi-destinataire (jeton v2, enveloppe)
+
+    func testMultiTokenReadableByEachRecipient() throws {
+        let a = try newKey(); let b = try newKey(); let c = try newKey()
+        let token = try BrocolisCrypto.encryptTokenMulti(Data("coucou".utf8), keys: [a, b, c])
+        XCTAssertTrue(token.hasPrefix(BrocolisCrypto.tokenPrefixV2))
+        // Chaque destinataire ouvre le message en clair, avec SA seule clé.
+        for key in [a, b, c] {
+            let (dec, n) = BrocolisCrypto.decryptTokens(token, keys: [key])
+            XCTAssertEqual(n, 1)
+            XCTAssertEqual(dec, "coucou")
+        }
+    }
+
+    func testMultiTokenUnreadableByOutsider() throws {
+        let a = try newKey(); let b = try newKey()
+        let outsider = try newKey()
+        let token = try BrocolisCrypto.encryptTokenMulti(Data("secret".utf8), keys: [a, b])
+        let (dec, n) = BrocolisCrypto.decryptTokens(token, keys: [outsider])
+        XCTAssertEqual(n, 0)
+        XCTAssertEqual(dec, token, "le jeton est laissé intact si aucune clé ne l’ouvre")
+    }
+
+    func testMultiTokenLeavesNoLockedLeftoverForRecipient() throws {
+        // Propriété clé du v2 : un seul jeton, pas de cadenas résiduel.
+        let a = try newKey(); let b = try newKey()
+        let token = try BrocolisCrypto.encryptTokenMulti(Data("salut".utf8), keys: [a, b])
+        let (dec, _) = BrocolisCrypto.decryptTokens(token, keys: [a])
+        XCTAssertFalse(dec.contains(BrocolisCrypto.tokenHead))
+        XCTAssertEqual(dec, "salut")
+    }
+
+    func testSealTokenPicksV1ForSingleKey() throws {
+        let a = try newKey()
+        let token = BrocolisCrypto.sealToken(Data("x".utf8), keys: [a])
+        XCTAssertNotNil(token)
+        XCTAssertTrue(token!.hasPrefix(BrocolisCrypto.tokenPrefix)) // v1
+    }
+
+    func testSealTokenPicksV2ForMultipleKeys() throws {
+        let a = try newKey(); let b = try newKey()
+        let token = BrocolisCrypto.sealToken(Data("x".utf8), keys: [a, b])
+        XCTAssertNotNil(token)
+        XCTAssertTrue(token!.hasPrefix(BrocolisCrypto.tokenPrefixV2)) // v2
+    }
+
+    func testMixedV1AndV2TokensInSameTextDecrypt() throws {
+        let a = try newKey(); let b = try newKey()
+        let v1 = try BrocolisCrypto.encryptToken(Data("un".utf8), key: a)
+        let v2 = try BrocolisCrypto.encryptTokenMulti(Data("deux".utf8), keys: [a, b])
+        let input = "X \(v1) Y \(v2) Z"
+        let (dec, n) = BrocolisCrypto.decryptTokens(input, keys: [a])
+        XCTAssertEqual(n, 2)
+        XCTAssertEqual(dec, "X un Y deux Z")
+    }
+
+    func testMultiTokenNonceMakesItNonDeterministic() throws {
+        let a = try newKey(); let b = try newKey()
+        let t1 = try BrocolisCrypto.encryptTokenMulti(Data("même".utf8), keys: [a, b])
+        let t2 = try BrocolisCrypto.encryptTokenMulti(Data("même".utf8), keys: [a, b])
+        XCTAssertNotEqual(t1, t2)
+    }
+
+    func testMultiTokenEmojiRoundtrip() throws {
+        let a = try newKey(); let b = try newKey()
+        let secret = "Plan 🥦 à 18h — code 4291 €"
+        let token = try BrocolisCrypto.encryptTokenMulti(Data(secret.utf8), keys: [a, b])
+        let (dec, n) = BrocolisCrypto.decryptTokens(token, keys: [b])
+        XCTAssertEqual(n, 1)
+        XCTAssertEqual(dec, secret)
+    }
+
+    func testMultiEncryptMarkedForTwoKeys() throws {
+        let a = try newKey(); let b = try newKey()
+        let (enc, n) = BrocolisCrypto.encryptMarked("code ((1234)) fin", keys: [a, b])
+        XCTAssertEqual(n, 1)
+        XCTAssertTrue(enc.contains(BrocolisCrypto.tokenPrefixV2))
+        // Lisible par les deux.
+        XCTAssertEqual(BrocolisCrypto.decryptTokens(enc, keys: [a]).text, "code 1234 fin")
+        XCTAssertEqual(BrocolisCrypto.decryptTokens(enc, keys: [b]).text, "code 1234 fin")
+    }
+
+    func testMultiTokenTamperedBodyFails() throws {
+        let a = try newKey(); let b = try newKey()
+        let token = try BrocolisCrypto.encryptTokenMulti(Data("secret".utf8), keys: [a, b])
+        let inner = String(token.dropFirst(BrocolisCrypto.tokenPrefixV2.count)
+            .dropLast(BrocolisCrypto.tokenSuffix.count))
+        var raw = Array(Data(base64Encoded: inner)!)
+        raw[raw.count - 1] ^= 0xFF // corrompt le dernier octet du corps
+        let tampered = BrocolisCrypto.tokenPrefixV2 + Data(raw).base64EncodedString() + BrocolisCrypto.tokenSuffix
+        let (_, n) = BrocolisCrypto.decryptTokens(tampered, keys: [a, b])
+        XCTAssertEqual(n, 0)
+    }
+
     // MARK: Outils
 
     private func innerOf(_ token: String) -> String {
