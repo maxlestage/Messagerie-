@@ -184,6 +184,16 @@ final class ActionViewController: UIViewController {
 
         let result = BrocolisTransform.auto(
             input, keys: encKeys, encryptWholeAlways: BrocolisKeyStore.encryptWholeAlways)
+
+        // Garde-fou : si rien n'a été chiffré, on NE copie PAS de clair et on
+        // l'indique clairement — pour ne jamais faire croire que c'est protégé.
+        guard result.isEncrypted else {
+            statusLabel.text = "⚠️ Rien n'a été chiffré — texte NON copié (vérifie ta clé)."
+            textView.text = result.text
+            resultText = ""
+            return
+        }
+
         resultText = result.text
         textView.text = result.text
 

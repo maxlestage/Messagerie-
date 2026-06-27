@@ -340,6 +340,79 @@ final class BrocolisCryptoTests: XCTestCase {
         XCTAssertEqual(n, 0)
     }
 
+    // MARK: Garanties de chiffrement (les messages sont bien cryptés)
+
+    func testTokenNeverContainsPlaintext() throws {
+        let key = try newKey()
+        let secret = "RDV 18h — code 4291 — banque — secret"
+        let token = try BrocolisCrypto.encryptToken(Data(secret.utf8), key: key)
+        XCTAssertFalse(token.contains(secret))
+        for leak in ["RDV", "4291", "banque", "secret", "18h"] {
+            XCTAssertFalse(token.contains(leak), "le mot « \(leak) » ne doit jamais apparaître en clair")
+        }
+    }
+
+    func testWholeMessageEncryptionHidesEveryWord() throws {
+        // Chemin « Tout chiffrer » : c'est le défaut à l'envoi.
+        let key = try newKey()
+        let msg = "Salut Bob, on se voit demain à la banque à midi."
+        let r = BrocolisTransform.auto(msg, keys: [key], encryptWholeAlways: true)
+        XCTAssertTrue(r.isEncrypted)
+        XCTAssertTrue(r.text.hasPrefix(BrocolisCrypto.tokenPrefix))
+        for word in ["Salut", "Bob", "demain", "banque", "midi"] {
+            XCTAssertFalse(r.text.contains(word), "« \(word) » a fuité")
+        }
+        XCTAssertEqual(BrocolisCrypto.decryptTokens(r.text, keys: [key]).text, msg)
+    }
+
+    func testMultiRecipientTokenHidesPlaintext() throws {
+        let a = try newKey(); let b = try newKey()
+        let secret = "message confidentiel 4291"
+        let token = try BrocolisCrypto.encryptTokenMulti(Data(secret.utf8), keys: [a, b])
+        XCTAssertFalse(token.contains(secret))
+        XCTAssertFalse(token.contains("4291"))
+        XCTAssertFalse(token.contains("confidentiel"))
+    }
+
+    func testFuzzNoPlaintextLeakAlwaysReversibleWrongKeyFails() throws {
+        // 200 messages variés : (1) aucun clair ne fuit, (2) toujours réversible
+        // avec la bonne clé, (3) illisible avec une autre clé.
+        for i in 0..<200 {
+            let key = try newKey()
+            let wrong = try newKey()
+            let secret = "msg#\(i) — secret-\(i * 7) — éàü🥦 \(i)"
+            let token = try BrocolisCrypto.encryptToken(Data(secret.utf8), key: key)
+            XCTAssertFalse(token.contains(secret), "fuite au message \(i)")
+            XCTAssertFalse(token.contains("secret-\(i * 7)"), "fuite partielle au message \(i)")
+
+            let back = try BrocolisCrypto.decryptToken(base64: innerOf(token), key: key)
+            XCTAssertEqual(String(decoding: back, as: UTF8.self), secret)
+
+            XCTAssertThrowsError(
+                try BrocolisCrypto.decryptToken(base64: innerOf(token), key: wrong),
+                "le message \(i) devrait être illisible avec une autre clé")
+        }
+    }
+
+    func testWholeEncryptionIsAuthenticatedAgainstTampering() throws {
+        // Le chiffrement est authentifié : modifier UN octet rend le jeton illisible.
+        let key = try newKey()
+        let token = BrocolisTransform.auto("virement à faire", keys: [key], encryptWholeAlways: true).text
+        var raw = Array(Data(base64Encoded: innerOf(token))!)
+        raw[raw.count / 2] ^= 0x01 // bascule un bit au milieu du chiffré
+        let tampered = BrocolisCrypto.tokenPrefix + Data(raw).base64EncodedString() + BrocolisCrypto.tokenSuffix
+        let (_, n) = BrocolisCrypto.decryptTokens(tampered, keys: [key])
+        XCTAssertEqual(n, 0, "un jeton altéré ne doit jamais se déchiffrer")
+    }
+
+    func testTransformUnchangedIsNotMarkedEncrypted() throws {
+        // Garde-fou : sans clé, auto() renvoie le clair → isEncrypted DOIT être faux,
+        // pour que l'app n'affiche jamais du clair comme « chiffré ».
+        let r = BrocolisTransform.auto("texte en clair", keys: [], encryptWholeAlways: true)
+        XCTAssertFalse(r.isEncrypted)
+        XCTAssertEqual(r.text, "texte en clair")
+    }
+
     // MARK: Outils
 
     private func innerOf(_ token: String) -> String {
