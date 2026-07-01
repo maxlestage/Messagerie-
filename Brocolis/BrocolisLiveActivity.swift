@@ -84,3 +84,23 @@ enum BrocolisLiveActivity {
     }
     #endif
 }
+
+/// Enregistrement du push token de la Live Activity auprès du serveur de
+/// rendez-vous, après un appairage. Le token (déposé dans l'App Group par
+/// `BrocolisLiveActivity`) arrive de façon asynchrone : on réessaie brièvement
+/// avant d'abandonner (iOS < 16.2, push refusé…).
+enum BrocolisPush {
+    static func registerLiveActivityToken() async {
+        guard let code = BrocolisKeyStore.pairingCode,
+              let peerId = BrocolisKeyStore.pairingPeerId else { return }
+        let client = PairingClient(baseURL: BrocolisKeyStore.serverURL)
+        for _ in 0..<20 {
+            if let token = BrocolisKeyStore.liveActivityPushToken, !token.isEmpty {
+                try? await client.registerLiveActivityToken(
+                    code: code, peerId: peerId, token: token)
+                return
+            }
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+        }
+    }
+}
