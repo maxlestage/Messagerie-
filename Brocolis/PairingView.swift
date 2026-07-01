@@ -208,7 +208,7 @@ struct PairingView: View {
             if let peer = peers.first(where: { $0.pub != myPub }) {
                 let derived = try BrocolisKeyAgreement.derive(myPrivate: priv, peerPublicBase64: peer.pub)
                 applyKey(derived.symmetricKeyBase64, fingerprint: derived.fingerprint,
-                         message: "✅ Appairé. Brocolis est actif.")
+                         message: "✅ Appairé. Brocolis est actif.", peerId: peerId)
                 return
             }
             try await Task.sleep(nanoseconds: 1_500_000_000)
@@ -226,7 +226,7 @@ struct PairingView: View {
         // Le fondateur a la clé tout de suite.
         let groupKey = BrocolisKeyAgreement.generateGroupKeyBase64()
         applyKey(groupKey, fingerprint: BrocolisKeyAgreement.groupFingerprint(groupKeyBase64: groupKey),
-                 message: "Clé de groupe créée. Distribution en cours…", keepWorking: true)
+                 message: "Clé de groupe créée. Distribution en cours…", peerId: peerId, keepWorking: true)
 
         // Publie sa clé publique pour que les membres puissent déballer.
         _ = try await client.publish(code: code, peerId: peerId, pub: myPub)
@@ -269,7 +269,7 @@ struct PairingView: View {
                 let groupKey = try BrocolisKeyAgreement.unwrapGroupKey(
                     blobBase64: wrap.blob, fromPeerPublicBase64: wrap.fromPub, myPrivate: priv)
                 applyKey(groupKey, fingerprint: BrocolisKeyAgreement.groupFingerprint(groupKeyBase64: groupKey),
-                         message: "✅ Clé de groupe reçue. Brocolis est actif.")
+                         message: "✅ Clé de groupe reçue. Brocolis est actif.", peerId: peerId)
                 return
             }
             try await Task.sleep(nanoseconds: 1_500_000_000)
@@ -279,12 +279,16 @@ struct PairingView: View {
 
     // MARK: Application du résultat
 
-    private func applyKey(_ keyB64: String, fingerprint fp: String, message: String, keepWorking: Bool = false) {
+    private func applyKey(_ keyB64: String, fingerprint fp: String, message: String, peerId: String, keepWorking: Bool = false) {
         let name = code.trimmingCharacters(in: .whitespacesAndNewlines)
         BrocolisKeyStore.addKey(name: name.isEmpty ? "Appairage" : name, base64: keyB64)
         BrocolisKeyStore.setPairingFingerprint(fp)
+        BrocolisKeyStore.setPairingIdentity(code: name, peerId: peerId)
         BrocolisKeyStore.setActive(true)
         BrocolisLiveActivity.sync(active: true)
+        // Enregistre le push token de la Live Activity (dès qu'il est disponible)
+        // pour autoriser les mises à jour à distance.
+        Task { await BrocolisPush.registerLiveActivityToken() }
         Task { @MainActor in
             fingerprint = fp
             status = message
