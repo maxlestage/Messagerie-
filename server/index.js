@@ -20,8 +20,21 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { createApnsSender } = require('./apns.js');
 
 const TTL_MS = 10 * 60 * 1000; // 10 min
+
+/// Construit l'expéditeur APNs (mises à jour de Live Activity) depuis
+/// l'environnement, ou `null` si la configuration est incomplète.
+function createApnsSenderFromEnv() {
+  return createApnsSender({
+    keyP8: process.env.APNS_KEY_P8,
+    keyId: process.env.APNS_KEY_ID,
+    teamId: process.env.APNS_TEAM_ID,
+    bundleId: process.env.APNS_BUNDLE_ID,
+    environment: process.env.APNS_ENV || 'sandbox',
+  });
+}
 
 // Vitrine statique (le site React de site/, pré-construit dans public/) servie
 // sur /site/. L'API de rendez-vous reste sur /pair, /wrap, /health.
@@ -245,6 +258,10 @@ function createRendezvous(options = {}) {
   const codes = new Map();
   // code -> Map(toPeerId -> { from, fromPub, blob, ts })  (clés de groupe emballées)
   const wraps = new Map();
+  // code -> Map(peerId -> { token, ts })  (push tokens de Live Activity)
+  const liveTokens = new Map();
+  // Expéditeur APNs, ou null si non configuré (injectable pour les tests).
+  const apns = 'apns' in options ? options.apns : createApnsSenderFromEnv();
 
   function prune() {
     const now = Date.now();
@@ -259,6 +276,12 @@ function createRendezvous(options = {}) {
         if (now - entry.ts > TTL_MS) recips.delete(toId);
       }
       if (recips.size === 0) wraps.delete(code);
+    }
+    for (const [code, toks] of liveTokens) {
+      for (const [peerId, entry] of toks) {
+        if (now - entry.ts > TTL_MS) toks.delete(peerId);
+      }
+      if (toks.size === 0) liveTokens.delete(code);
     }
   }
 
@@ -393,6 +416,89 @@ function createRendezvous(options = {}) {
           }
         }
         return sendJSON(res, 200, { ok: true, count });
+      });
+      return;
+    }
+
+    // --- Mises à jour push de Live Activity (APNs) ---
+
+    // L'app enregistre le push token de sa Live Activity sous (code, peerId).
+    if (req.method === 'POST' && url.pathname === '/push/live-activity/token') {
+      let raw = '';
+      req.on('data', (chunk) => {
+        raw += chunk;
+        if (raw.length > 8192) req.destroy();
+      });
+      req.on('end', () => {
+        let body;
+        try {
+          body = JSON.parse(raw);
+        } catch {
+          return sendJSON(res, 400, { error: 'JSON invalide' });
+        }
+        const code = (body.code || '').trim();
+        const peerId = (body.peerId || '').trim();
+        const token = (body.token || '').trim();
+        if (!code || !peerId || !token) {
+          return sendJSON(res, 400, { error: 'code, peerId et token requis' });
+        }
+        let toks = liveTokens.get(code);
+        if (!toks) {
+          toks = new Map();
+          liveTokens.set(code, toks);
+        }
+        toks.set(peerId, { token, ts: Date.now() });
+        return sendJSON(res, 200, { ok: true });
+      });
+      return;
+    }
+
+    // Déclenche une mise à jour / fin de la Live Activity du peer via APNs.
+    if (req.method === 'POST' && url.pathname === '/push/live-activity/update') {
+      let raw = '';
+      req.on('data', (chunk) => {
+        raw += chunk;
+        if (raw.length > 8192) req.destroy();
+      });
+      req.on('end', () => {
+        let body;
+        try {
+          body = JSON.parse(raw);
+        } catch {
+          return sendJSON(res, 400, { error: 'JSON invalide' });
+        }
+        const code = (body.code || '').trim();
+        const peerId = (body.peerId || '').trim();
+        const event = (body.event || 'update').trim();
+        const contentState = body.contentState;
+        if (!code || !peerId) {
+          return sendJSON(res, 400, { error: 'code et peerId requis' });
+        }
+        if (event !== 'update' && event !== 'end') {
+          return sendJSON(res, 400, { error: 'event doit valoir "update" ou "end"' });
+        }
+        if (contentState == null || typeof contentState !== 'object') {
+          return sendJSON(res, 400, { error: 'contentState (objet) requis' });
+        }
+        const toks = liveTokens.get(code);
+        const entry = toks ? toks.get(peerId) : undefined;
+        if (!entry) {
+          return sendJSON(res, 404, { error: 'aucun token de Live Activity pour ce peerId' });
+        }
+        if (!apns) {
+          return sendJSON(res, 503, { error: 'push non configuré côté serveur' });
+        }
+        apns
+          .sendLiveActivity({
+            token: entry.token,
+            event,
+            contentState,
+            dismissalDate: body.dismissalDate,
+          })
+          .then((r) => sendJSON(res, 200, { ok: true, apns: r.status }))
+          .catch((e) =>
+            sendJSON(res, 502, { error: 'échec APNs', detail: String((e && e.message) || e) })
+          );
       });
       return;
     }
