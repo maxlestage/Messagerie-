@@ -36,15 +36,44 @@ enum BrocolisLiveActivity {
     }
 
     #if canImport(ActivityKit)
+    /// Clé (App Group) où l'on dépose le push token de la Live Activity : c'est
+    /// ce token qu'un serveur APNs cible pour mettre à jour / terminer le 🥦 à
+    /// distance. Voir docs/ios-push-live-activity.md.
+    static let pushTokenDefaultsKey = "live_activity_push_token"
+
     @available(iOS 16.1, *)
     private static func start() async {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         guard Activity<BrocolisActivityAttributes>.activities.isEmpty else { return }
         let state = BrocolisActivityAttributes.ContentState(since: Date())
-        _ = try? Activity.request(
-            attributes: BrocolisActivityAttributes(),
-            contentState: state
-        )
+        do {
+            // `pushType: .token` demande un push token APNs pour piloter la
+            // Live Activity à distance (mises à jour push).
+            let activity = try Activity.request(
+                attributes: BrocolisActivityAttributes(),
+                contentState: state,
+                pushType: .token
+            )
+            if #available(iOS 16.2, *) {
+                observePushToken(for: activity)
+            }
+        } catch {
+            // La Live Activity reste facultative : on n'interrompt rien si iOS
+            // refuse (autorisation, budget…).
+        }
+    }
+
+    /// Suit les évolutions du push token de la Live Activity et le range dans
+    /// l'App Group (hex), à disposition d'un serveur APNs.
+    @available(iOS 16.2, *)
+    private static func observePushToken(for activity: Activity<BrocolisActivityAttributes>) {
+        Task {
+            for await tokenData in activity.pushTokenUpdates {
+                let hex = tokenData.map { String(format: "%02x", $0) }.joined()
+                UserDefaults(suiteName: BrocolisKeyStore.appGroup)?
+                    .set(hex, forKey: pushTokenDefaultsKey)
+            }
+        }
     }
 
     @available(iOS 16.1, *)
