@@ -207,6 +207,7 @@ struct PairingView: View {
             let peers = try await client.fetch(code: code, peerId: peerId)
             if let peer = peers.first(where: { $0.pub != myPub }) {
                 let derived = try BrocolisKeyAgreement.derive(myPrivate: priv, peerPublicBase64: peer.pub)
+                BrocolisKeyStore.setPairingPeerIds([peer.peerId])
                 applyKey(derived.symmetricKeyBase64, fingerprint: derived.fingerprint,
                          message: "✅ Appairé. Brocolis est actif.", peerId: peerId)
                 return
@@ -245,6 +246,7 @@ struct PairingView: View {
                 }
                 try await client.postWraps(code: code, fromPeerId: peerId, fromPub: myPub, items: items)
                 newPeers.forEach { wrappedTo.insert($0.peerId) }
+                BrocolisKeyStore.setPairingPeerIds(Array(wrappedTo))
                 await update("Clé distribuée à \(wrappedTo.count) membre(s). Touche « Annuler » quand tout le monde a reçu.")
             }
             try await Task.sleep(nanoseconds: 2_000_000_000)
@@ -268,6 +270,7 @@ struct PairingView: View {
             if let wrap = try await client.fetchWrap(code: code, peerId: peerId) {
                 let groupKey = try BrocolisKeyAgreement.unwrapGroupKey(
                     blobBase64: wrap.blob, fromPeerPublicBase64: wrap.fromPub, myPrivate: priv)
+                BrocolisKeyStore.setPairingPeerIds([wrap.from])
                 applyKey(groupKey, fingerprint: BrocolisKeyAgreement.groupFingerprint(groupKeyBase64: groupKey),
                          message: "✅ Clé de groupe reçue. Brocolis est actif.", peerId: peerId)
                 return
