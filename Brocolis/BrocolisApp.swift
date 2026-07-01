@@ -32,8 +32,29 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         // Notifications : devient le destinataire des actions + déclare l'action « Prolonger ».
         UNUserNotificationCenter.current().delegate = self
         BrocolisNotifications.registerCategories()
+        // Push : s'enregistre auprès d'APNs (mises à jour push, y compris Live
+        // Activity à distance). Le device token est rangé dans l'App Group.
+        application.registerForRemoteNotifications()
         return true
     }
+
+    /// APNs a délivré le device token de l'app : on le range (hex) dans l'App
+    /// Group pour un éventuel serveur push.
+    func application(
+        _ application: UIApplication,
+        didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+    ) {
+        let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
+        UserDefaults(suiteName: BrocolisKeyStore.appGroup)?
+            .set(hex, forKey: "apns_device_token")
+    }
+
+    /// Échec d'enregistrement APNs (attendu sur simulateur ou sans capability
+    /// push provisionnée) : sans conséquence, on l'ignore silencieusement.
+    func application(
+        _ application: UIApplication,
+        didFailToRegisterForRemoteNotificationsWithError error: Error
+    ) {}
 
     func applicationWillTerminate(_ application: UIApplication) {
         BrocolisKeyStore.setActive(false)

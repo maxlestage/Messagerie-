@@ -6,5 +6,10 @@
 	<array>
 		<string>group.rs.brocolis.messagerie</string>
 	</array>
+	<!-- Notifications push / mises à jour de Live Activity à distance (APNs).
+	     `development` ici ; TestFlight et l'App Store basculent automatiquement
+	     sur l'environnement de production via le profil d'approvisionnement. -->
+	<key>aps-environment</key>
+	<string>development</string>
 </dict>
 </plist>
