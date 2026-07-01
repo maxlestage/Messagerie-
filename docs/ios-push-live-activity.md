@@ -68,9 +68,23 @@ Corps — **fin** de l'activité :
 > (ici `{ "since": … }`). Sandbox pour les builds `development`, production pour
 > TestFlight/App Store.
 
-## Ce qui reste à faire
+## Serveur d'envoi (intégré au rendez-vous)
 
-Le **client** est prêt (tokens capturés, activité pilotable par push). Il manque
-le **serveur d'envoi** : stocker `live_activity_push_token` et émettre les
-requêtes APNs ci-dessus. Il pourrait être greffé sur le serveur de rendez-vous
-existant (Heroku). Dis-le si tu veux que je l'ajoute.
+Le serveur de rendez-vous (`server/`) sait maintenant relayer ces pushs, via un
+client APNs sans dépendance (`server/apns.js`, JWT ES256 + HTTP/2). Configure les
+variables `APNS_*` (voir `server/.env.example`) — sinon `/update` répond `503`.
+
+Deux endpoints :
+
+```
+POST /push/live-activity/token   { code, peerId, token }
+     → l'app enregistre le push token de sa Live Activity.
+
+POST /push/live-activity/update  { code, peerId, event, contentState[, dismissalDate] }
+     → le serveur envoie le push APNs (update / end) au token enregistré.
+       404 si aucun token, 503 si APNS_* non configuré.
+```
+
+Côté app, il reste à **poster le token** (`live_activity_push_token`) sur
+`/push/live-activity/token` après l'appairage (là où l'app connaît déjà son
+`code`/`peerId` de rendez-vous), et à appeler `/update` selon ta logique.
