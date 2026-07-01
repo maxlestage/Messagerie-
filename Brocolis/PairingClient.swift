@@ -71,6 +71,13 @@ struct PairingClient {
         return try JSONDecoder().decode(WrapResponse.self, from: data).wrap
     }
 
+    /// Enregistre le push token de la Live Activity sous (code, peerId) : un
+    /// correspondant pourra ensuite déclencher une mise à jour à distance.
+    func registerLiveActivityToken(code: String, peerId: String, token: String) async throws {
+        _ = try await raw(method: "POST", path: "/push/live-activity/token",
+                          body: ["code": code, "peerId": peerId, "token": token])
+    }
+
     // MARK: Bas niveau
 
     private func pairQuery(code: String, peerId: String) -> String {
