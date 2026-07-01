@@ -103,4 +103,29 @@ enum BrocolisPush {
             try? await Task.sleep(nanoseconds: 1_500_000_000)
         }
     }
+
+    /// Notifie chaque correspondant appairé : déclenche une mise à jour de sa
+    /// Live Activity via le serveur (event "update"). Renvoie le nombre d'envois
+    /// réussis. Un correspondant dont la Live Activity n'est pas active, ou dont
+    /// le push n'est pas configuré côté serveur, est simplement ignoré.
+    @discardableResult
+    static func notifyPeers() async -> Int {
+        guard let code = BrocolisKeyStore.pairingCode else { return 0 }
+        let peerIds = BrocolisKeyStore.pairingPeerIds
+        guard !peerIds.isEmpty else { return 0 }
+
+        let client = PairingClient(baseURL: BrocolisKeyStore.serverURL)
+        let contentState: [String: Any] = ["since": Int(Date().timeIntervalSince1970)]
+        var sent = 0
+        for peerId in peerIds {
+            do {
+                try await client.updateLiveActivity(
+                    code: code, peerId: peerId, event: "update", contentState: contentState)
+                sent += 1
+            } catch {
+                // On poursuit avec les autres correspondants.
+            }
+        }
+        return sent
+    }
 }

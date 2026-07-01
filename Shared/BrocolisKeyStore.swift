@@ -323,6 +323,23 @@ enum BrocolisKeyStore {
         defaults?.set(peerId, forKey: pairingPeerIdName)
     }
 
+    // peerId des CORRESPONDANTS appairés (ceux qu'on peut notifier via /update).
+    private static let pairingPeerIdsName = "pairing_peer_ids"
+
+    static var pairingPeerIds: [String] {
+        guard let data = defaults?.data(forKey: pairingPeerIdsName),
+              let arr = try? JSONDecoder().decode([String].self, from: data) else { return [] }
+        return arr
+    }
+
+    static func setPairingPeerIds(_ ids: [String]) {
+        if ids.isEmpty {
+            defaults?.removeObject(forKey: pairingPeerIdsName)
+        } else if let data = try? JSONEncoder().encode(ids) {
+            defaults?.set(data, forKey: pairingPeerIdsName)
+        }
+    }
+
     // MARK: Validité / expiration — PAR CLÉ
 
     static func keyTTLSeconds(_ id: String) -> Int {

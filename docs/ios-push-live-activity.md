@@ -85,6 +85,15 @@ POST /push/live-activity/update  { code, peerId, event, contentState[, dismissal
        404 si aucun token, 503 si APNS_* non configuré.
 ```
 
-Côté app, il reste à **poster le token** (`live_activity_push_token`) sur
-`/push/live-activity/token` après l'appairage (là où l'app connaît déjà son
-`code`/`peerId` de rendez-vous), et à appeler `/update` selon ta logique.
+### Côté app (déjà branché)
+
+- **Enregistrement du token** : après un appairage (à deux / groupe), l'app
+  poste son push token sur `/push/live-activity/token` sous `(code, peerId)`
+  (`BrocolisPush.registerLiveActivityToken`).
+- **Déclencheur** : le bouton **« Notifier mes correspondants »** (écran
+  principal, section Correspondant) appelle `/push/live-activity/update` pour
+  chaque pair appairé (`BrocolisPush.notifyPeers`). Un pair dont la Live
+  Activity n'est pas active, ou si `APNS_*` n'est pas configuré, est ignoré.
+
+Le `contentState` envoyé est `{ "since": <unix> }` ; ajuste-le si tu enrichis
+`BrocolisActivityAttributes.ContentState`.
