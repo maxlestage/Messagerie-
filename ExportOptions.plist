@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Options d'export pour `xcodebuild -exportArchive` (livraison App Store /
+  TestFlight). `destination = upload` téléverse directement sur App Store
+  Connect ; la signature est automatique (« cloud ») via la clé API fournie
+  en ligne de commande. Voir .github/workflows/ios-testflight.yml.
+-->
+<plist version="1.0">
+<dict>
+	<key>method</key>
+	<string>app-store</string>
+	<key>destination</key>
+	<string>upload</string>
+	<key>teamID</key>
+	<string>2FW8T4UX4L</string>
+	<key>signingStyle</key>
+	<string>automatic</string>
+	<key>uploadSymbols</key>
+	<true/>
+	<!-- On gère nous-mêmes le numéro de build (CURRENT_PROJECT_VERSION dans le
+	     workflow) : Xcode ne doit pas le réécrire. -->
+	<key>manageAppVersionAndBuildNumber</key>
+	<false/>
+</dict>
+</plist>

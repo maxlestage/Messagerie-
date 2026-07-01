@@ -20,6 +20,7 @@ struct RootView: View {
     @State private var encryptWhole = BrocolisKeyStore.encryptWholeAlways
     @State private var fingerprint: String? = BrocolisKeyStore.pairingFingerprint
     @State private var keyTTL = BrocolisKeyStore.selectedKey?.ttlSeconds ?? 0
+    @State private var pairedPeerCount = BrocolisKeyStore.pairingPeerIds.count
 
     @State private var alertMessage: String?
     @State private var showPairing = false
@@ -221,10 +222,24 @@ struct RootView: View {
                 LabeledContent("Empreinte", value: fp)
                     .font(.system(.footnote, design: .monospaced))
             }
+            if pairedPeerCount > 0 {
+                Button {
+                    Task {
+                        let n = await BrocolisPush.notifyPeers()
+                        await MainActor.run {
+                            alertMessage = n > 0
+                                ? "Mise à jour envoyée à \(n) correspondant(s)."
+                                : "Aucune notification envoyée (correspondant hors ligne, ou push non configuré côté serveur)."
+                        }
+                    }
+                } label: {
+                    Label("Notifier mes correspondants", systemImage: "bell.badge")
+                }
+            }
         } header: {
             Text("Correspondant")
         } footer: {
-            Text("Échange la clé via un code court (X25519). La clé reçue est ajoutée à ta liste.")
+            Text("Échange la clé via un code court (X25519). La clé reçue est ajoutée à ta liste.\n\n« Notifier mes correspondants » met à jour leur Live Activity 🥦 à distance (push).")
         }
     }
 
@@ -416,6 +431,7 @@ struct RootView: View {
         encryptWhole = BrocolisKeyStore.encryptWholeAlways
         fingerprint = BrocolisKeyStore.pairingFingerprint
         keyTTL = BrocolisKeyStore.selectedKey?.ttlSeconds ?? 0
+        pairedPeerCount = BrocolisKeyStore.pairingPeerIds.count
         BrocolisNotifications.refresh()
         BrocolisLiveActivity.sync(active: isActive)
     }
