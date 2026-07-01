@@ -25,14 +25,23 @@ concurrency:
 jobs:
   testflight:
     name: Build & Upload TestFlight
-    runs-on: macos-14
+    # App Store exige un build avec le SDK iOS 26 (Xcode 26) : runner récent +
+    # sélection de la dernière version stable de Xcode.
+    runs-on: macos-15
     timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Versions Xcode
-        run: xcodebuild -version
+      - name: Sélectionner Xcode (dernier stable = Xcode 26+)
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Versions Xcode / SDK
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks | grep -i iphoneos || true
 
       - name: Écrire la clé API App Store Connect
         env:
