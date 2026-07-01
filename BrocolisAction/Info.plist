@@ -20,12 +20,17 @@
 	<dict>
 		<key>NSExtensionAttributes</key>
 		<dict>
-			<!-- Brocolis apparaît dans la feuille de Partage de TOUTES les apps,
-			     pas seulement celles qui exposent le texte via le mécanisme
-			     "SupportsText". On laisse l'extension décider à l'ouverture :
-			     si du texte est présent elle agit, sinon elle l'indique. -->
+			<!-- App Store REFUSE `TRUEPREDICATE` à l'upload. On cible donc
+			     explicitement ce que Brocolis chiffre : du TEXTE (sélection
+			     partagée) ou une URL. Suffisant pour apparaître dès qu'il y a du
+			     texte à protéger. -->
 			<key>NSExtensionActivationRule</key>
-			<string>TRUEPREDICATE</string>
+			<dict>
+				<key>NSExtensionActivationSupportsText</key>
+				<true/>
+				<key>NSExtensionActivationSupportsWebURLWithMaxCount</key>
+				<integer>1</integer>
+			</dict>
 		</dict>
 		<key>NSExtensionPointIdentifier</key>
 		<string>com.apple.ui-services</string>
