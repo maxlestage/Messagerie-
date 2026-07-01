@@ -300,6 +300,46 @@ enum BrocolisKeyStore {
         }
     }
 
+    // MARK: Push token de Live Activity (mises à jour à distance)
+
+    // Clé sous laquelle l'app dépose le push token de la Live Activity (cf.
+    // BrocolisLiveActivity). Chaîne en dur : ce type est partagé avec les
+    // extensions, il ne peut pas référencer un symbole propre à l'app.
+    private static let pushTokenName = "live_activity_push_token"
+    private static let pairingCodeName = "pairing_code"
+    private static let pairingPeerIdName = "pairing_peer_id"
+
+    /// Push token courant de la Live Activity, à enregistrer côté serveur.
+    static var liveActivityPushToken: String? {
+        defaults?.string(forKey: pushTokenName)
+    }
+
+    /// Code + peerId du dernier appairage : sert à enregistrer le push token.
+    static var pairingCode: String? { defaults?.string(forKey: pairingCodeName) }
+    static var pairingPeerId: String? { defaults?.string(forKey: pairingPeerIdName) }
+
+    static func setPairingIdentity(code: String, peerId: String) {
+        defaults?.set(code, forKey: pairingCodeName)
+        defaults?.set(peerId, forKey: pairingPeerIdName)
+    }
+
+    // peerId des CORRESPONDANTS appairés (ceux qu'on peut notifier via /update).
+    private static let pairingPeerIdsName = "pairing_peer_ids"
+
+    static var pairingPeerIds: [String] {
+        guard let data = defaults?.data(forKey: pairingPeerIdsName),
+              let arr = try? JSONDecoder().decode([String].self, from: data) else { return [] }
+        return arr
+    }
+
+    static func setPairingPeerIds(_ ids: [String]) {
+        if ids.isEmpty {
+            defaults?.removeObject(forKey: pairingPeerIdsName)
+        } else if let data = try? JSONEncoder().encode(ids) {
+            defaults?.set(data, forKey: pairingPeerIdsName)
+        }
+    }
+
     // MARK: Validité / expiration — PAR CLÉ
 
     static func keyTTLSeconds(_ id: String) -> Int {

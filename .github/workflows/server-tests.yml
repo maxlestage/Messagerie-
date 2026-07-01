@@ -1,0 +1,35 @@
+name: Server tests
+
+# Lance la suite de tests du serveur de rendez-vous (Node natif : rendez-vous
+# X25519, clés de groupe, pushs APNs). Tourne quand server/ change.
+on:
+  push:
+    branches: ['**']
+    paths:
+      - 'server/**'
+      - '.github/workflows/server-tests.yml'
+  pull_request:
+    paths:
+      - 'server/**'
+      - '.github/workflows/server-tests.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: server-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: node --test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Tests
+        working-directory: server
+        # --test-force-exit : les serveurs HTTP de test laissent des sockets
+        # keep-alive ouverts ; sans ça le process ne rend pas la main.
+        run: node --test --test-force-exit
