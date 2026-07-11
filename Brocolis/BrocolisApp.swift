@@ -20,8 +20,9 @@ final class AppRouter: ObservableObject {
 }
 
 /// Gère le cycle de vie + les actions de notification (« Prolonger »).
-/// Note : `applicationWillTerminate` n'est pas appelé en cas de force-quit par
-/// balayage ; l'interrupteur de l'app reste le contrôle fiable.
+/// Brocolis reste actif EN PERMANENCE : l'état est conservé dans l'App Group et
+/// n'est jamais remis à zéro tout seul (ni à la fermeture, ni au redémarrage du
+/// téléphone). Seul l'utilisateur le met en pause via l'app ou le raccourci.
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     func application(
         _ application: UIApplication,
@@ -56,10 +57,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         didFailToRegisterForRemoteNotificationsWithError error: Error
     ) {}
 
-    func applicationWillTerminate(_ application: UIApplication) {
-        BrocolisKeyStore.setActive(false)
-        BrocolisLiveActivity.sync(active: false)
-    }
+    // Volontairement : PAS de désactivation à la fermeture de l'app. Avant,
+    // `applicationWillTerminate` remettait l'état à « inactif », obligeant à
+    // rouvrir l'app chaque jour. Désormais Brocolis reste actif tant que
+    // l'utilisateur ne le met pas en pause lui-même.
 
     /// Action « Prolonger » : réarme la validité de la clé courante (même clé),
     /// puis reprogramme le préavis. Fonctionne sans ouvrir l'app.
