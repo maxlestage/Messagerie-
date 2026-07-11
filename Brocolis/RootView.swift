@@ -47,6 +47,7 @@ struct RootView: View {
     var body: some View {
         NavigationStack {
             Form {
+                quickStartSection
                 conversationSection
                 keyboardSection
                 statusSection
@@ -75,6 +76,7 @@ struct RootView: View {
                 TextField("Nom (ex. Maman)", text: $newKeyName)
                 Button("Générer") {
                     BrocolisKeyStore.addKey(name: newKeyName, base64: BrocolisCrypto.generateKeyBase64())
+                    BrocolisKeyStore.setActive(true) // activation auto : plus besoin de l'interrupteur
                     reload()
                 }
                 Button("Annuler", role: .cancel) {}
@@ -110,6 +112,60 @@ struct RootView: View {
                 Text(alertMessage ?? "")
             }
         }
+    }
+
+    // MARK: Démarrage / état en un coup d'œil
+
+    // La toute première chose qu'on voit : soit « commence ici » (aucune clé),
+    // soit un état clair « Prêt / En pause » avec l'action évidente.
+    @ViewBuilder private var quickStartSection: some View {
+        if !hasKey {
+            Section {
+                Button {
+                    newKeyName = ""
+                    showGenerate = true
+                } label: {
+                    Label("Créer ma première clé", systemImage: "key.fill")
+                }
+                Button {
+                    showPairing = true
+                } label: {
+                    Label("M’appairer avec quelqu’un", systemImage: "person.2.fill")
+                }
+            } header: {
+                Text("Bienvenue 🥦")
+            } footer: {
+                Text("Une **clé** = une discussion privée avec une personne. Crée-en une et partage-la (ou appaire-toi en direct), et tu pourras chiffrer tes messages dans n’importe quelle app.")
+            }
+        } else {
+            Section {
+                HStack(spacing: 12) {
+                    Image(systemName: isActive ? "checkmark.seal.fill" : "pause.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(isActive ? .green : .orange)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(isActive ? "Prêt à chiffrer" : "En pause")
+                            .font(.headline)
+                        Text(isActive
+                             ? "Utilise le clavier 🥦 ou « Partager » dans tes apps."
+                             : "Réactive pour chiffrer dans tes apps.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    if !isActive {
+                        Button("Activer") { setActiveState(true) }
+                            .buttonStyle(.borderedProminent)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+        }
+    }
+
+    private func setActiveState(_ value: Bool) {
+        BrocolisKeyStore.setActive(value)
+        isActive = BrocolisKeyStore.isActive
+        BrocolisLiveActivity.sync(active: isActive)
     }
 
     // MARK: Conversation (lecture/écriture à la volée)
@@ -448,10 +504,11 @@ struct RootView: View {
         do {
             _ = try BrocolisCrypto.symmetricKey(fromBase64: trimmed)
             BrocolisKeyStore.addKey(name: importName, base64: trimmed)
+            BrocolisKeyStore.setActive(true) // activation auto
             importText = ""
             importName = ""
             reload()
-            alertMessage = "Clé importée."
+            alertMessage = "Clé importée — Brocolis est prêt."
         } catch {
             alertMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
