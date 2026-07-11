@@ -292,8 +292,14 @@ open Brocolis.xcodeproj
 >
 > 📱 **Widget** : un widget **Brocolis 🥦** (appui long sur l'écran d'accueil →
 > ➕ → Brocolis) montre en permanence l'état actif/inactif, la clé sélectionnée
-> et son expiration. Existe aussi en version **écran verrouillé** (cercle,
-> ligne, rectangle). Il se met à jour à chaque changement dans l'app.
+> et son expiration. Disponible en **petit, moyen et grand** (accueil) et en
+> **écran verrouillé** (cercle, ligne, rectangle). Il se met à jour à chaque
+> changement dans l'app.
+>
+> ⚡️ **Raccourcis (Siri / app Raccourcis / bouton Action)** : trois App Intents
+> — **Activer**, **Désactiver**, **Basculer** Brocolis — permettent de changer
+> l'état sans ouvrir l'app (« Dis Siri, active Brocolis »). Ils mettent aussi à
+> jour la Live Activity et les widgets. Voir `Brocolis/BrocolisShortcuts.swift`.
 
 Dans Xcode, pour **chaque** cible (`Brocolis`, `BrocolisAction`,
 `BrocolisStatus` et `BrocolisKeyboard`) :
