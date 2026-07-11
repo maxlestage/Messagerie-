@@ -42,6 +42,7 @@
 		2000000000000000000B0021 /* BrocolisKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0002 /* BrocolisKeyStore.swift */; };
 		2000000000000000000B0022 /* BrocolisTransform.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0003 /* BrocolisTransform.swift */; };
 		2000000000000000000B0023 /* BrocolisKeyboard.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0022 /* BrocolisKeyboard.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		2000000000000000000B0024 /* BrocolisShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0023 /* BrocolisShortcuts.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -126,6 +127,7 @@
 		1000000000000000000C0020 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		1000000000000000000C0021 /* BrocolisKeyboard.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = BrocolisKeyboard.entitlements; sourceTree = "<group>"; };
 		1000000000000000000C0022 /* BrocolisKeyboard.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BrocolisKeyboard.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		1000000000000000000C0023 /* BrocolisShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrocolisShortcuts.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -190,6 +192,7 @@
 				1000000000000000000C0012 /* PairingView.swift */,
 				1000000000000000000C0014 /* BrocolisNotifications.swift */,
 				1000000000000000000C0015 /* BrocolisLiveActivity.swift */,
+				1000000000000000000C0023 /* BrocolisShortcuts.swift */,
 				1000000000000000000C0006 /* Assets.xcassets */,
 				1000000000000000000C0007 /* Brocolis.entitlements */,
 			);
@@ -453,6 +456,7 @@
 			files = (
 				2000000000000000000B0001 /* BrocolisApp.swift in Sources */,
 				2000000000000000000B0002 /* RootView.swift in Sources */,
+				2000000000000000000B0024 /* BrocolisShortcuts.swift in Sources */,
 				2000000000000000000B001D /* ConversationView.swift in Sources */,
 				2000000000000000000B001C /* BrocolisConversation.swift in Sources */,
 				2000000000000000000B0010 /* PairingClient.swift in Sources */,
