@@ -132,13 +132,16 @@ section **« Chiffrer pour »**, coche plusieurs clés (ex. « Maman » + « Tra
 
 ### État « Actif »
 
-- L'interrupteur dans l'app est l'unique contrôle fiable : actif jusqu'à ce que
-  tu le désactives. Sortir de l'app pour aller dans WhatsApp/Notes **ne le
-  désactive pas** (sinon l'extension serait inutile).
-- À la **fermeture** de l'app, Brocolis se désactive (`applicationWillTerminate`).
-  ⚠️ iOS n'appelle pas ce hook en cas de *force-quit* (balayage de l'app) :
-  dans ce cas l'état reste tel quel — utilise l'interrupteur pour être sûr.
-- Tant qu'il est **inactif** (ou sans clé), l'extension n'agit pas et l'indique.
+- Brocolis reste actif **en permanence** : l'état est stocké dans l'App Group et
+  **ne se remet jamais à zéro tout seul** — ni en sortant de l'app, ni à sa
+  fermeture par iOS, ni au redémarrage du téléphone. Plus besoin de le relancer
+  chaque jour.
+- Le seul moyen de l'arrêter est de le **mettre en pause** toi-même (interrupteur
+  dans l'app, bouton « En pause », ou raccourci Siri « Désactive Brocolis »).
+- Tant qu'il est **en pause** (ou sans clé), l'extension n'agit pas et l'indique.
+- Note : le 🥦 de la **Dynamic Island** (Live Activity) a une limite système
+  (~8 h) et peut disparaître ; ce n'est qu'un *indicateur visuel* — le
+  chiffrement, lui, continue de fonctionner via l'état stocké.
 
 ## Appairage automatique (sans copier la clé)
 
