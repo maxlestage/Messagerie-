@@ -2,9 +2,10 @@
 //  BrocolisStatusWidget.swift
 //  BrocolisStatus (extension widget)
 //
-//  Widget d'écran d'accueil (et d'écran verrouillé) : montre d'un coup d'œil
-//  si Brocolis est actif, la clé sélectionnée et son éventuelle expiration.
-//  Lit l'état via l'App Group (BrocolisKeyStore), comme l'Action Extension.
+//  Widget d'écran d'accueil ET d'écran verrouillé, en PLUSIEURS TAILLES :
+//  petit, moyen, grand + accessoires (rond, ligne, rectangle). Montre d'un coup
+//  d'œil si Brocolis est actif, la clé sélectionnée, son expiration et le nombre
+//  de clés. Lit l'état via l'App Group (BrocolisKeyStore), comme l'extension.
 //
 
 import WidgetKit
@@ -15,6 +16,7 @@ struct BrocolisEntry: TimelineEntry {
     let isActive: Bool
     let keyName: String?
     let expiresAt: Date?
+    let keyCount: Int
 }
 
 struct BrocolisStatusProvider: TimelineProvider {
@@ -26,12 +28,13 @@ struct BrocolisStatusProvider: TimelineProvider {
             date: date,
             isActive: BrocolisKeyStore.isActive && !expired,
             keyName: selected?.name,
-            expiresAt: selected?.expiresAt
+            expiresAt: selected?.expiresAt,
+            keyCount: BrocolisKeyStore.keys.count
         )
     }
 
     func placeholder(in context: Context) -> BrocolisEntry {
-        BrocolisEntry(date: Date(), isActive: true, keyName: "Maman", expiresAt: nil)
+        BrocolisEntry(date: Date(), isActive: true, keyName: "Maman", expiresAt: nil, keyCount: 3)
     }
 
     func getSnapshot(in context: Context, completion: @escaping (BrocolisEntry) -> Void) {
@@ -55,10 +58,14 @@ struct BrocolisStatusWidgetView: View {
     @Environment(\.widgetFamily) private var family
     let entry: BrocolisEntry
 
+    private var statusText: String { entry.isActive ? "Actif" : "Inactif" }
+    private var statusColor: Color { entry.isActive ? .green : .secondary }
+
     var body: some View {
         switch family {
         case .accessoryInline:
             Text(entry.isActive ? "🥦 Actif" : "🥦 Inactif")
+
         case .accessoryCircular:
             VStack(spacing: 0) {
                 Text("🥦").font(.title3).opacity(entry.isActive ? 1 : 0.35)
@@ -66,6 +73,7 @@ struct BrocolisStatusWidgetView: View {
                     .font(.caption2)
             }
             .widgetBackgroundCompat(Color.clear)
+
         case .accessoryRectangular:
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.isActive ? "🥦 Brocolis actif" : "🥦 Brocolis inactif")
@@ -73,6 +81,56 @@ struct BrocolisStatusWidgetView: View {
                 detailLine
             }
             .widgetBackgroundCompat(Color.clear)
+
+        case .systemMedium:
+            HStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 6) {
+                    header
+                    Spacer(minLength: 0)
+                    Text(statusText).font(.title3).bold().foregroundStyle(statusColor)
+                }
+                Divider()
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Clé sélectionnée")
+                        .font(.caption2).foregroundStyle(.secondary)
+                    detailLine
+                    Spacer(minLength: 0)
+                    Text("\(entry.keyCount) clé\(entry.keyCount > 1 ? "s" : "") enregistrée\(entry.keyCount > 1 ? "s" : "")")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding()
+            .widgetBackgroundCompat(Color(.systemBackground))
+
+        case .systemLarge:
+            VStack(alignment: .leading, spacing: 14) {
+                header
+                Text(statusText)
+                    .font(.largeTitle).bold()
+                    .foregroundStyle(statusColor)
+                Divider()
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Clé sélectionnée")
+                        .font(.caption).foregroundStyle(.secondary)
+                    detailLine.font(.body)
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Trousseau")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Text("\(entry.keyCount) clé\(entry.keyCount > 1 ? "s" : "") — au déchiffrement, toutes sont essayées.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                Text(entry.isActive
+                     ? "Prêt à chiffrer — clavier, Partager et Conversation."
+                     : "Ouvre Brocolis 🥦 pour l’activer.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding()
+            .widgetBackgroundCompat(Color(.systemBackground))
+
         default: // .systemSmall
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
@@ -82,13 +140,24 @@ struct BrocolisStatusWidgetView: View {
                         .foregroundStyle(entry.isActive ? .green : .secondary)
                 }
                 Spacer()
-                Text(entry.isActive ? "Actif" : "Inactif")
+                Text(statusText)
                     .font(.headline)
-                    .foregroundStyle(entry.isActive ? .green : .secondary)
+                    .foregroundStyle(statusColor)
                 detailLine
             }
             .padding()
             .widgetBackgroundCompat(Color(.systemBackground))
+        }
+    }
+
+    // En-tête commun aux grandes tailles : logo + nom + cadenas.
+    private var header: some View {
+        HStack(spacing: 8) {
+            Text("🥦").font(.title).opacity(entry.isActive ? 1 : 0.4)
+            Text("Brocolis").font(.headline)
+            Spacer()
+            Image(systemName: entry.isActive ? "lock.shield.fill" : "lock.shield")
+                .foregroundStyle(statusColor)
         }
     }
 
@@ -131,6 +200,9 @@ struct BrocolisStatusWidget: Widget {
         }
         .configurationDisplayName("Brocolis 🥦")
         .description("État du chiffrement : actif ou non, clé sélectionnée, expiration.")
-        .supportedFamilies([.systemSmall, .accessoryInline, .accessoryCircular, .accessoryRectangular])
+        .supportedFamilies([
+            .systemSmall, .systemMedium, .systemLarge,
+            .accessoryInline, .accessoryCircular, .accessoryRectangular,
+        ])
     }
 }
