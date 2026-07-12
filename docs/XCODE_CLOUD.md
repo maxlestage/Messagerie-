@@ -11,7 +11,15 @@ la création du workflow, elle, se fait dans Xcode / App Store Connect.
 |---|---|
 | `project.yml` | Spéc **XcodeGen** : régénère `Brocolis.xcodeproj` de façon déclarative. |
 | `ci_scripts/ci_post_clone.sh` | Point d'accroche exécuté par Xcode Cloud après le clone (aucune dépendance à installer). |
+| `ci_scripts/ci_pre_xcodebuild.sh` | Force un **numéro de build monotone** (`CI_BUILD_NUMBER + 1000`) avant chaque archive — sans lui, TestFlight rejette les doublons `1.0 (1)` et « rien ne s'actualise ». |
 | `Brocolis.xcodeproj/.../Brocolis.xcscheme` | **Scheme partagé** (requis par Xcode Cloud) qui inclut la cible de tests `BrocolisTests`. |
+
+> **Numéro de build & TestFlight.** Le projet fige `CURRENT_PROJECT_VERSION = 1`.
+> App Store Connect exige un `CFBundleVersion` **strictement croissant** : sans
+> incrément, le 2ᵉ upload et les suivants sont traités puis **retirés** (mail
+> `ITMS-90xxx`), et TestFlight garde l'ancien build. `ci_pre_xcodebuild.sh`
+> règle ça en réécrivant le numéro à partir de `CI_BUILD_NUMBER`. La **version**
+> affichée (`MARKETING_VERSION`, ex. `1.0`) reste gérée dans `project.yml`.
 
 ## 1. (Optionnel) Régénérer le projet avec XcodeGen
 
