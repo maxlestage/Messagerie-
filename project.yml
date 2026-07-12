@@ -43,8 +43,10 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         ENABLE_PREVIEWS: YES
         INFOPLIST_KEY_CFBundleDisplayName: "Brocolis 🥦 messageries"
-        # Mettre YES pour TestFlight/App Store (l'app chiffre) — voir docs.
-        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
+        # YES : l'app chiffre (AES-256-GCM). Évite le blocage « conformité
+        # export » à chaque upload TestFlight/App Store. Prévoir l'auto-
+        # classification (exemption cryptographie standard) dans App Store Connect.
+        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: YES
         INFOPLIST_KEY_NSSupportsLiveActivities: YES
         INFOPLIST_KEY_NSSupportsLiveActivitiesFrequentUpdates: YES
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
