@@ -287,6 +287,16 @@ Pré-requis : **Xcode 15+**, iOS 16+.
 open Brocolis.xcodeproj
 ```
 
+> 🛠️ **Projet généré par XcodeGen** : la structure est décrite dans
+> [`project.yml`](project.yml). Après une modif (nouveau fichier, réglage),
+> régénère avec `brew install xcodegen && xcodegen generate`, plus besoin
+> d'éditer le pbxproj à la main.
+>
+> ☁️ **CI via Xcode Cloud** (recommandé) : le guide pas à pas est dans
+> [`docs/XCODE_CLOUD.md`](docs/XCODE_CLOUD.md). Il tourne sur l'infra d'Apple et
+> publie le statut sur les PR — utile quand les runners macOS de GitHub Actions
+> ne sont pas disponibles.
+
 > 🥦 **Indicateur « actif »** : iOS n'autorise pas d'icône dans la barre de
 > statut système. À la place, quand Brocolis est activé, une **Live Activity**
 > affiche un 🥦 dans la **Dynamic Island** (iPhone 14 Pro et suivants) et une
