@@ -78,15 +78,16 @@ Ensuite, Xcode Cloud publie automatiquement son **statut sur tes PR GitHub**
 
 ## 4. Pour TestFlight / App Store
 
-Dans `project.yml`, passe l'app en **non exemptée de chiffrement** :
+- **Conformité export** : `INFOPLIST_KEY_ITSAppUsesNonExemptEncryption` est déjà
+  à **`YES`** (dans `project.yml` **et** le `.xcodeproj`). Brocolis chiffre en
+  AES-256-GCM ; ce réglage évite le blocage « conformité export » à chaque
+  upload. ✅
+- **Numéro de build** : géré automatiquement par `ci_scripts/ci_pre_xcodebuild.sh`
+  (voir plus haut). ✅
+- **Icône** : `AppIcon-1024.png` (1024×1024, sans alpha) est présente. ✅
 
-```yaml
-INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: YES
-```
-
-(Brocolis chiffre en AES-256-GCM ; ce réglage évite le blocage « conformité
-export » à chaque upload. Prévois l'auto-classification dans App Store Connect.)
-Régénère ensuite avec `xcodegen generate`.
+➡️ **Le pas-à-pas complet pour lancer le premier build TestFlight est dans
+[TESTFLIGHT.md](TESTFLIGHT.md).**
 
 ## 5. Et la CI GitHub Actions ?
 
