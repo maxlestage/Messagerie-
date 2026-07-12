@@ -309,6 +309,11 @@ open Brocolis.xcodeproj
 > **écran verrouillé** (cercle, ligne, rectangle). Il se met à jour à chaque
 > changement dans l'app.
 >
+> 🔘 **Bouton interactif (iOS 17+)** : les widgets d'accueil (petit/moyen/grand)
+> ont un bouton **Activer / Mettre en pause** qui bascule l'état de Brocolis
+> **sans ouvrir l'app** (via un App Intent widget-safe). Sur iOS 16, le widget
+> reste en simple affichage.
+>
 > ⚡️ **Raccourcis (Siri / app Raccourcis / bouton Action)** : trois App Intents
 > — **Activer**, **Désactiver**, **Basculer** Brocolis — permettent de changer
 > l'état sans ouvrir l'app (« Dis Siri, active Brocolis »). Ils mettent aussi à

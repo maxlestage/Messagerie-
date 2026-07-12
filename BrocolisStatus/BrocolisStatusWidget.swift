@@ -61,6 +61,22 @@ struct BrocolisStatusWidgetView: View {
     private var statusText: String { entry.isActive ? "Actif" : "Inactif" }
     private var statusColor: Color { entry.isActive ? .green : .secondary }
 
+    // Bouton interactif (iOS 17+) : bascule actif/pause SANS ouvrir l'app.
+    // Sur iOS 16, rien ne s'affiche (le widget reste tap-pour-ouvrir).
+    @ViewBuilder private var toggleButton: some View {
+        if #available(iOSApplicationExtension 17.0, *) {
+            Button(intent: ToggleActiveWidgetIntent()) {
+                Label(entry.isActive ? "Mettre en pause" : "Activer",
+                      systemImage: entry.isActive ? "pause.fill" : "play.fill")
+                    .font(.caption).fontWeight(.semibold)
+                    .lineLimit(1).minimumScaleFactor(0.7)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(entry.isActive ? .orange : .green)
+            .disabled(entry.keyCount == 0)
+        }
+    }
+
     var body: some View {
         switch family {
         case .accessoryInline:
@@ -88,6 +104,7 @@ struct BrocolisStatusWidgetView: View {
                     header
                     Spacer(minLength: 0)
                     Text(statusText).font(.title3).bold().foregroundStyle(statusColor)
+                    toggleButton
                 }
                 Divider()
                 VStack(alignment: .leading, spacing: 6) {
@@ -109,6 +126,7 @@ struct BrocolisStatusWidgetView: View {
                 Text(statusText)
                     .font(.largeTitle).bold()
                     .foregroundStyle(statusColor)
+                toggleButton
                 Divider()
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Clé sélectionnée")
@@ -144,6 +162,7 @@ struct BrocolisStatusWidgetView: View {
                     .font(.headline)
                     .foregroundStyle(statusColor)
                 detailLine
+                toggleButton
             }
             .padding()
             .widgetBackgroundCompat(Color(.systemBackground))

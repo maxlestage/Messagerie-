@@ -43,6 +43,8 @@
 		2000000000000000000B0022 /* BrocolisTransform.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0003 /* BrocolisTransform.swift */; };
 		2000000000000000000B0023 /* BrocolisKeyboard.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0022 /* BrocolisKeyboard.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		2000000000000000000B0024 /* BrocolisShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0023 /* BrocolisShortcuts.swift */; };
+		2000000000000000000B0025 /* BrocolisWidgetIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0024 /* BrocolisWidgetIntents.swift */; };
+		2000000000000000000B0026 /* BrocolisWidgetIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0024 /* BrocolisWidgetIntents.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -128,6 +130,7 @@
 		1000000000000000000C0021 /* BrocolisKeyboard.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = BrocolisKeyboard.entitlements; sourceTree = "<group>"; };
 		1000000000000000000C0022 /* BrocolisKeyboard.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BrocolisKeyboard.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		1000000000000000000C0023 /* BrocolisShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrocolisShortcuts.swift; sourceTree = "<group>"; };
+		1000000000000000000C0024 /* BrocolisWidgetIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrocolisWidgetIntents.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -208,6 +211,7 @@
 				1000000000000000000C001C /* BrocolisConversation.swift */,
 				1000000000000000000C0010 /* BrocolisKeyAgreement.swift */,
 				1000000000000000000C0016 /* BrocolisActivityAttributes.swift */,
+				1000000000000000000C0024 /* BrocolisWidgetIntents.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -457,6 +461,7 @@
 				2000000000000000000B0001 /* BrocolisApp.swift in Sources */,
 				2000000000000000000B0002 /* RootView.swift in Sources */,
 				2000000000000000000B0024 /* BrocolisShortcuts.swift in Sources */,
+				2000000000000000000B0025 /* BrocolisWidgetIntents.swift in Sources */,
 				2000000000000000000B001D /* ConversationView.swift in Sources */,
 				2000000000000000000B001C /* BrocolisConversation.swift in Sources */,
 				2000000000000000000B0010 /* PairingClient.swift in Sources */,
@@ -498,6 +503,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2000000000000000000B0026 /* BrocolisWidgetIntents.swift in Sources */,
 				2000000000000000000B0017 /* BrocolisStatusLiveActivity.swift in Sources */,
 				2000000000000000000B0019 /* BrocolisStatusWidget.swift in Sources */,
 				2000000000000000000B0016 /* BrocolisActivityAttributes.swift in Sources */,
