@@ -178,7 +178,7 @@ struct PairingView: View {
             } catch is CancellationError {
                 // annulé
             } catch {
-                await finish(error: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
+                finish(error: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
             }
         }
     }
@@ -198,9 +198,9 @@ struct PairingView: View {
         let myPub = BrocolisKeyAgreement.publicKeyBase64(of: priv)
         let peerId = UUID().uuidString
 
-        await update("Publication de ta clé publique…")
+        update("Publication de ta clé publique…")
         _ = try await client.publish(code: code, peerId: peerId, pub: myPub)
-        await update("En attente du correspondant…")
+        update("En attente du correspondant…")
 
         for _ in 0..<40 {
             if Task.isCancelled { return }
@@ -214,7 +214,7 @@ struct PairingView: View {
             }
             try await Task.sleep(nanoseconds: 1_500_000_000)
         }
-        await finish(error: "Délai dépassé : le correspondant n’a pas rejoint.")
+        finish(error: "Délai dépassé : le correspondant n’a pas rejoint.")
     }
 
     // MARK: Flux — fondateur du groupe
@@ -247,11 +247,11 @@ struct PairingView: View {
                 try await client.postWraps(code: code, fromPeerId: peerId, fromPub: myPub, items: items)
                 newPeers.forEach { wrappedTo.insert($0.peerId) }
                 BrocolisKeyStore.setPairingPeerIds(Array(wrappedTo))
-                await update("Clé distribuée à \(wrappedTo.count) membre(s). Touche « Annuler » quand tout le monde a reçu.")
+                update("Clé distribuée à \(wrappedTo.count) membre(s). Touche « Annuler » quand tout le monde a reçu.")
             }
             try await Task.sleep(nanoseconds: 2_000_000_000)
         }
-        await finish(message: "Distribution terminée (\(wrappedTo.count) membre(s)).")
+        finish(message: "Distribution terminée (\(wrappedTo.count) membre(s)).")
     }
 
     // MARK: Flux — membre du groupe
@@ -261,9 +261,9 @@ struct PairingView: View {
         let myPub = BrocolisKeyAgreement.publicKeyBase64(of: priv)
         let peerId = UUID().uuidString
 
-        await update("Publication de ta clé publique…")
+        update("Publication de ta clé publique…")
         _ = try await client.publish(code: code, peerId: peerId, pub: myPub)
-        await update("En attente de la clé du groupe…")
+        update("En attente de la clé du groupe…")
 
         for _ in 0..<60 {
             if Task.isCancelled { return }
@@ -277,7 +277,7 @@ struct PairingView: View {
             }
             try await Task.sleep(nanoseconds: 1_500_000_000)
         }
-        await finish(error: "Délai dépassé : aucune clé de groupe reçue. Le fondateur a-t-il lancé la distribution ?")
+        finish(error: "Délai dépassé : aucune clé de groupe reçue. Le fondateur a-t-il lancé la distribution ?")
     }
 
     // MARK: Application du résultat
