@@ -1,0 +1,143 @@
+# project.yml — spécification XcodeGen de Brocolis 🥦
+#
+# Régénère Brocolis.xcodeproj de façon déclarative :  `xcodegen generate`
+# (installe XcodeGen avec `brew install xcodegen`).
+#
+# Fini les modifications manuelles du pbxproj : on décrit les cibles ici, et
+# le projet est reconstruit à l'identique. Idéal pour Xcode Cloud (voir
+# docs/XCODE_CLOUD.md).
+
+name: Brocolis
+
+options:
+  bundleIdPrefix: rs.brocolis.messagerie
+  deploymentTarget:
+    iOS: "16.0"
+  developmentLanguage: fr
+  createIntermediateGroups: true
+
+# Réglages communs à toutes les cibles.
+settings:
+  base:
+    DEVELOPMENT_TEAM: "2FW8T4UX4L"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.0"
+    TARGETED_DEVICE_FAMILY: "1"
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_EMIT_LOC_STRINGS: YES
+
+targets:
+
+  # ── Application hôte ──────────────────────────────────────────────
+  Brocolis:
+    type: application
+    platform: iOS
+    sources:
+      - path: Brocolis
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: rs.brocolis.messagerie
+        CODE_SIGN_ENTITLEMENTS: Brocolis/Brocolis.entitlements
+        GENERATE_INFOPLIST_FILE: YES
+        ENABLE_PREVIEWS: YES
+        INFOPLIST_KEY_CFBundleDisplayName: "Brocolis 🥦 messageries"
+        # Mettre YES pour TestFlight/App Store (l'app chiffre) — voir docs.
+        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
+        INFOPLIST_KEY_NSSupportsLiveActivities: YES
+        INFOPLIST_KEY_NSSupportsLiveActivitiesFrequentUpdates: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    dependencies:
+      - target: BrocolisAction
+      - target: BrocolisStatus
+      - target: BrocolisKeyboard
+
+  # ── Extension Partager (Action) ───────────────────────────────────
+  BrocolisAction:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: BrocolisAction
+      - path: Shared/BrocolisCrypto.swift
+      - path: Shared/BrocolisKeyStore.swift
+      - path: Shared/BrocolisTransform.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: rs.brocolis.messagerie.action
+        CODE_SIGN_ENTITLEMENTS: BrocolisAction/BrocolisAction.entitlements
+        INFOPLIST_FILE: BrocolisAction/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
+
+  # ── Widget + Live Activity (Status) ───────────────────────────────
+  BrocolisStatus:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "16.1"
+    sources:
+      - path: BrocolisStatus
+      - path: Shared/BrocolisCrypto.swift
+      - path: Shared/BrocolisKeyStore.swift
+      - path: Shared/BrocolisKeyAgreement.swift
+      - path: Shared/BrocolisActivityAttributes.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: rs.brocolis.messagerie.status
+        CODE_SIGN_ENTITLEMENTS: BrocolisStatus/BrocolisStatus.entitlements
+        INFOPLIST_FILE: BrocolisStatus/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
+
+  # ── Clavier personnalisé ──────────────────────────────────────────
+  BrocolisKeyboard:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: BrocolisKeyboard
+      - path: Shared/BrocolisCrypto.swift
+      - path: Shared/BrocolisKeyStore.swift
+      - path: Shared/BrocolisTransform.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: rs.brocolis.messagerie.keyboard
+        CODE_SIGN_ENTITLEMENTS: BrocolisKeyboard/BrocolisKeyboard.entitlements
+        INFOPLIST_FILE: BrocolisKeyboard/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
+
+  # ── Tests unitaires (XCTest, @testable import Brocolis) ───────────
+  BrocolisTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: BrocolisTests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: rs.brocolis.messagerie.tests
+        GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      - target: Brocolis
+
+# Scheme partagé (requis par Xcode Cloud) : build l'app + lance les tests.
+schemes:
+  Brocolis:
+    build:
+      targets:
+        Brocolis: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - BrocolisTests
+    archive:
+      config: Release
