@@ -43,10 +43,11 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         ENABLE_PREVIEWS: YES
         INFOPLIST_KEY_CFBundleDisplayName: "Brocolis 🥦 messageries"
-        # YES : l'app chiffre (AES-256-GCM). Évite le blocage « conformité
-        # export » à chaque upload TestFlight/App Store. Prévoir l'auto-
-        # classification (exemption cryptographie standard) dans App Store Connect.
-        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: YES
+        # NO = pas de chiffrement NON exempté. Brocolis n'utilise que du
+        # chiffrement standard fourni par Apple (CryptoKit : AES-GCM, X25519),
+        # donc EXEMPTÉ. Mettre YES sans fournir de code de conformité
+        # (ITSEncryptionExportComplianceCode) provoque le rejet ITMS-90592.
+        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
         INFOPLIST_KEY_NSSupportsLiveActivities: YES
         INFOPLIST_KEY_NSSupportsLiveActivitiesFrequentUpdates: YES
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
