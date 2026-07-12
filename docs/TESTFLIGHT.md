@@ -6,8 +6,9 @@ mais voici le chemin exact.
 
 ## Ce qui est déjà réglé côté dépôt ✅
 
-- **Conformité export** : `ITSAppUsesNonExemptEncryption = YES` (sinon chaque
-  upload est bloqué sur la question « votre app utilise-t-elle du chiffrement »).
+- **Conformité export** : `ITSAppUsesNonExemptEncryption = NO`. Brocolis
+  n'utilise que du chiffrement standard d'Apple (CryptoKit) → exempté. Mettre
+  `YES` sans code de conformité déclenche le rejet **ITMS-90592**.
 - **Numéro de build monotone** : `ci_scripts/ci_pre_xcodebuild.sh` réécrit
   `CURRENT_PROJECT_VERSION` depuis `CI_BUILD_NUMBER` (sinon le 2ᵉ upload est
   rejeté et TestFlight garde l'ancien build).
@@ -68,7 +69,7 @@ Dans **Xcode**, projet ouvert :
 
 | Symptôme | Cause / solution |
 |---|---|
-| Upload bloqué sur « Export Compliance » | Déjà réglé (`= YES`). Sinon vérifie le réglage dans l'app. |
+| Rejet **ITMS-90592** (export compliance) | `ITSAppUsesNonExemptEncryption` doit être `NO` (chiffrement standard Apple = exempté). `YES` sans code `ITSEncryptionExportComplianceCode` = rejet. |
 | Le build n'apparaît pas / « rien ne s'actualise » | Numéro de build en double → `ci_pre_xcodebuild.sh` s'en charge ; vérifie qu'il est **exécutable** et que le run l'a bien exécuté (logs Xcode Cloud). |
 | Erreur de signature | App ID + App Group manquants dans *Identifiers*, ou contrats non signés dans App Store Connect → *Business*. |
 | « Missing app icon » | Icône présente ; vérifie qu'elle n'a pas d'alpha (la nôtre est en RGB). |
