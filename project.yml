@@ -90,6 +90,7 @@ targets:
       - path: Shared/BrocolisKeyStore.swift
       - path: Shared/BrocolisKeyAgreement.swift
       - path: Shared/BrocolisActivityAttributes.swift
+      - path: Shared/BrocolisWidgetIntents.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: rs.brocolis.messagerie.status
