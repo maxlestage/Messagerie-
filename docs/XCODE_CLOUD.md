@@ -78,10 +78,11 @@ Ensuite, Xcode Cloud publie automatiquement son **statut sur tes PR GitHub**
 
 ## 4. Pour TestFlight / App Store
 
-- **Conformité export** : `INFOPLIST_KEY_ITSAppUsesNonExemptEncryption` est déjà
-  à **`YES`** (dans `project.yml` **et** le `.xcodeproj`). Brocolis chiffre en
-  AES-256-GCM ; ce réglage évite le blocage « conformité export » à chaque
-  upload. ✅
+- **Conformité export** : `INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO`
+  (dans `project.yml` **et** le `.xcodeproj`). Brocolis n'utilise que du
+  chiffrement **standard fourni par Apple** (CryptoKit : AES-GCM, X25519) → il
+  est **exempté**, donc `NO`. ⚠️ Mettre `YES` **sans** code de conformité
+  (`ITSEncryptionExportComplianceCode`) provoque le rejet **ITMS-90592**. ✅
 - **Numéro de build** : géré automatiquement par `ci_scripts/ci_pre_xcodebuild.sh`
   (voir plus haut). ✅
 - **Icône** : `AppIcon-1024.png` (1024×1024, sans alpha) est présente. ✅
