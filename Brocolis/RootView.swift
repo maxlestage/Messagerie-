@@ -50,7 +50,6 @@ struct RootView: View {
                 quickStartSection
                 conversationSection
                 keyboardSection
-                statusSection
                 encryptionSection
                 pairingSection
                 keysSection
@@ -144,34 +143,29 @@ struct RootView: View {
                 Text("Une **clé** = une discussion privée avec une personne. Crée-en une et partage-la (ou appaire-toi en direct), et tu pourras chiffrer tes messages dans n’importe quelle app.")
             }
         } else {
+            // Contrôle d'état TOUJOURS présent, en tête de liste : un seul
+            // interrupteur clair pour activer / mettre en pause.
             Section {
-                HStack(spacing: 12) {
-                    Image(systemName: isActive ? "checkmark.seal.fill" : "pause.circle.fill")
-                        .font(.title2)
-                        .foregroundStyle(isActive ? .green : .orange)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(isActive ? "Prêt à chiffrer" : "En pause")
-                            .font(.headline)
-                        Text(isActive
-                             ? "Utilise le clavier 🥦 ou « Partager » dans tes apps."
-                             : "Réactive pour chiffrer dans tes apps.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    if !isActive {
-                        Button("Activer") { setActiveState(true) }
-                            .buttonStyle(.borderedProminent)
+                Toggle(isOn: activeBinding) {
+                    HStack(spacing: 12) {
+                        Image(systemName: isActive ? "checkmark.seal.fill" : "pause.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(isActive ? .green : .orange)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(isActive ? "Prêt à chiffrer" : "En pause")
+                                .font(.headline)
+                            Text(isActive
+                                 ? "Utilise le clavier 🥦 ou « Partager » dans tes apps."
+                                 : "Active pour chiffrer dans tes apps.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
                     }
                 }
-                .padding(.vertical, 4)
+                .padding(.vertical, 2)
+            } header: {
+                Text("État")
             }
         }
-    }
-
-    private func setActiveState(_ value: Bool) {
-        BrocolisKeyStore.setActive(value)
-        isActive = BrocolisKeyStore.isActive
-        BrocolisLiveActivity.sync(active: isActive)
     }
 
     // MARK: Conversation (lecture/écriture à la volée)
@@ -205,27 +199,6 @@ struct RootView: View {
             Text("Envoyer sans copier")
         } footer: {
             Text("Active le **Clavier Brocolis 🥦** (Réglages → Général → Clavier → Claviers → Ajouter), puis autorise l’**Accès complet** (nécessaire pour lire tes clés et le presse-papiers). Ensuite, dans n’importe quelle app :\n\n• **Envoyer** : tape ton message, bascule sur Brocolis avec 🌐, touche **Chiffrer** — le texte est remplacé chiffré sur place, sans copier-coller.\n\n• **Lire un reçu** : appui long sur le message → Copier, bascule sur Brocolis avec 🌐, touche **📋 Lire** — il s’affiche en clair sur le clavier, sans quitter l’app.")
-        }
-    }
-
-    // MARK: État actif
-
-    // Masqué tant qu'il n'y a pas de clé : un interrupteur grisé qui ne réagit
-    // pas ressemble à un bug. Le bandeau « Créer ma première clé » guide alors.
-    @ViewBuilder private var statusSection: some View {
-        if hasKey {
-            Section {
-                Toggle(isOn: activeBinding) {
-                    Label(isActive ? "Actif" : "En pause", systemImage: isActive ? "lock.shield.fill" : "pause.circle")
-                        .foregroundStyle(isActive ? .green : .orange)
-                }
-            } header: {
-                Text("État")
-            } footer: {
-                Text(isActive
-                     ? "Brocolis reste actif tant que tu ne le mets pas en pause. L’extension Partager et le clavier chiffrent/déchiffrent dans tes autres apps."
-                     : "En pause : réactive pour chiffrer dans tes apps.")
-            }
         }
     }
 
