@@ -126,7 +126,13 @@ struct RootView: View {
                     showGenerate = true
                 } label: {
                     Label("Créer ma première clé", systemImage: "key.fill")
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
                 }
+                .buttonStyle(.borderedProminent)
+                .tint(.green)
+                .listRowInsets(EdgeInsets(top: 10, leading: 14, bottom: 6, trailing: 14))
+
                 Button {
                     showPairing = true
                 } label: {
@@ -204,22 +210,21 @@ struct RootView: View {
 
     // MARK: État actif
 
-    private var statusSection: some View {
-        Section {
-            Toggle(isOn: activeBinding) {
-                Label(isActive ? "Actif" : "Inactif", systemImage: isActive ? "lock.shield.fill" : "lock.shield")
-                    .foregroundStyle(isActive ? .green : .secondary)
-            }
-            .disabled(!hasKey)
-        } header: {
-            Text("État")
-        } footer: {
-            if !hasKey {
-                Text("Ajoute au moins une clé pour pouvoir activer Brocolis.")
-            } else if isActive {
-                Text("Brocolis reste actif tant que tu ne le désactives pas. L’extension Partager chiffre/déchiffre dans tes autres apps.")
-            } else {
-                Text("Active Brocolis pour que l’extension Partager fonctionne.")
+    // Masqué tant qu'il n'y a pas de clé : un interrupteur grisé qui ne réagit
+    // pas ressemble à un bug. Le bandeau « Créer ma première clé » guide alors.
+    @ViewBuilder private var statusSection: some View {
+        if hasKey {
+            Section {
+                Toggle(isOn: activeBinding) {
+                    Label(isActive ? "Actif" : "En pause", systemImage: isActive ? "lock.shield.fill" : "pause.circle")
+                        .foregroundStyle(isActive ? .green : .orange)
+                }
+            } header: {
+                Text("État")
+            } footer: {
+                Text(isActive
+                     ? "Brocolis reste actif tant que tu ne le mets pas en pause. L’extension Partager et le clavier chiffrent/déchiffrent dans tes autres apps."
+                     : "En pause : réactive pour chiffrer dans tes apps.")
             }
         }
     }
