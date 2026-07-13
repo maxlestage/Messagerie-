@@ -118,7 +118,7 @@ struct BrocolisStatusWidgetView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding()
-            .widgetBackgroundCompat(Color(.systemBackground))
+            .brocoliCardBackground()
 
         case .systemLarge:
             VStack(alignment: .leading, spacing: 14) {
@@ -147,7 +147,7 @@ struct BrocolisStatusWidgetView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding()
-            .widgetBackgroundCompat(Color(.systemBackground))
+            .brocoliCardBackground()
 
         default: // .systemSmall
             VStack(alignment: .leading, spacing: 6) {
@@ -165,7 +165,7 @@ struct BrocolisStatusWidgetView: View {
                 toggleButton
             }
             .padding()
-            .widgetBackgroundCompat(Color(.systemBackground))
+            .brocoliCardBackground()
         }
     }
 
@@ -209,6 +209,14 @@ private extension View {
         } else {
             background(color)
         }
+    }
+
+    // Fond « carte brocoli » : la couleur de fond du logo (#E8F5DB), donc plus de
+    // blanc. On force l'apparence claire pour que le texte reste lisible même en
+    // thème sombre (sinon texte blanc sur vert pâle = illisible).
+    func brocoliCardBackground() -> some View {
+        environment(\.colorScheme, .light)
+            .widgetBackgroundCompat(Color(red: 232.0 / 255, green: 245.0 / 255, blue: 219.0 / 255))
     }
 }
 
