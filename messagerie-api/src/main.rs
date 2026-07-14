@@ -149,6 +149,36 @@ mod tests {
     }
 
     #[actix_web::test]
+    async fn sealed_conversation_two_users() {
+        // Modèle « clé partagée » : pas de création préalable. Deux appareils
+        // (identités différentes) postent sur le MÊME id dérivé de leur clé et
+        // se lisent mutuellement. Le serveur ne connaît pas la clé.
+        let store = app_store();
+        let app = test::init_service(service_app(store)).await;
+        let cid = "fingerprint-de-la-cle-partagee";
+
+        // Alice envoie sans créer de conversation → auto-scellée.
+        let send = test::TestRequest::post()
+            .uri("/v1/messages")
+            .insert_header(("X-User-Id", "alice-device"))
+            .set_json(serde_json::json!({
+                "conversationId": cid,
+                "senderId": "alice-device",
+                "ciphertext": "W1tCUk9DT0xJUzp2MTouLi5dXQ=="
+            }))
+            .to_request();
+        assert_eq!(test::call_service(&app, send).await.status(), StatusCode::CREATED);
+
+        // Bob (autre identité, même clé donc même id) lit et répond.
+        let list = test::TestRequest::get()
+            .uri(&format!("/v1/messages?conversationId={cid}"))
+            .insert_header(("X-User-Id", "bob-device"))
+            .to_request();
+        let page: serde_json::Value = test::call_and_read_body_json(&app, list).await;
+        assert_eq!(page["messages"].as_array().unwrap().len(), 1);
+    }
+
+    #[actix_web::test]
     async fn outsider_cannot_read() {
         let store = app_store();
         let app = test::init_service(service_app(store)).await;

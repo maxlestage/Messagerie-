@@ -11,7 +11,7 @@ use tokio_stream::wrappers::BroadcastStream;
 use uuid::Uuid;
 
 use crate::models::{
-    ApiError, CreateConversationBody, MessagesPage, SendMessageBody,
+    ApiError, Conversation, CreateConversationBody, MessagesPage, SendMessageBody,
 };
 use crate::store::Store;
 
@@ -22,6 +22,15 @@ fn auth_user(req: &HttpRequest) -> Result<String, HttpResponse> {
         _ => Err(HttpResponse::Unauthorized()
             .json(ApiError::new("en-tête X-User-Id requis"))),
     }
+}
+
+/// Un utilisateur a accès à une conversation si :
+///  - elle est « scellée » (aucun participant listé) → l'accès est
+///    cryptographique (l'id est dérivé d'une clé partagée ; sans la clé on ne
+///    peut rien lire même en connaissant l'id) ;
+///  - ou il figure explicitement dans la liste des participants.
+fn can_access(convo: &Conversation, user: &str) -> bool {
+    convo.participants.is_empty() || convo.participants.iter().any(|p| p.id == user)
 }
 
 pub async fn health() -> impl Responder {
@@ -87,7 +96,7 @@ pub async fn list_messages(
         Err(r) => return r,
     };
     match store.conversation(&query.conversation_id) {
-        Some(c) if c.participants.iter().any(|p| p.id == user) => {}
+        Some(c) if can_access(&c, &user) => {}
         Some(_) => {
             return HttpResponse::Forbidden()
                 .json(ApiError::new("accès refusé à cette conversation"))
@@ -120,14 +129,14 @@ pub async fn send_message(
         return HttpResponse::BadRequest().json(ApiError::new("ciphertext vide"));
     }
     match store.conversation(&body.conversation_id) {
-        Some(c) if c.participants.iter().any(|p| p.id == user) => {}
+        Some(c) if can_access(&c, &user) => {}
         Some(_) => {
             return HttpResponse::Forbidden()
                 .json(ApiError::new("accès refusé à cette conversation"))
         }
-        None => {
-            return HttpResponse::NotFound().json(ApiError::new("conversation inconnue"))
-        }
+        // Conversation inconnue → on la crée « scellée » : l'id opaque (dérivé
+        // d'une clé partagée) suffit, l'accès reste cryptographique.
+        None => store.ensure_sealed(&body.conversation_id, OffsetDateTime::now_utc()),
     }
     let msg = store.append_message(
         body.id.unwrap_or_else(|| Uuid::new_v4().to_string()),
@@ -154,14 +163,13 @@ pub async fn stream_messages(
         Err(r) => return r,
     };
     match store.conversation(&query.conversation_id) {
-        Some(c) if c.participants.iter().any(|p| p.id == user) => {}
+        Some(c) if can_access(&c, &user) => {}
         Some(_) => {
             return HttpResponse::Forbidden()
                 .json(ApiError::new("accès refusé à cette conversation"))
         }
-        None => {
-            return HttpResponse::NotFound().json(ApiError::new("conversation inconnue"))
-        }
+        // Permet d'ouvrir le flux d'une conversation scellée avant tout message.
+        None => store.ensure_sealed(&query.conversation_id, OffsetDateTime::now_utc()),
     }
 
     let rx = store.subscribe(&query.conversation_id);
