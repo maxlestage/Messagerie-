@@ -132,6 +132,26 @@ test('l’envoi est idempotent sur id', async () => {
   }
 });
 
+test('accusé de lecture : /v1/read met à jour readers', async () => {
+  const server = createRendezvous({ apns: null });
+  const port = await listen(server);
+  try {
+    const cid = 'conv-lu';
+    await api(port, 'POST', '/v1/messages', {
+      userId: 'alice',
+      body: { conversationId: cid, senderId: 'alice', ciphertext: 'QUJD' },
+    });
+    // Bob lit jusqu'au seq 1.
+    const r = await api(port, 'POST', '/v1/read', { userId: 'bob', body: { conversationId: cid, upTo: 1 } });
+    assert.strictEqual(r.status, 200);
+    // Alice voit que bob a lu jusqu'à 1.
+    const page = await api(port, 'GET', `/v1/messages?conversationId=${cid}`, { userId: 'alice' });
+    assert.strictEqual(page.json.readers.bob, 1);
+  } finally {
+    server.close();
+  }
+});
+
 test('SSE : un message posté arrive en temps réel', async () => {
   const server = createRendezvous({ apns: null });
   const port = await listen(server);
