@@ -10,6 +10,7 @@
 		2000000000000000000B0001 /* BrocolisApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0004 /* BrocolisApp.swift */; };
 		2000000000000000000B0002 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0005 /* RootView.swift */; };
 		2000000000000000000B0027 /* MessagingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0025 /* MessagingView.swift */; };
+		2000000000000000000B0028 /* BrocolisContacts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0026 /* BrocolisContacts.swift */; };
 		2000000000000000000B0003 /* BrocolisCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0001 /* BrocolisCrypto.swift */; };
 		2000000000000000000B0004 /* BrocolisKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0002 /* BrocolisKeyStore.swift */; };
 		2000000000000000000B0005 /* BrocolisTransform.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0003 /* BrocolisTransform.swift */; };
@@ -102,6 +103,7 @@
 		1000000000000000000C0004 /* BrocolisApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrocolisApp.swift; sourceTree = "<group>"; };
 		1000000000000000000C0005 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		1000000000000000000C0025 /* MessagingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagingView.swift; sourceTree = "<group>"; };
+		1000000000000000000C0026 /* BrocolisContacts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrocolisContacts.swift; sourceTree = "<group>"; };
 		1000000000000000000C0006 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		1000000000000000000C0007 /* Brocolis.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Brocolis.entitlements; sourceTree = "<group>"; };
 		1000000000000000000C0008 /* ActionViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionViewController.swift; sourceTree = "<group>"; };
@@ -193,6 +195,7 @@
 				1000000000000000000C0004 /* BrocolisApp.swift */,
 				1000000000000000000C0005 /* RootView.swift */,
 				1000000000000000000C0025 /* MessagingView.swift */,
+				1000000000000000000C0026 /* BrocolisContacts.swift */,
 				1000000000000000000C001D /* ConversationView.swift */,
 				1000000000000000000C0011 /* PairingClient.swift */,
 				1000000000000000000C0012 /* PairingView.swift */,
@@ -464,6 +467,7 @@
 				2000000000000000000B0001 /* BrocolisApp.swift in Sources */,
 				2000000000000000000B0002 /* RootView.swift in Sources */,
 				2000000000000000000B0027 /* MessagingView.swift in Sources */,
+				2000000000000000000B0028 /* BrocolisContacts.swift in Sources */,
 				2000000000000000000B0024 /* BrocolisShortcuts.swift in Sources */,
 				2000000000000000000B0025 /* BrocolisWidgetIntents.swift in Sources */,
 				2000000000000000000B001D /* ConversationView.swift in Sources */,
@@ -639,6 +643,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Brocolis 🥦 messageries";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_NSContactsUsageDescription = "Brocolis lit tes contacts pour choisir un correspondant par son nom et son numéro. Rien n'est envoyé : tout reste sur ton iPhone.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_NSSupportsLiveActivitiesFrequentUpdates = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -671,6 +676,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Brocolis 🥦 messageries";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_NSContactsUsageDescription = "Brocolis lit tes contacts pour choisir un correspondant par son nom et son numéro. Rien n'est envoyé : tout reste sur ton iPhone.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_NSSupportsLiveActivitiesFrequentUpdates = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
