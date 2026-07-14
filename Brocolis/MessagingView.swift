@@ -395,9 +395,20 @@ final class StoreBox: ObservableObject {
 
 private struct ChatScreen: View {
     @ObservedObject var store: BrocolisChatStore
+    @State private var invite: InvitePayload?
+
+    /// État de la liaison avec le correspondant, déduit des messages reçus.
+    private enum LinkState { case waiting, keyMismatch, connected }
+    private var linkState: LinkState {
+        let incoming = store.lines.filter { !$0.isMine }
+        if incoming.isEmpty { return .waiting }
+        if incoming.contains(where: { !$0.locked }) { return .connected }
+        return .keyMismatch // il écrit, mais rien ne s'ouvre avec ta clé
+    }
 
     var body: some View {
         VStack(spacing: 0) {
+            banner
             messages
             Divider()
             composer
@@ -406,6 +417,65 @@ private struct ChatScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { store.start() }
         .onDisappear { store.stop() }
+        .sheet(item: $invite) { payload in
+            MessageComposeView(recipients: payload.recipients, body: payload.body) {
+                invite = nil
+            }
+            .ignoresSafeArea()
+        }
+    }
+
+    // Bandeau d'état : dit CLAIREMENT pourquoi ça n'avance pas, et propose l'action.
+    @ViewBuilder private var banner: some View {
+        switch linkState {
+        case .connected:
+            EmptyView()
+        case .waiting:
+            bannerBox(color: .orange, icon: "hourglass") {
+                Text("En attente de \(store.correspondent.name)").font(.subheadline).bold()
+                Text("Pour qu'il reçoive tes messages, il doit avoir Brocolis 🥦 **et TA clé**. Envoie-la-lui :")
+                    .font(.caption).foregroundStyle(.secondary)
+                inviteButton
+            }
+        case .keyMismatch:
+            bannerBox(color: .red, icon: "key.slash") {
+                Text("\(store.correspondent.name) écrit, mais vos clés ne correspondent pas")
+                    .font(.subheadline).bold()
+                Text("Ses messages restent 🔒 car sa clé n'est pas exactement la tienne. La solution sûre : refaites l'**appairage** (le même code à deux), ou renvoie-lui ta clé.")
+                    .font(.caption).foregroundStyle(.secondary)
+                inviteButton
+            }
+        }
+    }
+
+    @ViewBuilder private var inviteButton: some View {
+        if let phone = BrocolisKeyStore.keyPhone(store.correspondent.id), canSendMessages() {
+            Button {
+                invite = InvitePayload(
+                    recipients: [phone],
+                    body: brocolisInviteBody(contactName: store.correspondent.name,
+                                             keyBase64: store.correspondent.base64)
+                )
+            } label: {
+                Label("Inviter par iMessage", systemImage: "paperplane.fill")
+                    .font(.caption).bold()
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .padding(.top, 2)
+        }
+    }
+
+    private func bannerBox<Content: View>(color: Color, icon: String,
+                                          @ViewBuilder _ content: () -> Content) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: icon).foregroundStyle(color)
+            VStack(alignment: .leading, spacing: 4) { content() }
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .background(color.opacity(0.10))
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var messages: some View {
