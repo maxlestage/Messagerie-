@@ -30,6 +30,7 @@ struct RootView: View {
     @State private var importName = ""
     @State private var importText = ""
     @State private var showContacts = false
+    @State private var invite: InvitePayload?
     @State private var renameTarget: NamedKey?
     @State private var renameText = ""
 
@@ -77,6 +78,12 @@ struct RootView: View {
                 ContactPickerView { contact in
                     createKeyFromContact(contact)
                 }
+            }
+            .sheet(item: $invite) { payload in
+                MessageComposeView(recipients: payload.recipients, body: payload.body) {
+                    invite = nil
+                }
+                .ignoresSafeArea()
             }
             .alert("Nouvelle clé", isPresented: $showGenerate) {
                 TextField("Nom (ex. Maman)", text: $newKeyName)
@@ -431,6 +438,16 @@ struct RootView: View {
                 ShareLink(item: sel.base64) {
                     Label("Partager la clé", systemImage: "square.and.arrow.up")
                 }
+                if let phone = BrocolisKeyStore.keyPhone(sel.id), canSendMessages() {
+                    Button {
+                        invite = InvitePayload(
+                            recipients: [phone],
+                            body: brocolisInviteBody(contactName: sel.name, keyBase64: sel.base64)
+                        )
+                    } label: {
+                        Label("Inviter \(sel.name) par iMessage", systemImage: "paperplane.fill")
+                    }
+                }
             }
 
             Section {
@@ -540,6 +557,13 @@ struct RootView: View {
             alertMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
     }
+}
+
+/// Charge utile pour présenter le composer iMessage (destinataire + corps).
+struct InvitePayload: Identifiable {
+    let id = UUID()
+    let recipients: [String]
+    let body: String
 }
 
 #Preview {

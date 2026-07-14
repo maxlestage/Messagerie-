@@ -15,6 +15,7 @@ import Foundation
 import Contacts
 import SwiftUI
 import UIKit
+import MessageUI
 
 /// Un contact retenu : nom + un numéro (normalisé pour l'affichage/identité).
 struct PhoneContact: Identifiable, Equatable {
@@ -221,4 +222,53 @@ struct ContactPickerView: View {
             }
         }
     }
+}
+
+// MARK: - Composer iMessage (inviter un contact par son numéro)
+
+/// L'appareil peut-il envoyer des SMS/iMessages ? (faux sur simulateur / sans SIM)
+func canSendMessages() -> Bool { MFMessageComposeViewController.canSendText() }
+
+/// Ouvre Messages **déjà adressé** au numéro, avec un corps pré-rempli
+/// (invitation + clé). L'utilisateur n'a plus qu'à envoyer.
+struct MessageComposeView: UIViewControllerRepresentable {
+    let recipients: [String]
+    let body: String
+    var onFinish: () -> Void = {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(onFinish: onFinish) }
+
+    func makeUIViewController(context: Context) -> MFMessageComposeViewController {
+        let vc = MFMessageComposeViewController()
+        vc.recipients = recipients
+        vc.body = body
+        vc.messageComposeDelegate = context.coordinator
+        return vc
+    }
+
+    func updateUIViewController(_ vc: MFMessageComposeViewController, context: Context) {}
+
+    final class Coordinator: NSObject, MFMessageComposeViewControllerDelegate {
+        let onFinish: () -> Void
+        init(onFinish: @escaping () -> Void) { self.onFinish = onFinish }
+        func messageComposeViewController(_ controller: MFMessageComposeViewController,
+                                          didFinishWith result: MessageComposeResult) {
+            controller.dismiss(animated: true) { self.onFinish() }
+        }
+    }
+}
+
+/// Texte d'invitation envoyé par iMessage : explique quoi faire + contient la clé.
+func brocolisInviteBody(contactName: String, keyBase64: String) -> String {
+    """
+    Rejoins-moi sur Brocolis 🥦 pour qu'on discute chiffré (illisible pour tout le monde d'autre).
+
+    1) Installe l'app Brocolis
+    2) Ouvre-la → « Importer une clé »
+    3) Colle CETTE clé :
+
+    \(keyBase64)
+
+    (C'est notre clé commune : garde-la pour toi.)
+    """
 }
