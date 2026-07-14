@@ -22,6 +22,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('node:crypto');
 const { createApnsSender } = require('./apns.js');
+const { createMessageStore } = require('./messages-store.js');
 
 const TTL_MS = 10 * 60 * 1000; // 10 min
 
@@ -270,14 +271,14 @@ function createRendezvous(options = {}) {
   // est opaque (dérivé côté client d'une clé partagée) : le serveur ne peut pas
   // remonter à la clé. Modèle « scellé » : qui possède la clé lit, les autres
   // ne voient que du charabia.
-  const MSG_MAX_PER_CONV = Number(process.env.MSG_MAX_PER_CONV) || 1000;
-  // convId -> { participants: [{id,displayName}], createdAt }
-  const conversations = new Map();
-  // convId -> [ { id, conversationId, senderId, ciphertext, sentAt, seq } ]
-  const messages = new Map();
-  // convId -> Set(res)  (abonnés SSE)
+  // Stockage persistant (SQLite si dispo, sinon mémoire). Sur Heroku, le disque
+  // est éphémère : positionne DB_PATH sur un volume durable, ou utilise Postgres
+  // pour une vraie persistance. Par défaut ':memory:' (tests, et rendez-vous).
+  const messageStore = createMessageStore({
+    dbPath: options.dbPath ?? process.env.DB_PATH ?? ':memory:',
+  });
+  // convId -> Set(res)  (abonnés SSE, forcément en mémoire : temps réel)
   const sseClients = new Map();
-  let msgSeq = 0;
 
   function authUser(req) {
     const h = req.headers['x-user-id'];
@@ -287,25 +288,17 @@ function createRendezvous(options = {}) {
   // Conversation « scellée » (sans participants) : créée à la volée pour un id
   // opaque. L'accès est alors cryptographique (avoir la clé).
   function ensureSealed(convId) {
-    if (!conversations.has(convId)) {
-      conversations.set(convId, { participants: [], createdAt: new Date().toISOString() });
-    }
-    if (!messages.has(convId)) messages.set(convId, []);
+    messageStore.ensureSealed(convId, new Date().toISOString());
   }
   function canAccess(convId, user) {
-    const c = conversations.get(convId);
+    const c = messageStore.getConversation(convId);
     if (!c) return true; // inconnue ⇒ traitée comme scellée (rien de lisible sans clé)
     return c.participants.length === 0 || c.participants.some((p) => p.id === user);
   }
   function appendMessage(convId, msg) {
-    const arr = messages.get(convId) || [];
-    const existing = arr.find((m) => m.id === msg.id); // idempotence sur id
-    if (existing) return existing;
-    msgSeq += 1;
-    const stored = { ...msg, seq: msgSeq };
-    arr.push(stored);
-    if (arr.length > MSG_MAX_PER_CONV) arr.splice(0, arr.length - MSG_MAX_PER_CONV);
-    messages.set(convId, arr);
+    const stored = messageStore.appendMessage(convId, msg);
+    // Diffusion temps réel (les clients dédoublonnent par id, donc renvoyer un
+    // message déjà connu est inoffensif).
     const clients = sseClients.get(convId);
     if (clients) {
       const line = `data: ${JSON.stringify(stored)}\n\n`;
@@ -590,8 +583,7 @@ function createRendezvous(options = {}) {
         }));
         const id = crypto.randomUUID();
         const createdAt = new Date().toISOString();
-        conversations.set(id, { participants: clean, createdAt });
-        messages.set(id, []);
+        messageStore.createConversation(id, clean, createdAt);
         return sendJSON(res, 201, { id, participants: clean, createdAt });
       });
       return;
@@ -601,13 +593,7 @@ function createRendezvous(options = {}) {
     if (req.method === 'GET' && url.pathname === '/v1/conversations') {
       const user = authUser(req);
       if (!user) return sendJSON(res, 401, { error: 'X-User-Id requis' });
-      const list = [];
-      for (const [id, c] of conversations) {
-        if (c.participants.length && c.participants.some((p) => p.id === user)) {
-          list.push({ id, participants: c.participants, createdAt: c.createdAt });
-        }
-      }
-      return sendJSON(res, 200, list);
+      return sendJSON(res, 200, messageStore.listConversationsFor(user));
     }
 
     // POST /v1/messages — envoie un message chiffré (crée la conversation
@@ -626,7 +612,7 @@ function createRendezvous(options = {}) {
         if (senderId !== user) {
           return sendJSON(res, 403, { error: 'senderId doit être X-User-Id' });
         }
-        const c = conversations.get(conversationId);
+        const c = messageStore.getConversation(conversationId);
         if (c && c.participants.length && !c.participants.some((p) => p.id === user)) {
           return sendJSON(res, 403, { error: 'accès refusé à cette conversation' });
         }
@@ -649,7 +635,7 @@ function createRendezvous(options = {}) {
       if (!canAccess(conversationId, user)) {
         return sendJSON(res, 403, { error: 'accès refusé à cette conversation' });
       }
-      const arr = (messages.get(conversationId) || []).filter((m) => m.seq > after);
+      const arr = messageStore.messagesAfter(conversationId, after);
       const cursor = arr.length ? arr[arr.length - 1].seq : after;
       return sendJSON(res, 200, { messages: arr, cursor });
     }
