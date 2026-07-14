@@ -144,9 +144,29 @@ GET  /v1/stream?conversationId=..                                  -> flux SSE (
 - **SSE** : chaque nouveau message arrive en `data: {json}\n\n`, avec un
   `:keep-alive` toutes les 25 s (Heroku coupe une connexion inactive vers 55 s).
   À la reprise, l'app rattrape via `GET /v1/messages?after=`.
-- Stockage **en mémoire** (comme le rendez-vous) : un redémarrage/déploiement
-  vide les messages. Convient à un dyno unique ; pour de la persistance ou
-  plusieurs dynos, brancher un stockage partagé (Postgres/Redis).
+- Stockage **SQLite** (module intégré `node:sqlite`, aucune dépendance externe)
+  quand `DB_PATH` est défini ; sinon **en mémoire**. Le serveur ne stocke que du
+  chiffré. Voir ci-dessous.
+
+### Persistance des messages (SQLite)
+
+Les messages sont conservés dans **SQLite** dès que la variable **`DB_PATH`** est
+renseignée (chemin du fichier `.db`). Sans elle, le stockage reste **en mémoire**
+(tests, ou usage jetable). Le code choisit tout seul et retombe proprement en
+mémoire si `node:sqlite` est indisponible.
+
+```sh
+DB_PATH=./data/messages.db npm start   # persiste dans un fichier
+```
+
+- Le conteneur Docker définit déjà `DB_PATH=/tmp/brocolis-messages.db`.
+- **⚠️ Heroku** : le disque d'un dyno est **éphémère**. SQLite survit aux
+  redémarrages du *process*, mais le fichier est **effacé à chaque déploiement /
+  recyclage de dyno**. Pour une persistance **durable** sur Heroku, il faut une
+  base **gérée (Heroku Postgres)** — le stockage est isolé dans
+  `messages-store.js`, donc y brancher Postgres ne touche pas au reste.
+- Curseur `seq` **monotone** (clé auto-incrémentée), idempotence sur
+  `(conversationId, id)`. La diffusion temps réel (SSE) reste en mémoire.
 
 ## Sécurité
 
