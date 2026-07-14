@@ -69,6 +69,20 @@ impl Store {
         self.inner.read().unwrap().conversations.get(id).cloned()
     }
 
+    /// Garantit l'existence d'une conversation « scellée » (sans liste de
+    /// participants) pour un `id` opaque — typiquement dérivé d'une clé partagée.
+    /// Le contrôle d'accès est alors cryptographique : seul qui possède la clé
+    /// peut lire/écrire. Ne fait rien si la conversation existe déjà.
+    pub fn ensure_sealed(&self, id: &str, created_at: OffsetDateTime) {
+        let mut inner = self.inner.write().unwrap();
+        inner.conversations.entry(id.to_string()).or_insert_with(|| Conversation {
+            id: id.to_string(),
+            participants: Vec::new(),
+            created_at,
+        });
+        inner.messages.entry(id.to_string()).or_default();
+    }
+
     /// Conversations auxquelles participe `user_id`, les plus récemment actives
     /// d'abord (dernier message, sinon date de création).
     pub fn conversations_for(&self, user_id: &str) -> Vec<Conversation> {

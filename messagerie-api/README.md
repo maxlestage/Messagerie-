@@ -30,6 +30,22 @@ cargo test                # tests d'intégration (create → send → fetch, acc
   API** (X25519, comme le serveur de rendez-vous dans `server/`). Cette API ne
   transporte que des messages chiffrés.
 
+## Conversations scellées (modèle « clé partagée »)
+
+Le client Brocolis n'a pas besoin de créer de conversation : il dérive un
+`conversationId` **opaque à partir de la clé partagée** (empreinte SHA-256). Les
+deux correspondants, qui possèdent la même clé, tombent sur le **même id** sans
+que le serveur connaisse la clé.
+
+- Un `POST /v1/messages` vers un `conversationId` inconnu **crée** une
+  conversation « scellée » (sans liste de participants).
+- Pour une conversation scellée, l'accès est **cryptographique** : n'importe quel
+  appelant authentifié peut poster/lire *du chiffré*, mais **seul qui possède la
+  clé peut déchiffrer**. Connaître l'id ne donne rien de lisible.
+- Si tu préfères un contrôle d'accès explicite, crée la conversation via
+  `POST /v1/conversations` avec ses `participants` : la vérification d'
+  appartenance s'applique alors (voir le test `outsider_cannot_read`).
+
 ## Authentification
 
 Toutes les routes `/v1` exigent l'en-tête **`X-User-Id`** (l'identité de
