@@ -37,10 +37,14 @@ enum MessagingPrefs {
         return id
     }
 
-    /// URL de l'API de messagerie (ex. `https://api.mon-serveur.fr`). Vide tant
-    /// qu'elle n'est pas configurée.
+    /// URL de l'API de messagerie. Par défaut : le même serveur que
+    /// l'appairage (ton instance Heroku), qui héberge aussi la messagerie.
+    /// Modifiable si tu déploies ailleurs.
     static var serverURL: String {
-        get { defaults?.string(forKey: serverURLName) ?? "" }
+        get {
+            let saved = defaults?.string(forKey: serverURLName) ?? ""
+            return saved.isEmpty ? BrocolisKeyStore.serverURL : saved
+        }
         set { defaults?.set(newValue.trimmingCharacters(in: .whitespacesAndNewlines),
                             forKey: serverURLName) }
     }
