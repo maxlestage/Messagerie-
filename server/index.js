@@ -637,7 +637,37 @@ function createRendezvous(options = {}) {
       }
       const arr = messageStore.messagesAfter(conversationId, after);
       const cursor = arr.length ? arr[arr.length - 1].seq : after;
-      return sendJSON(res, 200, { messages: arr, cursor });
+      // `readers` : jusqu'où chaque participant a LU (pour les accusés « Lu »).
+      return sendJSON(res, 200, {
+        messages: arr,
+        cursor,
+        readers: messageStore.readCursors(conversationId),
+      });
+    }
+
+    // POST /v1/read — accusé de lecture : l'appelant a lu jusqu'à `upTo` (seq).
+    if (req.method === 'POST' && url.pathname === '/v1/read') {
+      const user = authUser(req);
+      if (!user) return sendJSON(res, 401, { error: 'X-User-Id requis' });
+      readJSON(8192, (body) => {
+        const conversationId = (body.conversationId || '').trim();
+        const upTo = Number(body.upTo) || 0;
+        if (!conversationId) return sendJSON(res, 400, { error: 'conversationId requis' });
+        if (!canAccess(conversationId, user)) {
+          return sendJSON(res, 403, { error: 'accès refusé à cette conversation' });
+        }
+        messageStore.setReadCursor(conversationId, user, upTo);
+        // Diffuse l'accusé en temps réel aux abonnés SSE (l'expéditeur verra « Lu »).
+        const clients = sseClients.get(conversationId);
+        if (clients) {
+          const line = `data: ${JSON.stringify({ type: 'read', reader: user, upTo })}\n\n`;
+          for (const r of clients) {
+            try { r.write(line); } catch { /* parti */ }
+          }
+        }
+        return sendJSON(res, 200, { ok: true });
+      });
+      return;
     }
 
     // GET /v1/stream?conversationId=.. — flux temps réel (Server-Sent Events).
