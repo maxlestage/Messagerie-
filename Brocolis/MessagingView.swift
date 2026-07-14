@@ -16,6 +16,8 @@
 
 import SwiftUI
 import CryptoKit
+import UIKit
+import AudioToolbox
 
 // MARK: - Préférences messagerie (App Group)
 
@@ -60,6 +62,7 @@ struct ChatLine: Identifiable, Equatable {
     let text: String
     let isMine: Bool
     let locked: Bool   // vrai si on n'a pas pu déchiffrer (clé différente)
+    let seq: UInt64
 }
 
 // MARK: - Client réseau (ne transporte que du chiffré)
@@ -118,10 +121,17 @@ struct BrocolisMessagingClient {
         let ciphertext: String
         let seq: UInt64
     }
-    private struct Page: Decodable { let messages: [RawMessage]; let cursor: UInt64 }
+    private struct Page: Decodable {
+        let messages: [RawMessage]
+        let cursor: UInt64
+        let readers: [String: UInt64]?
+    }
+    // Évènement SSE : soit un message, soit un accusé de lecture {type:"read"}.
+    private struct ReadEvent: Decodable { let type: String; let reader: String; let upTo: UInt64 }
 
-    /// Récupère l'historique (au-delà du curseur `after`).
-    func fetch(conversationId: String, after: UInt64) async throws -> ([RawMessage], UInt64) {
+    /// Récupère l'historique + les curseurs de lecture (`readers`).
+    func fetch(conversationId: String, after: UInt64) async throws
+        -> ([RawMessage], UInt64, [String: UInt64]) {
         var comps = URLComponents(url: baseURL.appendingPathComponent("v1/messages"),
                                   resolvingAgainstBaseURL: false)!
         comps.queryItems = [
@@ -132,12 +142,23 @@ struct BrocolisMessagingClient {
         req.setValue(deviceId, forHTTPHeaderField: "X-User-Id")
         let (data, _) = try await URLSession.shared.data(for: req)
         let page = try JSONDecoder().decode(Page.self, from: data)
-        return (page.messages, page.cursor)
+        return (page.messages, page.cursor, page.readers ?? [:])
     }
 
-    /// Flux temps réel (SSE). Appelle `onMessage` pour chaque nouveau message ;
-    /// se termine (throw) si la connexion tombe.
-    func stream(conversationId: String, onMessage: @escaping (RawMessage) -> Void) async throws {
+    /// Accusé de lecture : signale qu'on a lu jusqu'à `upTo`.
+    func markRead(conversationId: String, upTo: UInt64) async {
+        var req = request("v1/read", method: "POST")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: [
+            "conversationId": conversationId, "upTo": upTo,
+        ])
+        _ = try? await URLSession.shared.data(for: req)
+    }
+
+    /// Flux temps réel (SSE). `onMessage` pour un message, `onRead` pour un
+    /// accusé de lecture. Se termine (throw) si la connexion tombe.
+    func stream(conversationId: String,
+                onMessage: @escaping (RawMessage) -> Void,
+                onRead: @escaping (String, UInt64) -> Void) async throws {
         var comps = URLComponents(url: baseURL.appendingPathComponent("v1/stream"),
                                   resolvingAgainstBaseURL: false)!
         comps.queryItems = [URLQueryItem(name: "conversationId", value: conversationId)]
@@ -153,8 +174,10 @@ struct BrocolisMessagingClient {
         for try await line in bytes.lines {
             guard line.hasPrefix("data:") else { continue }
             let json = line.dropFirst("data:".count).trimmingCharacters(in: .whitespaces)
-            if let d = json.data(using: .utf8),
-               let msg = try? JSONDecoder().decode(RawMessage.self, from: d) {
+            guard let d = json.data(using: .utf8) else { continue }
+            if let ev = try? JSONDecoder().decode(ReadEvent.self, from: d), ev.type == "read" {
+                onRead(ev.reader, ev.upTo)
+            } else if let msg = try? JSONDecoder().decode(RawMessage.self, from: d) {
                 onMessage(msg)
             }
         }
@@ -167,6 +190,8 @@ struct BrocolisMessagingClient {
 final class BrocolisChatStore: ObservableObject {
     @Published private(set) var lines: [ChatLine] = []
     @Published private(set) var status: String?
+    /// Jusqu'où le correspondant a LU (seq) — pour l'accusé « Lu ».
+    @Published private(set) var otherReadUpTo: UInt64 = 0
     @Published var draft: String = ""
 
     let correspondent: NamedKey
@@ -179,6 +204,10 @@ final class BrocolisChatStore: ObservableObject {
     private var seenIds = Set<String>()
     private var cursor: UInt64 = 0
     private var task: Task<Void, Never>?
+    /// Vrai après le 1er chargement : on ne sonne QUE pour les messages qui
+    /// arrivent ensuite (pas pour tout l'historique à l'ouverture).
+    private var didInitialLoad = false
+    private var lastReadPosted: UInt64 = 0
 
     /// Échoue si la clé est illisible ou le serveur non configuré.
     init?(correspondent: NamedKey) {
@@ -197,19 +226,24 @@ final class BrocolisChatStore: ObservableObject {
         task = Task { @MainActor [weak self] in
             guard let self else { return }
             // 1) Rattrapage de l'historique.
-            if let (msgs, cur) = try? await self.client.fetch(conversationId: self.conversationId, after: 0) {
+            if let (msgs, cur, readers) = try? await self.client.fetch(conversationId: self.conversationId, after: 0) {
+                self.applyReaders(readers)
                 self.ingest(msgs, cursor: cur)
             }
+            self.didInitialLoad = true
             // 2) Temps réel, avec reconnexion + rattrapage à chaque reprise.
             while !Task.isCancelled {
                 do {
-                    try await self.client.stream(conversationId: self.conversationId) { msg in
-                        Task { @MainActor [weak self] in self?.ingest([msg], cursor: nil) }
-                    }
+                    try await self.client.stream(
+                        conversationId: self.conversationId,
+                        onMessage: { msg in Task { @MainActor [weak self] in self?.ingest([msg], cursor: nil) } },
+                        onRead: { reader, upTo in Task { @MainActor [weak self] in self?.handleRead(reader: reader, upTo: upTo) } }
+                    )
                 } catch {
                     if Task.isCancelled { break }
                     self.status = "Reconnexion…"
-                    if let (msgs, cur) = try? await self.client.fetch(conversationId: self.conversationId, after: self.cursor) {
+                    if let (msgs, cur, readers) = try? await self.client.fetch(conversationId: self.conversationId, after: self.cursor) {
+                        self.applyReaders(readers)
                         self.ingest(msgs, cursor: cur)
                     }
                     try? await Task.sleep(nanoseconds: 2_000_000_000)
@@ -222,14 +256,48 @@ final class BrocolisChatStore: ObservableObject {
 
     private func ingest(_ msgs: [BrocolisMessagingClient.RawMessage], cursor cur: UInt64?) {
         status = nil
+        let me = MessagingPrefs.deviceId
+        var newIncoming = 0
         for m in msgs where !seenIds.contains(m.id) {
             seenIds.insert(m.id)
             raw.append(m)
+            if m.senderId != me { newIncoming += 1 }
         }
         if let cur { cursor = max(cursor, cur) } else {
             cursor = max(cursor, raw.map(\.seq).max() ?? cursor)
         }
         render()
+        // Son + vibration UNIQUEMENT pour un nouveau message reçu après l'ouverture.
+        if didInitialLoad && newIncoming > 0 { notifyNewMessage() }
+        // Accusé de lecture : on a lu jusqu'au dernier seq connu.
+        postReadIfNeeded()
+    }
+
+    private func handleRead(reader: String, upTo: UInt64) {
+        guard reader != MessagingPrefs.deviceId else { return }
+        if upTo > otherReadUpTo { otherReadUpTo = upTo }
+    }
+
+    private func applyReaders(_ readers: [String: UInt64]) {
+        let me = MessagingPrefs.deviceId
+        let maxOther = readers.filter { $0.key != me }.values.max() ?? 0
+        if maxOther > otherReadUpTo { otherReadUpTo = maxOther }
+    }
+
+    private func postReadIfNeeded() {
+        let top = raw.map(\.seq).max() ?? 0
+        guard top > lastReadPosted else { return }
+        lastReadPosted = top
+        Task { [weak self] in
+            guard let self else { return }
+            await self.client.markRead(conversationId: self.conversationId, upTo: top)
+        }
+    }
+
+    // Tonalité système « message reçu » + vibration légère.
+    private func notifyNewMessage() {
+        AudioServicesPlaySystemSound(1003) // son court de réception
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
     }
 
     private func render() {
@@ -241,7 +309,8 @@ final class BrocolisChatStore: ObservableObject {
                     id: m.id,
                     text: opened > 0 ? text : "🔒 message chiffré",
                     isMine: m.senderId == MessagingPrefs.deviceId,
-                    locked: opened == 0
+                    locked: opened == 0,
+                    seq: m.seq
                 )
             }
     }
@@ -478,11 +547,23 @@ private struct ChatScreen: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    // « Distribué » (arrivé sur le serveur) ou « Lu » (le correspondant a ouvert),
+    // sous ton dernier message envoyé — comme iMessage.
+    @ViewBuilder private var deliveryStatus: some View {
+        if let last = store.lines.last, last.isMine {
+            Text(store.otherReadUpTo >= last.seq ? "Lu" : "Distribué")
+                .font(.caption2).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.trailing, 6)
+        }
+    }
+
     private var messages: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 8) {
                     ForEach(store.lines) { bubble($0) }
+                    deliveryStatus
                 }
                 .padding()
             }

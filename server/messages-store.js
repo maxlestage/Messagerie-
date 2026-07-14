@@ -56,6 +56,12 @@ function createSqliteStore(dbPath) {
     );
     CREATE UNIQUE INDEX IF NOT EXISTS idx_msg_unique ON messages(conversation_id, msg_id);
     CREATE INDEX IF NOT EXISTS idx_msg_conv_seq ON messages(conversation_id, seq);
+    CREATE TABLE IF NOT EXISTS read_cursors (
+      conversation_id TEXT NOT NULL,
+      user_id         TEXT NOT NULL,
+      up_to           INTEGER NOT NULL,
+      PRIMARY KEY (conversation_id, user_id)
+    );
   `);
 
   const q = {
@@ -76,6 +82,12 @@ function createSqliteStore(dbPath) {
       `SELECT seq, msg_id, conversation_id, sender_id, ciphertext, sent_at
          FROM messages WHERE conversation_id = ? AND seq > ? ORDER BY seq`
     ),
+    setRead: db.prepare(
+      `INSERT INTO read_cursors (conversation_id, user_id, up_to) VALUES (?, ?, ?)
+       ON CONFLICT(conversation_id, user_id)
+       DO UPDATE SET up_to = MAX(up_to, excluded.up_to)`
+    ),
+    getReads: db.prepare(`SELECT user_id, up_to FROM read_cursors WHERE conversation_id = ?`),
   };
 
   function mapRow(r) {
@@ -130,6 +142,17 @@ function createSqliteStore(dbPath) {
     messagesAfter(convId, after) {
       return q.msgsAfter.all(convId, after).map(mapRow);
     },
+
+    /// Marque que `userId` a lu jusqu'au `seq` = upTo (max monotone).
+    setReadCursor(convId, userId, upTo) {
+      q.setRead.run(convId, userId, Math.max(0, Number(upTo) || 0));
+    },
+    /// { userId: dernierSeqLu } pour une conversation.
+    readCursors(convId) {
+      const out = {};
+      for (const r of q.getReads.all(convId)) out[r.user_id] = Number(r.up_to);
+      return out;
+    },
   };
 }
 
@@ -138,6 +161,7 @@ function createSqliteStore(dbPath) {
 function createMemoryStore() {
   const conversations = new Map(); // id -> { participants, createdAt }
   const messages = new Map();      // id -> [msg]
+  const reads = new Map();         // convId -> Map(userId -> upTo)
   let seq = 0;
 
   return {
@@ -189,6 +213,18 @@ function createMemoryStore() {
 
     messagesAfter(convId, after) {
       return (messages.get(convId) || []).filter((m) => m.seq > after);
+    },
+
+    setReadCursor(convId, userId, upTo) {
+      let m = reads.get(convId);
+      if (!m) { m = new Map(); reads.set(convId, m); }
+      m.set(userId, Math.max(m.get(userId) || 0, Number(upTo) || 0));
+    },
+    readCursors(convId) {
+      const out = {};
+      const m = reads.get(convId);
+      if (m) for (const [u, v] of m) out[u] = v;
+      return out;
     },
   };
 }
