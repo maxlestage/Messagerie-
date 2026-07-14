@@ -334,8 +334,12 @@ struct MessagingHomeView: View {
             .frame(width: 42, height: 42)
             VStack(alignment: .leading, spacing: 2) {
                 Text(key.name).font(.headline)
-                Label("Chiffré avec sa clé", systemImage: "lock.fill")
-                    .font(.caption).foregroundStyle(.secondary).labelStyle(.titleAndIcon)
+                if let phone = BrocolisKeyStore.keyPhone(key.id) {
+                    Text(phone).font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Label("Chiffré avec sa clé", systemImage: "lock.fill")
+                        .font(.caption).foregroundStyle(.secondary).labelStyle(.titleAndIcon)
+                }
             }
         }
         .padding(.vertical, 2)
