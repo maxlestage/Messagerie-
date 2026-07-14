@@ -29,6 +29,7 @@ struct RootView: View {
     @State private var showImport = false
     @State private var importName = ""
     @State private var importText = ""
+    @State private var showContacts = false
     @State private var renameTarget: NamedKey?
     @State private var renameText = ""
 
@@ -71,6 +72,11 @@ struct RootView: View {
             }
             .sheet(isPresented: $showPairing, onDismiss: reload) {
                 NavigationStack { PairingView() }
+            }
+            .sheet(isPresented: $showContacts) {
+                ContactPickerView { contact in
+                    createKeyFromContact(contact)
+                }
             }
             .alert("Nouvelle clé", isPresented: $showGenerate) {
                 TextField("Nom (ex. Maman)", text: $newKeyName)
@@ -304,7 +310,12 @@ struct RootView: View {
                 HStack {
                     Image(systemName: key.id == selectedId ? "checkmark.circle.fill" : "circle")
                         .foregroundStyle(key.id == selectedId ? .green : .secondary)
-                    Text(key.name)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(key.name)
+                        if let phone = BrocolisKeyStore.keyPhone(key.id) {
+                            Text(phone).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
                     Spacer()
                 }
                 .contentShape(Rectangle())
@@ -329,6 +340,11 @@ struct RootView: View {
                 }
             }
 
+            Button {
+                showContacts = true
+            } label: {
+                Label("Ajouter depuis mes contacts", systemImage: "person.crop.circle.badge.plus")
+            }
             Button {
                 newKeyName = ""
                 showGenerate = true
@@ -494,6 +510,20 @@ struct RootView: View {
             alertMessage = "Une clé avait expiré : elle a été supprimée automatiquement."
         }
         reload()
+    }
+
+    // Crée une clé pour un contact choisi : nommée d'après lui, avec son numéro
+    // rattaché. La clé est neuve → il faut la PARTAGER avec ce contact (ou
+    // s'appairer) pour qu'il puisse déchiffrer. Le numéro sert d'identité, pas
+    // de clé.
+    private func createKeyFromContact(_ contact: PhoneContact) {
+        let id = BrocolisKeyStore.addKey(name: contact.name,
+                                         base64: BrocolisCrypto.generateKeyBase64())
+        BrocolisKeyStore.setKeyPhone(contact.phoneNumber, forKeyId: id)
+        BrocolisKeyStore.setActive(true)
+        reload()
+        alertMessage = "Clé créée pour « \(contact.name) » (\(contact.phoneNumber)). "
+            + "Partage-la avec ce contact (ou appaire-toi) pour qu’il puisse lire tes messages."
     }
 
     private func importKey() {
