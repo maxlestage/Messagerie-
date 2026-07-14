@@ -6,9 +6,11 @@ FROM node:22-alpine
 WORKDIR /app
 
 # Le serveur n'a aucune dépendance externe : on copie ses sources + la vitrine
-# pré-construite (servie sur /site/).
+# pré-construite (servie sur /site/). index.js fait require('./apns.js') au
+# démarrage : SANS ce fichier, le conteneur plante au boot (exit 1 / H10).
 COPY server/package.json ./
 COPY server/index.js ./
+COPY server/apns.js ./
 COPY server/public ./public
 
 ENV NODE_ENV=production

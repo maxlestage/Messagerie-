@@ -158,6 +158,7 @@ enum BrocolisKeyStore {
         var ks = loadKeysAfterMigration()
         ks.removeAll { $0.id == id }
         saveKeys(ks)
+        setKeyPhone(nil, forKeyId: id)
         if selectedKeyId == id {
             if let first = ks.first {
                 selectKey(first.id)
@@ -167,6 +168,32 @@ enum BrocolisKeyStore {
                 setActive(false)
             }
         }
+    }
+
+    // MARK: - Numéro de téléphone associé à une clé (issu des Contacts)
+
+    private static let keyPhonesName = "key_phones_json" // { keyId: numéro }
+
+    private static func loadPhones() -> [String: String] {
+        guard let data = defaults?.data(forKey: keyPhonesName),
+              let dict = try? JSONDecoder().decode([String: String].self, from: data) else { return [:] }
+        return dict
+    }
+
+    private static func savePhones(_ dict: [String: String]) {
+        if let data = try? JSONEncoder().encode(dict) {
+            defaults?.set(data, forKey: keyPhonesName)
+        }
+    }
+
+    /// Numéro (normalisé) rattaché à une clé, ou `nil`.
+    static func keyPhone(_ id: String) -> String? { loadPhones()[id] }
+
+    /// Rattache (ou retire, si `nil`) un numéro à une clé.
+    static func setKeyPhone(_ phone: String?, forKeyId id: String) {
+        var dict = loadPhones()
+        if let phone, !phone.isEmpty { dict[id] = phone } else { dict.removeValue(forKey: id) }
+        savePhones(dict)
     }
 
     // MARK: - Accès clé (compat + usage)
