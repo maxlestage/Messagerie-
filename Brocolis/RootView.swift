@@ -48,6 +48,7 @@ struct RootView: View {
         NavigationStack {
             Form {
                 quickStartSection
+                messagingSection
                 conversationSection
                 keyboardSection
                 encryptionSection
@@ -164,6 +165,24 @@ struct RootView: View {
                 .padding(.vertical, 2)
             } header: {
                 Text("État")
+            }
+        }
+    }
+
+    // MARK: Messagerie live (un correspondant = une clé)
+
+    @ViewBuilder private var messagingSection: some View {
+        if hasKey {
+            Section {
+                NavigationLink {
+                    MessagingHomeView()
+                } label: {
+                    Label("Ouvrir la messagerie", systemImage: "bubble.left.and.bubble.right.fill")
+                }
+            } header: {
+                Text("Discuter en direct")
+            } footer: {
+                Text("Choisis un correspondant **parmi tes clés** et discute en clair dans l’app. Chaque message part chiffré avec sa clé : lisible ici, illisible partout ailleurs (serveur, iMessage…).")
             }
         }
     }

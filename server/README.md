@@ -119,6 +119,35 @@ dérivée par X25519). Le serveur ne peut pas la déballer.
 `pub` est une clé publique X25519 (32 octets, base64). L'app publie la sienne
 puis sonde jusqu'à recevoir celle du correspondant, et dérive la clé partagée.
 
+### Messagerie chiffrée (E2E)
+
+Le même serveur héberge une **messagerie** : il route et stocke des messages
+**déjà chiffrés** (jetons Brocolis). Il ne détient aucune clé — que du charabia.
+Toutes ces routes exigent l'en-tête **`X-User-Id`**.
+
+```
+POST /v1/conversations  { participants:[{id,displayName}] }        -> Conversation (201)
+GET  /v1/conversations                                             -> [Conversation] de l'appelant
+POST /v1/messages       { id?, conversationId, senderId, ciphertext } -> StoredMessage (201)
+GET  /v1/messages?conversationId=..&after=<seq>                    -> { messages:[…], cursor }
+GET  /v1/stream?conversationId=..                                  -> flux SSE (data: {json})
+```
+
+- **`ciphertext`** : jeton chiffré (`[[BROCOLIS:v1:…]]`), illisible sans la clé.
+- **Conversation « scellée »** : un `POST /v1/messages` vers un `conversationId`
+  inconnu crée la conversation sans participants. L'id étant dérivé côté client
+  d'une **clé partagée** (empreinte), l'accès est cryptographique : qui a la clé
+  lit, les autres ne voient que du charabia. Avec des `participants` explicites,
+  l'appartenance est vérifiée.
+- **`seq`** : curseur monotone ; repasse `cursor` dans `?after=` pour ne
+  récupérer que la suite (rattrapage après coupure).
+- **SSE** : chaque nouveau message arrive en `data: {json}\n\n`, avec un
+  `:keep-alive` toutes les 25 s (Heroku coupe une connexion inactive vers 55 s).
+  À la reprise, l'app rattrape via `GET /v1/messages?after=`.
+- Stockage **en mémoire** (comme le rendez-vous) : un redémarrage/déploiement
+  vide les messages. Convient à un dyno unique ; pour de la persistance ou
+  plusieurs dynos, brancher un stockage partagé (Postgres/Redis).
+
 ## Sécurité
 
 Le code court n'authentifie pas les participants : un intercepteur pourrait
