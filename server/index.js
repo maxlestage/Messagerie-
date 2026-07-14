@@ -20,6 +20,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('node:crypto');
 const { createApnsSender } = require('./apns.js');
 
 const TTL_MS = 10 * 60 * 1000; // 10 min
@@ -263,6 +264,58 @@ function createRendezvous(options = {}) {
   // Expéditeur APNs, ou null si non configuré (injectable pour les tests).
   const apns = 'apns' in options ? options.apns : createApnsSenderFromEnv();
 
+  // ── Messagerie chiffrée (E2E) ─────────────────────────────────────
+  // Ne stocke QUE du chiffré : chaque message porte un `ciphertext` (jeton
+  // Brocolis illisible). Le serveur ne détient aucune clé. L'id de conversation
+  // est opaque (dérivé côté client d'une clé partagée) : le serveur ne peut pas
+  // remonter à la clé. Modèle « scellé » : qui possède la clé lit, les autres
+  // ne voient que du charabia.
+  const MSG_MAX_PER_CONV = Number(process.env.MSG_MAX_PER_CONV) || 1000;
+  // convId -> { participants: [{id,displayName}], createdAt }
+  const conversations = new Map();
+  // convId -> [ { id, conversationId, senderId, ciphertext, sentAt, seq } ]
+  const messages = new Map();
+  // convId -> Set(res)  (abonnés SSE)
+  const sseClients = new Map();
+  let msgSeq = 0;
+
+  function authUser(req) {
+    const h = req.headers['x-user-id'];
+    const id = (Array.isArray(h) ? h[0] : h || '').trim();
+    return id || null;
+  }
+  // Conversation « scellée » (sans participants) : créée à la volée pour un id
+  // opaque. L'accès est alors cryptographique (avoir la clé).
+  function ensureSealed(convId) {
+    if (!conversations.has(convId)) {
+      conversations.set(convId, { participants: [], createdAt: new Date().toISOString() });
+    }
+    if (!messages.has(convId)) messages.set(convId, []);
+  }
+  function canAccess(convId, user) {
+    const c = conversations.get(convId);
+    if (!c) return true; // inconnue ⇒ traitée comme scellée (rien de lisible sans clé)
+    return c.participants.length === 0 || c.participants.some((p) => p.id === user);
+  }
+  function appendMessage(convId, msg) {
+    const arr = messages.get(convId) || [];
+    const existing = arr.find((m) => m.id === msg.id); // idempotence sur id
+    if (existing) return existing;
+    msgSeq += 1;
+    const stored = { ...msg, seq: msgSeq };
+    arr.push(stored);
+    if (arr.length > MSG_MAX_PER_CONV) arr.splice(0, arr.length - MSG_MAX_PER_CONV);
+    messages.set(convId, arr);
+    const clients = sseClients.get(convId);
+    if (clients) {
+      const line = `data: ${JSON.stringify(stored)}\n\n`;
+      for (const r of clients) {
+        try { r.write(line); } catch { /* client parti */ }
+      }
+    }
+    return stored;
+  }
+
   function prune() {
     const now = Date.now();
     for (const [code, peers] of codes) {
@@ -500,6 +553,139 @@ function createRendezvous(options = {}) {
             sendJSON(res, 502, { error: 'échec APNs', detail: String((e && e.message) || e) })
           );
       });
+      return;
+    }
+
+    // ── Messagerie chiffrée ─────────────────────────────────────────
+    // Toutes ces routes exigent l'en-tête `X-User-Id` (identité de l'appelant).
+
+    // Lit un corps JSON borné puis appelle `cb(body)` ; répond 400 si invalide.
+    function readJSON(maxBytes, cb) {
+      let raw = '';
+      req.on('data', (chunk) => {
+        raw += chunk;
+        if (raw.length > maxBytes) req.destroy();
+      });
+      req.on('end', () => {
+        let body;
+        try { body = JSON.parse(raw); } catch { return sendJSON(res, 400, { error: 'JSON invalide' }); }
+        cb(body || {});
+      });
+    }
+
+    // POST /v1/conversations — crée une conversation à participants explicites.
+    if (req.method === 'POST' && url.pathname === '/v1/conversations') {
+      const user = authUser(req);
+      if (!user) return sendJSON(res, 401, { error: 'X-User-Id requis' });
+      readJSON(65536, (body) => {
+        const participants = Array.isArray(body.participants) ? body.participants : null;
+        if (!participants || participants.length < 2) {
+          return sendJSON(res, 400, { error: 'au moins 2 participants requis' });
+        }
+        if (!participants.some((p) => p && String(p.id) === user)) {
+          return sendJSON(res, 403, { error: 'tu dois faire partie de la conversation' });
+        }
+        const clean = participants.map((p) => ({
+          id: String(p.id), displayName: String(p.displayName || ''),
+        }));
+        const id = crypto.randomUUID();
+        const createdAt = new Date().toISOString();
+        conversations.set(id, { participants: clean, createdAt });
+        messages.set(id, []);
+        return sendJSON(res, 201, { id, participants: clean, createdAt });
+      });
+      return;
+    }
+
+    // GET /v1/conversations — conversations (à participants) de l'appelant.
+    if (req.method === 'GET' && url.pathname === '/v1/conversations') {
+      const user = authUser(req);
+      if (!user) return sendJSON(res, 401, { error: 'X-User-Id requis' });
+      const list = [];
+      for (const [id, c] of conversations) {
+        if (c.participants.length && c.participants.some((p) => p.id === user)) {
+          list.push({ id, participants: c.participants, createdAt: c.createdAt });
+        }
+      }
+      return sendJSON(res, 200, list);
+    }
+
+    // POST /v1/messages — envoie un message chiffré (crée la conversation
+    // scellée si l'id est inconnu).
+    if (req.method === 'POST' && url.pathname === '/v1/messages') {
+      const user = authUser(req);
+      if (!user) return sendJSON(res, 401, { error: 'X-User-Id requis' });
+      readJSON(262144, (body) => {
+        const conversationId = (body.conversationId || '').trim();
+        const senderId = (body.senderId || '').trim();
+        const ciphertext = (body.ciphertext || '').trim();
+        const id = (body.id || '').trim() || crypto.randomUUID();
+        if (!conversationId || !senderId || !ciphertext) {
+          return sendJSON(res, 400, { error: 'conversationId, senderId et ciphertext requis' });
+        }
+        if (senderId !== user) {
+          return sendJSON(res, 403, { error: 'senderId doit être X-User-Id' });
+        }
+        const c = conversations.get(conversationId);
+        if (c && c.participants.length && !c.participants.some((p) => p.id === user)) {
+          return sendJSON(res, 403, { error: 'accès refusé à cette conversation' });
+        }
+        ensureSealed(conversationId);
+        const stored = appendMessage(conversationId, {
+          id, conversationId, senderId, ciphertext, sentAt: new Date().toISOString(),
+        });
+        return sendJSON(res, 201, stored);
+      });
+      return;
+    }
+
+    // GET /v1/messages?conversationId=..&after=<seq> — historique / rattrapage.
+    if (req.method === 'GET' && url.pathname === '/v1/messages') {
+      const user = authUser(req);
+      if (!user) return sendJSON(res, 401, { error: 'X-User-Id requis' });
+      const conversationId = (url.searchParams.get('conversationId') || '').trim();
+      const after = Number(url.searchParams.get('after') || 0) || 0;
+      if (!conversationId) return sendJSON(res, 400, { error: 'conversationId requis' });
+      if (!canAccess(conversationId, user)) {
+        return sendJSON(res, 403, { error: 'accès refusé à cette conversation' });
+      }
+      const arr = (messages.get(conversationId) || []).filter((m) => m.seq > after);
+      const cursor = arr.length ? arr[arr.length - 1].seq : after;
+      return sendJSON(res, 200, { messages: arr, cursor });
+    }
+
+    // GET /v1/stream?conversationId=.. — flux temps réel (Server-Sent Events).
+    if (req.method === 'GET' && url.pathname === '/v1/stream') {
+      const user = authUser(req);
+      if (!user) return sendJSON(res, 401, { error: 'X-User-Id requis' });
+      const conversationId = (url.searchParams.get('conversationId') || '').trim();
+      if (!conversationId) return sendJSON(res, 400, { error: 'conversationId requis' });
+      if (!canAccess(conversationId, user)) {
+        return sendJSON(res, 403, { error: 'accès refusé à cette conversation' });
+      }
+      ensureSealed(conversationId);
+      res.writeHead(200, {
+        'content-type': 'text/event-stream',
+        'cache-control': 'no-cache',
+        connection: 'keep-alive',
+        'x-accel-buffering': 'no', // désactive le tampon d'un éventuel proxy
+      });
+      res.write(':ok\n\n');
+      let set = sseClients.get(conversationId);
+      if (!set) { set = new Set(); sseClients.set(conversationId, set); }
+      set.add(res);
+      // Ping régulier : Heroku coupe une connexion inactive après ~55 s.
+      const ka = setInterval(() => {
+        try { res.write(':keep-alive\n\n'); } catch { /* parti */ }
+      }, 25000);
+      if (ka.unref) ka.unref();
+      const cleanup = () => {
+        clearInterval(ka);
+        const s = sseClients.get(conversationId);
+        if (s) { s.delete(res); if (s.size === 0) sseClients.delete(conversationId); }
+      };
+      req.on('close', cleanup);
+      res.on('error', cleanup);
       return;
     }
 
