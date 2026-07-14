@@ -54,6 +54,59 @@ enum MessagingPrefs {
     static var isConfigured: Bool { URL(string: serverURL) != nil && !serverURL.isEmpty }
 }
 
+// MARK: - Style (avatars dégradés, vert Brocolis)
+
+/// Dégradé d'avatar stable par nom : chaque correspondant a « sa » couleur.
+func brocolisAvatarGradient(for name: String) -> LinearGradient {
+    let palette: [(Color, Color)] = [
+        (Color(red: 0.18, green: 0.62, blue: 0.29), Color(red: 0.45, green: 0.78, blue: 0.35)),
+        (Color(red: 0.10, green: 0.45, blue: 0.65), Color(red: 0.30, green: 0.70, blue: 0.80)),
+        (Color(red: 0.55, green: 0.30, blue: 0.75), Color(red: 0.80, green: 0.45, blue: 0.85)),
+        (Color(red: 0.85, green: 0.45, blue: 0.20), Color(red: 0.95, green: 0.65, blue: 0.30)),
+        (Color(red: 0.75, green: 0.25, blue: 0.40), Color(red: 0.95, green: 0.45, blue: 0.55)),
+        (Color(red: 0.15, green: 0.55, blue: 0.50), Color(red: 0.35, green: 0.75, blue: 0.65)),
+    ]
+    let index = abs(name.unicodeScalars.reduce(0) { $0 &* 31 &+ Int($1.value) }) % palette.count
+    let (a, b) = palette[index]
+    return LinearGradient(colors: [a, b], startPoint: .topLeading, endPoint: .bottomTrailing)
+}
+
+/// Dégradé des bulles envoyées (vert Brocolis).
+let brocolisBubbleGradient = LinearGradient(
+    colors: [Color(red: 0.24, green: 0.68, blue: 0.33), Color(red: 0.14, green: 0.55, blue: 0.27)],
+    startPoint: .top, endPoint: .bottom
+)
+
+/// Bulle de discussion avec « queue » : trois coins bien ronds, le coin côté
+/// expéditeur resserré. (Équivalent d'UnevenRoundedRectangle, qui exige
+/// iOS 16.4 — la cible est 16.0, d'où cette forme maison.)
+struct ChatBubbleShape: Shape {
+    var isMine: Bool
+
+    func path(in rect: CGRect) -> Path {
+        let r: CGFloat = 18
+        let tail: CGFloat = 5
+        let bl = isMine ? r : tail   // bas-gauche
+        let br = isMine ? tail : r   // bas-droite
+        var p = Path()
+        p.move(to: CGPoint(x: rect.minX + r, y: rect.minY))
+        p.addLine(to: CGPoint(x: rect.maxX - r, y: rect.minY))
+        p.addArc(center: CGPoint(x: rect.maxX - r, y: rect.minY + r), radius: r,
+                 startAngle: .degrees(-90), endAngle: .degrees(0), clockwise: false)
+        p.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - br))
+        p.addArc(center: CGPoint(x: rect.maxX - br, y: rect.maxY - br), radius: br,
+                 startAngle: .degrees(0), endAngle: .degrees(90), clockwise: false)
+        p.addLine(to: CGPoint(x: rect.minX + bl, y: rect.maxY))
+        p.addArc(center: CGPoint(x: rect.minX + bl, y: rect.maxY - bl), radius: bl,
+                 startAngle: .degrees(90), endAngle: .degrees(180), clockwise: false)
+        p.addLine(to: CGPoint(x: rect.minX, y: rect.minY + r))
+        p.addArc(center: CGPoint(x: rect.minX + r, y: rect.minY + r), radius: r,
+                 startAngle: .degrees(180), endAngle: .degrees(270), clockwise: false)
+        p.closeSubpath()
+        return p
+    }
+}
+
 // MARK: - Modèle affiché
 
 /// Un message prêt à afficher : déchiffré localement.
@@ -397,10 +450,11 @@ struct MessagingHomeView: View {
     private func correspondentRow(_ key: NamedKey) -> some View {
         HStack(spacing: 12) {
             ZStack {
-                Circle().fill(Color.green.opacity(0.2))
-                Text(initials(key.name)).font(.headline).foregroundStyle(.green)
+                Circle().fill(brocolisAvatarGradient(for: key.name))
+                Text(initials(key.name)).font(.headline).bold().foregroundStyle(.white)
             }
-            .frame(width: 42, height: 42)
+            .frame(width: 46, height: 46)
+            .shadow(color: .black.opacity(0.12), radius: 3, y: 1)
             VStack(alignment: .leading, spacing: 2) {
                 Text(key.name).font(.headline)
                 if let phone = BrocolisKeyStore.keyPhone(key.id) {
@@ -561,12 +615,21 @@ private struct ChatScreen: View {
     private var messages: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(spacing: 8) {
+                LazyVStack(spacing: 6) {
+                    if store.lines.isEmpty {
+                        emptyChat
+                    }
                     ForEach(store.lines) { bubble($0) }
                     deliveryStatus
                 }
                 .padding()
+                .animation(.spring(response: 0.35, dampingFraction: 0.8), value: store.lines)
             }
+            .background(
+                LinearGradient(colors: [Color(.systemBackground),
+                                        Color.green.opacity(0.06)],
+                               startPoint: .top, endPoint: .bottom)
+            )
             .overlay(alignment: .top) {
                 if let status = store.status {
                     Text(status).font(.caption).foregroundStyle(.secondary)
@@ -581,28 +644,77 @@ private struct ChatScreen: View {
         }
     }
 
+    private var emptyChat: some View {
+        VStack(spacing: 10) {
+            ZStack {
+                Circle().fill(brocolisAvatarGradient(for: store.correspondent.name))
+                Text(String(store.correspondent.name.prefix(1)).uppercased())
+                    .font(.largeTitle).bold().foregroundStyle(.white)
+            }
+            .frame(width: 76, height: 76)
+            .shadow(color: .black.opacity(0.15), radius: 6, y: 3)
+            Text(store.correspondent.name).font(.title3).bold()
+            Label("Chiffré de bout en bout", systemImage: "lock.fill")
+                .font(.caption).foregroundStyle(.secondary)
+            Text("Dis bonjour 👋")
+                .font(.subheadline).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 40)
+    }
+
+    // Bulles avec « queue » : le coin côté expéditeur est resserré.
     private func bubble(_ m: ChatLine) -> some View {
-        Text(m.text)
-            .padding(.horizontal, 12).padding(.vertical, 8)
-            .background(m.isMine ? Color.green : Color(.secondarySystemBackground))
+        let shape = ChatBubbleShape(isMine: m.isMine)
+        return Text(m.text)
+            .padding(.horizontal, 13).padding(.vertical, 9)
+            .background {
+                if m.isMine {
+                    shape.fill(brocolisBubbleGradient)
+                        .shadow(color: .green.opacity(0.25), radius: 3, y: 1)
+                } else {
+                    shape.fill(Color(.secondarySystemBackground))
+                }
+            }
             .foregroundStyle(m.isMine ? .white : (m.locked ? .secondary : .primary))
-            .clipShape(RoundedRectangle(cornerRadius: 18))
             .frame(maxWidth: .infinity, alignment: m.isMine ? .trailing : .leading)
-            .padding(m.isMine ? .leading : .trailing, 40)
+            .padding(m.isMine ? .leading : .trailing, 48)
+            .contextMenu {
+                Button {
+                    UIPasteboard.general.string = m.text
+                } label: { Label("Copier", systemImage: "doc.on.doc") }
+            }
+            .transition(.scale(scale: 0.85, anchor: m.isMine ? .bottomTrailing : .bottomLeading)
+                .combined(with: .opacity))
             .id(m.id)
     }
 
+    private var canSend: Bool {
+        !store.draft.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
     private var composer: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             TextField("Message chiffré…", text: $store.draft, axis: .vertical)
-                .textFieldStyle(.roundedBorder)
+                .padding(.horizontal, 14).padding(.vertical, 9)
+                .background(Capsule().fill(Color(.secondarySystemBackground)))
                 .lineLimit(1...4)
-            Button { store.send() } label: {
-                Image(systemName: "arrow.up.circle.fill").font(.title)
+            Button {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                store.send()
+            } label: {
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 36, height: 36)
+                    .background(Circle().fill(canSend ? AnyShapeStyle(brocolisBubbleGradient)
+                                                      : AnyShapeStyle(Color.gray.opacity(0.4))))
             }
-            .disabled(store.draft.trimmingCharacters(in: .whitespaces).isEmpty)
+            .disabled(!canSend)
+            .scaleEffect(canSend ? 1.0 : 0.9)
+            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: canSend)
         }
-        .padding(8)
+        .padding(.horizontal, 12).padding(.vertical, 8)
         .background(.bar)
     }
 }
