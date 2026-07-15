@@ -17,6 +17,123 @@ import UIKit
 import Messages
 import SwiftUI
 import WidgetKit
+import AVFoundation
+import PhotosUI
+
+// MARK: - Médias chiffrés (photo / vocal) dans le jeton
+
+/// Enveloppe des médias DANS le texte chiffré, identique à l'app (`MediaPayload`)
+/// pour que photo et vocal soient interopérables entre l'app et iMessage. Le
+/// réseau (et iMessage) ne voit qu'un jeton chiffré : ni image, ni son en clair.
+enum BrocolisMedia {
+    static let imagePrefix = "BRCM1:img:"
+    static let audioPrefix = "BRCM1:aud:"
+
+    enum Kind {
+        case text(String)
+        case image(Data)
+        case audio(Data)
+    }
+
+    /// Décode un clair déchiffré en contenu affichable.
+    static func decode(_ clear: String) -> Kind {
+        if clear.hasPrefix(imagePrefix),
+           let data = Data(base64Encoded: String(clear.dropFirst(imagePrefix.count))) {
+            return .image(data)
+        }
+        if clear.hasPrefix(audioPrefix),
+           let data = Data(base64Encoded: String(clear.dropFirst(audioPrefix.count))) {
+            return .audio(data)
+        }
+        return .text(clear)
+    }
+
+    static func imageClear(_ jpeg: Data) -> String { imagePrefix + jpeg.base64EncodedString() }
+    static func audioClear(_ m4a: Data) -> String { audioPrefix + m4a.base64EncodedString() }
+}
+
+/// Réduit une photo pour l'envoi chiffré DANS une bulle iMessage. L'URL d'un
+/// `MSMessage` ne peut pas porter un média lourd : on compresse fort (petit
+/// côté, JPEG basse qualité). Pour une vraie photo pleine résolution, l'app
+/// Brocolis 🥦 (Messagerie) reste le bon canal.
+func brocolisPanelJPEG(from image: UIImage, maxDimension: CGFloat = 640, quality: CGFloat = 0.4) -> Data? {
+    let largest = max(image.size.width, image.size.height)
+    guard largest > 0 else { return nil }
+    let scale = min(1, maxDimension / largest)
+    let target = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+    let renderer = UIGraphicsImageRenderer(size: target)
+    let resized = renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: target)) }
+    return resized.jpegData(compressionQuality: quality)
+}
+
+// MARK: - Voix : enregistrement et lecture (AVFoundation)
+
+/// Enregistre un vocal court en M4A (AAC mono, léger). Demande la permission
+/// micro au premier usage. Utilisé directement dans le panneau iMessage.
+final class PanelVoiceRecorder: ObservableObject {
+    @Published var isRecording = false
+    private var recorder: AVAudioRecorder?
+    private var fileURL: URL?
+
+    func start() {
+        let session = AVAudioSession.sharedInstance()
+        session.requestRecordPermission { [weak self] granted in
+            DispatchQueue.main.async {
+                guard granted, let self else { return }
+                try? session.setCategory(.playAndRecord, mode: .default,
+                                         options: [.defaultToSpeaker])
+                try? session.setActive(true)
+                let url = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("brocolis-voix-\(UUID().uuidString).m4a")
+                let settings: [String: Any] = [
+                    AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+                    AVSampleRateKey: 16_000.0,
+                    AVNumberOfChannelsKey: 1,
+                    AVEncoderBitRateKey: 24_000,
+                ]
+                self.recorder = try? AVAudioRecorder(url: url, settings: settings)
+                self.fileURL = url
+                self.recorder?.record()
+                self.isRecording = self.recorder?.isRecording ?? false
+            }
+        }
+    }
+
+    /// Arrête et renvoie l'audio enregistré (nil si vide/refusé).
+    func stop() -> Data? {
+        recorder?.stop()
+        recorder = nil
+        isRecording = false
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        defer { if let url = fileURL { try? FileManager.default.removeItem(at: url) } }
+        guard let url = fileURL, let data = try? Data(contentsOf: url), !data.isEmpty else { return nil }
+        return data
+    }
+}
+
+/// Joue les vocaux déchiffrés reçus dans le panneau (un seul à la fois).
+final class PanelVoicePlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
+    @Published var isPlaying = false
+    private var player: AVAudioPlayer?
+
+    func toggle(data: Data) {
+        if isPlaying {
+            player?.stop()
+            isPlaying = false
+            return
+        }
+        try? AVAudioSession.sharedInstance().setCategory(.playback)
+        try? AVAudioSession.sharedInstance().setActive(true)
+        player = try? AVAudioPlayer(data: data)
+        player?.delegate = self
+        player?.play()
+        isPlaying = player != nil
+    }
+
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        DispatchQueue.main.async { self.isPlaying = false }
+    }
+}
 
 // MARK: - Modèle observé par la vue SwiftUI
 
@@ -25,8 +142,14 @@ final class BrocolisiMessageModel: ObservableObject {
     /// Texte en clair du message sélectionné (bulle touchée), si une de nos
     /// clés l'ouvre.
     @Published var selectedClear: String?
+    /// Photo déchiffrée de la bulle touchée (si c'était une photo chiffrée).
+    @Published var selectedImage: Data?
+    /// Vocal déchiffré de la bulle touchée (si c'était un vocal chiffré).
+    @Published var selectedAudio: Data?
     /// Vrai si la bulle touchée est chiffrée avec une clé qu'on n'a PAS.
     @Published var selectedLocked = false
+    /// Message d'erreur d'envoi (ex. média trop lourd pour une bulle iMessage).
+    @Published var sendError: String?
     @Published var isExpanded = false
     @Published var keys: [NamedKey] = []
     @Published var selectedKeyId: String?
@@ -58,6 +181,8 @@ final class BrocolisiMessageModel: ObservableObject {
         } else {
             // En pause : on efface tout clair affiché.
             selectedClear = nil
+            selectedImage = nil
+            selectedAudio = nil
             selectedLocked = false
             clipboardClear = nil
             clipboardLocked = false
@@ -73,6 +198,8 @@ final class BrocolisiMessageModel: ObservableObject {
               !token.isEmpty else {
             selectedToken = nil
             selectedClear = nil
+            selectedImage = nil
+            selectedAudio = nil
             selectedLocked = false
             return
         }
@@ -84,15 +211,26 @@ final class BrocolisiMessageModel: ObservableObject {
         guard let token = selectedToken else { return }
         guard isActive else {
             selectedClear = nil
+            selectedImage = nil
+            selectedAudio = nil
             selectedLocked = false
             return
         }
         let (text, opened) = BrocolisCrypto.decryptTokens(token, keys: BrocolisKeyStore.allSymmetricKeys())
         if opened > 0 {
-            selectedClear = text
             selectedLocked = false
+            switch BrocolisMedia.decode(text) {
+            case .text(let t):
+                selectedClear = t; selectedImage = nil; selectedAudio = nil
+            case .image(let d):
+                selectedImage = d; selectedClear = nil; selectedAudio = nil
+            case .audio(let d):
+                selectedAudio = d; selectedClear = nil; selectedImage = nil
+            }
         } else {
             selectedClear = nil
+            selectedImage = nil
+            selectedAudio = nil
             selectedLocked = true
         }
     }
@@ -133,6 +271,8 @@ final class MessagesViewController: MSMessagesAppViewController {
         let root = BrocolisiMessageRootView(
             model: model,
             onSend: { [weak self] text in self?.sendEncrypted(text) },
+            onSendImage: { [weak self] data in self?.sendEncryptedImage(data) },
+            onSendVoice: { [weak self] data in self?.sendEncryptedVoice(data) },
             onInsertPlainToken: { [weak self] text in self?.insertPlainToken(text) },
             onRequestExpand: { [weak self] in self?.requestPresentationStyle(.expanded) }
         )
@@ -170,11 +310,38 @@ final class MessagesViewController: MSMessagesAppViewController {
     /// « 🥦 Message chiffré » (URL = jeton). Le correspondant touche la bulle
     /// pour lire — ou copie le jeton s'il n'a pas l'app.
     private func sendEncrypted(_ text: String) {
+        insertEncrypted(clear: text, summary: "🥦 Message chiffré")
+    }
+
+    /// Envoie une photo CHIFFRÉE : compressée, encodée `BRCM1:img:`, scellée
+    /// dans le jeton de l'URL. Sans la bonne clé (et sans l'app), la bulle reste
+    /// la placeholder verte : ni image, ni aperçu ne fuient.
+    private func sendEncryptedImage(_ jpeg: Data) {
+        insertEncrypted(clear: BrocolisMedia.imageClear(jpeg), summary: "🥦 Photo chiffrée")
+    }
+
+    /// Envoie un vocal CHIFFRÉ : encodé `BRCM1:aud:`, scellé dans le jeton.
+    /// Inaudible sans la bonne clé et sans l'app.
+    private func sendEncryptedVoice(_ m4a: Data) {
+        insertEncrypted(clear: BrocolisMedia.audioClear(m4a), summary: "🥦 Vocal chiffré")
+    }
+
+    /// Cœur commun : scelle `clear` avec la clé choisie et insère la bulle verte
+    /// dont l'URL porte le jeton chiffré. L'URL d'un `MSMessage` ne peut pas
+    /// porter un média lourd → garde-fou de taille avec message clair.
+    private func insertEncrypted(clear: String, summary: String) {
+        model.sendError = nil
         guard let conversation = activeConversation,
               let key = model.selectedKey,
               let sym = try? BrocolisCrypto.symmetricKey(fromBase64: key.base64),
-              let token = try? BrocolisCrypto.encryptToken(Data(text.utf8), key: sym)
+              let token = try? BrocolisCrypto.encryptToken(Data(clear.utf8), key: sym)
         else { return }
+
+        // ~90 000 caractères : limite prudente pour l'URL d'une bulle iMessage.
+        guard token.utf8.count <= 90_000 else {
+            model.sendError = "Ce média est trop lourd pour une bulle iMessage. Envoie-le depuis l'app Brocolis 🥦 (Messagerie)."
+            return
+        }
 
         var comps = URLComponents()
         comps.scheme = "https"
@@ -190,7 +357,7 @@ final class MessagesViewController: MSMessagesAppViewController {
         let message = MSMessage(session: MSSession())
         message.url = comps.url
         message.layout = layout
-        message.summaryText = "🥦 Message chiffré"
+        message.summaryText = summary
 
         conversation.insert(message) { _ in }
         requestPresentationStyle(.compact)
@@ -250,10 +417,15 @@ enum BrocolisBubbleImage {
 struct BrocolisiMessageRootView: View {
     @ObservedObject var model: BrocolisiMessageModel
     var onSend: (String) -> Void
+    var onSendImage: (Data) -> Void
+    var onSendVoice: (Data) -> Void
     var onInsertPlainToken: (String) -> Void
     var onRequestExpand: () -> Void
 
     @State private var draft = ""
+    @State private var photoItem: PhotosPickerItem?
+    @StateObject private var recorder = PanelVoiceRecorder()
+    @StateObject private var player = PanelVoicePlayer()
 
     private let brocoliGreen = Color(red: 47.0 / 255, green: 158.0 / 255, blue: 74.0 / 255)
     private let brocoliBg = Color(red: 232.0 / 255, green: 245.0 / 255, blue: 219.0 / 255)
@@ -263,7 +435,9 @@ struct BrocolisiMessageRootView: View {
             VStack(alignment: .leading, spacing: 12) {
                 activeToggleRow
                 if model.isActive {
-                    if let clear = model.selectedClear {
+                    if model.selectedImage != nil || model.selectedAudio != nil {
+                        mediaReadCard
+                    } else if let clear = model.selectedClear {
                         readCard(clear)
                     } else if model.selectedLocked {
                         lockedCard
@@ -353,6 +527,37 @@ struct BrocolisiMessageRootView: View {
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(brocoliGreen.opacity(0.35)))
     }
 
+    // Bulle touchée → photo/vocal déchiffré.
+    @ViewBuilder private var mediaReadCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let data = model.selectedImage, let ui = UIImage(data: data) {
+                Label("Photo déchiffrée", systemImage: "lock.open.fill")
+                    .font(.caption).bold().foregroundStyle(brocoliGreen)
+                Image(uiImage: ui)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+            } else if let data = model.selectedAudio {
+                Label("Vocal déchiffré", systemImage: "lock.open.fill")
+                    .font(.caption).bold().foregroundStyle(brocoliGreen)
+                Button {
+                    player.toggle(data: data)
+                } label: {
+                    Label(player.isPlaying ? "Arrêter" : "Écouter le vocal",
+                          systemImage: player.isPlaying ? "stop.fill" : "play.fill")
+                        .font(.subheadline).bold()
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(brocoliGreen)
+            }
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 16).fill(Color(.systemBackground)))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(brocoliGreen.opacity(0.35)))
+    }
+
     private var lockedCard: some View {
         Label("Ce message est chiffré avec une clé que tu n'as pas.",
               systemImage: "lock.fill")
@@ -398,6 +603,14 @@ struct BrocolisiMessageRootView: View {
                         if !model.isExpanded { onRequestExpand() }
                     }
 
+                mediaRow
+
+                if let err = model.sendError {
+                    Label(err, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption2).foregroundStyle(.orange)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
                 HStack(spacing: 10) {
                     Button {
                         send(via: onSend)
@@ -422,11 +635,52 @@ struct BrocolisiMessageRootView: View {
                     .accessibilityLabel("Insérer en texte brut")
                 }
 
-                Text("La bulle « 🥦 » se lit d'un tap avec Brocolis. Le bouton de droite insère le jeton en texte (compatible clavier/app).")
+                Text("Texte, photo 📷 et vocal 🎙️ partent chiffrés : la bulle « 🥦 » se lit d'un tap avec Brocolis. Sans la clé et sans l'app, rien n'est lisible ni audible. Le bouton « Abc » insère le jeton en texte (compatible clavier/app).")
                     .font(.caption2).foregroundStyle(.secondary)
             }
             .padding(12)
             .background(RoundedRectangle(cornerRadius: 16).fill(Color(.systemBackground)))
+        }
+    }
+
+    // Photo 📷 + micro 🎙️ : deux médias chiffrés dans la bulle, comme le texte.
+    private var mediaRow: some View {
+        HStack(spacing: 10) {
+            PhotosPicker(selection: $photoItem, matching: .images, photoLibrary: .shared()) {
+                Label("Photo", systemImage: "photo.fill")
+                    .font(.subheadline).bold()
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .tint(brocoliGreen)
+            .onChange(of: photoItem) { newItem in
+                guard let newItem else { return }
+                model.sendError = nil
+                Task {
+                    if let data = try? await newItem.loadTransferable(type: Data.self),
+                       let image = UIImage(data: data),
+                       let jpeg = brocolisPanelJPEG(from: image) {
+                        await MainActor.run { onSendImage(jpeg) }
+                    }
+                    await MainActor.run { photoItem = nil }
+                }
+            }
+
+            Button {
+                if recorder.isRecording {
+                    if let m4a = recorder.stop() { onSendVoice(m4a) }
+                } else {
+                    model.sendError = nil
+                    recorder.start()
+                }
+            } label: {
+                Label(recorder.isRecording ? "Arrêter et envoyer" : "Vocal",
+                      systemImage: recorder.isRecording ? "stop.circle.fill" : "mic.fill")
+                    .font(.subheadline).bold()
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(recorder.isRecording ? .borderedProminent : .bordered)
+            .tint(recorder.isRecording ? .red : brocoliGreen)
         }
     }
 
