@@ -490,10 +490,6 @@ enum BrocolisBubbleImage {
             let darkGreen = UIColor(red: 31.0 / 255, green: 109.0 / 255, blue: 44.0 / 255, alpha: 1)
             let midGreen = UIColor(red: 47.0 / 255, green: 158.0 / 255, blue: 74.0 / 255, alpha: 1)
 
-            // Joli brocoli dessiné (vecteur) plutôt que l'emoji système.
-            let art = CGRect(x: size.width / 2 - 46, y: 18, width: 92, height: 104)
-            BrocolisArt.draw(in: art, context: cg)
-
             func drawCentered(_ string: String, font: UIFont, color: UIColor, y: CGFloat) {
                 let attributed = NSAttributedString(string: string, attributes: [
                     .font: font,
@@ -503,71 +499,14 @@ enum BrocolisBubbleImage {
                 attributed.draw(at: CGPoint(x: (size.width - textSize.width) / 2, y: y))
             }
 
+            // L'emoji 🥦 (couleur système) plutôt qu'un brocoli dessiné.
+            drawCentered("🥦", font: .systemFont(ofSize: 78), color: .black, y: 22)
             drawCentered("Message chiffré",
                          font: .systemFont(ofSize: 23, weight: .bold),
                          color: darkGreen, y: 132)
             drawCentered("Touche pour lire avec Brocolis",
                          font: .systemFont(ofSize: 15, weight: .medium),
                          color: midGreen, y: 168)
-        }
-    }
-}
-
-// MARK: - Brocoli dessiné (vecteur)
-
-/// Dessine un brocoli stylisé : une tige claire et un bouquet de fleurettes en
-/// dégradé de verts, avec ombrage et reflets. Plus joli et net que l'emoji 🥦.
-enum BrocolisArt {
-    static func draw(in rect: CGRect, context cg: CGContext) {
-        let baseDark = UIColor(red: 27.0 / 255, green: 94.0 / 255, blue: 32.0 / 255, alpha: 1)   // #1B5E20
-        let dark = UIColor(red: 46.0 / 255, green: 125.0 / 255, blue: 50.0 / 255, alpha: 1)      // #2E7D32
-        let mid = UIColor(red: 67.0 / 255, green: 160.0 / 255, blue: 71.0 / 255, alpha: 1)       // #43A047
-        let light = UIColor(red: 102.0 / 255, green: 187.0 / 255, blue: 106.0 / 255, alpha: 1)   // #66BB6A
-        let stalk = UIColor(red: 165.0 / 255, green: 214.0 / 255, blue: 167.0 / 255, alpha: 1)   // #A5D6A7
-        let stalkEdge = UIColor(red: 139.0 / 255, green: 195.0 / 255, blue: 143.0 / 255, alpha: 1)
-
-        let midX = rect.midX
-
-        // Tige : capsule centrale + deux petites branches, dessinée AVANT les
-        // fleurettes qui la recouvrent en haut.
-        func capsule(cx: CGFloat, cy: CGFloat, w: CGFloat, h: CGFloat, angle: CGFloat, color: UIColor) {
-            cg.saveGState()
-            cg.translateBy(x: cx, y: cy)
-            cg.rotate(by: angle)
-            let r = min(w, h) / 2
-            let path = UIBezierPath(roundedRect: CGRect(x: -w / 2, y: -h / 2, width: w, height: h),
-                                    cornerRadius: r)
-            color.setFill()
-            path.fill()
-            cg.restoreGState()
-        }
-
-        capsule(cx: midX - 15, cy: rect.minY + 82, w: 15, h: 34, angle: 0.28, color: stalkEdge)
-        capsule(cx: midX + 15, cy: rect.minY + 82, w: 15, h: 34, angle: -0.28, color: stalkEdge)
-        capsule(cx: midX, cy: rect.minY + 84, w: 22, h: 46, angle: 0, color: stalk)
-
-        // Fleurette : disque plein.
-        func floret(dx: CGFloat, dy: CGFloat, r: CGFloat, color: UIColor) {
-            color.setFill()
-            cg.fillEllipse(in: CGRect(x: midX + dx - r, y: rect.minY + dy - r, width: r * 2, height: r * 2))
-        }
-
-        // Fleurettes (dx depuis le centre, dy depuis le haut du rect, rayon).
-        let heads: [(CGFloat, CGFloat, CGFloat)] = [
-            (-28, 40, 20), (28, 40, 20), (0, 46, 22),
-            (-16, 22, 18), (16, 22, 18), (0, 14, 20),
-            (-30, 24, 15), (30, 24, 15),
-        ]
-
-        // 1) Ombre : mêmes disques, plus foncés, légèrement décalés vers le bas.
-        for (dx, dy, r) in heads { floret(dx: dx, dy: dy + 3, r: r, color: baseDark) }
-        // 2) Corps : alternance de verts moyen/foncé.
-        for (i, h) in heads.enumerated() {
-            floret(dx: h.0, dy: h.1, r: h.2, color: i % 2 == 0 ? dark : mid)
-        }
-        // 3) Reflets : petits disques clairs en haut à gauche de quelques têtes.
-        for (dx, dy, r) in heads {
-            floret(dx: dx - r * 0.32, dy: dy - r * 0.36, r: r * 0.34, color: light)
         }
     }
 }
