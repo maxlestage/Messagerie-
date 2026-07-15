@@ -334,6 +334,19 @@ final class BrocolisiMessageModel: ObservableObject {
         }
     }
 
+    /// Auto-lecture à l'OUVERTURE du panneau : si un jeton Brocolis est déjà
+    /// dans le presse-papiers, on l'affiche déchiffré tout de suite — pas besoin
+    /// d'appuyer sur « Lire un message copié ». Silencieux si rien à lire.
+    /// `hasStrings` (métadonnée, sans demander « Coller ») évite de solliciter
+    /// iOS quand le presse-papiers ne contient pas de texte.
+    func autoReadClipboard() {
+        guard isActive, UIPasteboard.general.hasStrings else { return }
+        guard let raw = UIPasteboard.general.string,
+              BrocolisCrypto.containsToken(raw) else { return }
+        let (text, opened) = BrocolisCrypto.decryptTokens(raw, keys: BrocolisKeyStore.allSymmetricKeys())
+        if opened > 0 { clipboardClear = text }
+    }
+
     var selectedKey: NamedKey? {
         keys.first(where: { $0.id == selectedKeyId }) ?? keys.first
     }
@@ -373,6 +386,21 @@ final class MessagesViewController: MSMessagesAppViewController {
         model.refreshKeys()
         model.update(selected: conversation.selectedMessage)
         model.isExpanded = presentationStyle == .expanded
+        autoReadIfNoBubble()
+    }
+
+    override func didBecomeActive(with conversation: MSConversation) {
+        super.didBecomeActive(with: conversation)
+        autoReadIfNoBubble()
+    }
+
+    /// À l'ouverture, si aucune bulle 🥦 n'est déjà déchiffrée, on tente de lire
+    /// un jeton déjà copié pour l'afficher directement (sans bouton).
+    private func autoReadIfNoBubble() {
+        guard model.selectedClear == nil,
+              model.selectedImage == nil,
+              model.selectedAudio == nil else { return }
+        model.autoReadClipboard()
     }
 
     // L'utilisateur touche une bulle Brocolis → on affiche le clair.
@@ -595,7 +623,7 @@ struct BrocolisiMessageRootView: View {
 
             if let clear = model.clipboardClear {
                 VStack(alignment: .leading, spacing: 6) {
-                    Label("Copié → déchiffré", systemImage: "lock.open.fill")
+                    Label("Déchiffré", systemImage: "lock.open.fill")
                         .font(.caption).bold().foregroundStyle(brocoliGreen)
                     Text(clear)
                         .font(.body)
@@ -608,6 +636,9 @@ struct BrocolisiMessageRootView: View {
                 Text("Rien à déchiffrer dans le presse-papiers (copie d'abord un message 🥦, appui long → Copier).")
                     .font(.caption2).foregroundStyle(.secondary)
             }
+
+            Text("Bulle verte « 🥦 » : touche-la, elle s'ouvre déchiffrée ici — sans copier. Message reçu en texte : copie-le, il s'affiche tout seul à l'ouverture (ou touche le bouton).")
+                .font(.caption2).foregroundStyle(.secondary)
         }
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 14).fill(Color(.systemBackground)))
