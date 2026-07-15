@@ -679,7 +679,7 @@ struct BrocolisiMessageRootView: View {
                     .font(.subheadline).bold()
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(recorder.isRecording ? .borderedProminent : .bordered)
+            .buttonStyle(.bordered)
             .tint(recorder.isRecording ? .red : brocoliGreen)
         }
     }
