@@ -16,6 +16,7 @@
 import UIKit
 import Messages
 import SwiftUI
+import WidgetKit
 
 // MARK: - Modèle observé par la vue SwiftUI
 
@@ -29,19 +30,59 @@ final class BrocolisiMessageModel: ObservableObject {
     @Published var isExpanded = false
     @Published var keys: [NamedKey] = []
     @Published var selectedKeyId: String?
+    /// Interrupteur global Brocolis (partagé avec l'app, le clavier, les
+    /// widgets via l'App Group). En pause → RIEN ne se déchiffre ici.
+    @Published var isActive = BrocolisKeyStore.isActive
+    /// Résultat du bouton « Lire un message copié ».
+    @Published var clipboardClear: String?
+    @Published var clipboardLocked = false
+
+    /// Le dernier jeton de bulle touché, gardé pour re-déchiffrer quand on
+    /// réactive Brocolis.
+    private var selectedToken: String?
 
     func refreshKeys() {
         keys = BrocolisKeyStore.keys
         selectedKeyId = BrocolisKeyStore.selectedKeyId ?? keys.first?.id
+        isActive = BrocolisKeyStore.isActive
+    }
+
+    /// Active / met en pause Brocolis (même état que l'app et les widgets).
+    func setActive(_ value: Bool) {
+        BrocolisKeyStore.setActive(value)
+        isActive = BrocolisKeyStore.isActive
+        WidgetCenter.shared.reloadAllTimelines()
+        if isActive {
+            // Réactivé : rouvre la bulle sélectionnée s'il y en avait une.
+            decryptSelectedToken()
+        } else {
+            // En pause : on efface tout clair affiché.
+            selectedClear = nil
+            selectedLocked = false
+            clipboardClear = nil
+            clipboardLocked = false
+        }
     }
 
     /// Décode la bulle sélectionnée : URL `?t=<jeton>` → déchiffre avec toutes
-    /// nos clés.
+    /// nos clés (seulement si Brocolis est actif).
     func update(selected: MSMessage?) {
         guard let url = selected?.url,
               let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
               let token = comps.queryItems?.first(where: { $0.name == "t" })?.value,
               !token.isEmpty else {
+            selectedToken = nil
+            selectedClear = nil
+            selectedLocked = false
+            return
+        }
+        selectedToken = token
+        decryptSelectedToken()
+    }
+
+    private func decryptSelectedToken() {
+        guard let token = selectedToken else { return }
+        guard isActive else {
             selectedClear = nil
             selectedLocked = false
             return
@@ -53,6 +94,26 @@ final class BrocolisiMessageModel: ObservableObject {
         } else {
             selectedClear = nil
             selectedLocked = true
+        }
+    }
+
+    /// Déchiffre le presse-papiers : pour lire facilement un message chiffré
+    /// reçu en TEXTE (clavier, ancien format, correspondant sans bulle riche).
+    /// Appui long sur le message → Copier → ce bouton.
+    func readClipboard() {
+        guard isActive else { return }
+        clipboardClear = nil
+        clipboardLocked = false
+        guard let raw = UIPasteboard.general.string,
+              BrocolisCrypto.containsToken(raw) else {
+            clipboardLocked = true
+            return
+        }
+        let (text, opened) = BrocolisCrypto.decryptTokens(raw, keys: BrocolisKeyStore.allSymmetricKeys())
+        if opened > 0 {
+            clipboardClear = text
+        } else {
+            clipboardLocked = true
         }
     }
 
@@ -120,9 +181,11 @@ final class MessagesViewController: MSMessagesAppViewController {
         comps.host = "brocolis.invalid" // jamais résolu : simple support du jeton
         comps.queryItems = [URLQueryItem(name: "t", value: token)]
 
+        // Tout le visuel est DANS l'image (fond vert logo + textes) : la bulle
+        // entière est verte au lieu du fond sombre système. L'image voyage avec
+        // le message, le destinataire la voit aussi.
         let layout = MSMessageTemplateLayout()
-        layout.caption = "🥦 Message chiffré"
-        layout.subcaption = "Touche pour lire avec Brocolis"
+        layout.image = BrocolisBubbleImage.make()
 
         let message = MSMessage(session: MSSession())
         message.url = comps.url
@@ -146,6 +209,42 @@ final class MessagesViewController: MSMessagesAppViewController {
     }
 }
 
+// MARK: - Image de bulle (fond vert du logo, plus de fond sombre)
+
+/// Dessine le contenu de la bulle iMessage : fond `#E8F5DB` (le vert du logo,
+/// comme les widgets), brocoli 🥦 et textes en verts foncés. Tout est dans
+/// l'image pour que la bulle soit verte de bout en bout, clair ou sombre.
+enum BrocolisBubbleImage {
+    static func make() -> UIImage {
+        let size = CGSize(width: 300, height: 190)
+        let renderer = UIGraphicsImageRenderer(size: size)
+        return renderer.image { ctx in
+            UIColor(red: 232.0 / 255, green: 245.0 / 255, blue: 219.0 / 255, alpha: 1).setFill()
+            ctx.fill(CGRect(origin: .zero, size: size))
+
+            let darkGreen = UIColor(red: 31.0 / 255, green: 109.0 / 255, blue: 44.0 / 255, alpha: 1)
+            let midGreen = UIColor(red: 47.0 / 255, green: 158.0 / 255, blue: 74.0 / 255, alpha: 1)
+
+            func drawCentered(_ string: String, font: UIFont, color: UIColor, y: CGFloat) {
+                let attributed = NSAttributedString(string: string, attributes: [
+                    .font: font,
+                    .foregroundColor: color,
+                ])
+                let textSize = attributed.size()
+                attributed.draw(at: CGPoint(x: (size.width - textSize.width) / 2, y: y))
+            }
+
+            drawCentered("🥦", font: .systemFont(ofSize: 62), color: .black, y: 16)
+            drawCentered("Message chiffré",
+                         font: .systemFont(ofSize: 22, weight: .bold),
+                         color: darkGreen, y: 96)
+            drawCentered("Touche pour lire avec Brocolis",
+                         font: .systemFont(ofSize: 15, weight: .medium),
+                         color: midGreen, y: 130)
+        }
+    }
+}
+
 // MARK: - Vue SwiftUI
 
 struct BrocolisiMessageRootView: View {
@@ -162,16 +261,81 @@ struct BrocolisiMessageRootView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                if let clear = model.selectedClear {
-                    readCard(clear)
-                } else if model.selectedLocked {
-                    lockedCard
+                activeToggleRow
+                if model.isActive {
+                    if let clear = model.selectedClear {
+                        readCard(clear)
+                    } else if model.selectedLocked {
+                        lockedCard
+                    }
+                    clipboardSection
+                    composer
+                } else {
+                    pausedCard
                 }
-                composer
             }
             .padding(14)
         }
         .background(brocoliBg.opacity(0.35))
+    }
+
+    // Interrupteur Actif / Pause — même état que l'app et les widgets.
+    private var activeToggleRow: some View {
+        Toggle(isOn: Binding(get: { model.isActive },
+                             set: { model.setActive($0) })) {
+            HStack(spacing: 6) {
+                Text("🥦")
+                Text(model.isActive ? "Brocolis actif" : "Brocolis en pause")
+                    .font(.subheadline).bold()
+                    .foregroundStyle(model.isActive ? brocoliGreen : .secondary)
+            }
+        }
+        .tint(brocoliGreen)
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color(.systemBackground)))
+    }
+
+    private var pausedCard: some View {
+        Label("En pause : rien ne se déchiffre et rien ne s'envoie. Active l'interrupteur pour lire et écrire.",
+              systemImage: "pause.circle.fill")
+            .font(.footnote).foregroundStyle(.secondary)
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 14).fill(Color(.systemBackground)))
+    }
+
+    // « Lire un message copié » : déchiffre le presse-papiers (messages reçus
+    // en texte [[BROCOLIS:…]] — clavier, anciens messages…).
+    @ViewBuilder private var clipboardSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                model.readClipboard()
+            } label: {
+                Label("Lire un message copié", systemImage: "doc.on.clipboard")
+                    .font(.subheadline).bold()
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .tint(brocoliGreen)
+
+            if let clear = model.clipboardClear {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("Copié → déchiffré", systemImage: "lock.open.fill")
+                        .font(.caption).bold().foregroundStyle(brocoliGreen)
+                    Text(clear)
+                        .font(.body)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(10)
+                .background(RoundedRectangle(cornerRadius: 12).fill(brocoliBg))
+            } else if model.clipboardLocked {
+                Text("Rien à déchiffrer dans le presse-papiers (copie d'abord un message 🥦, appui long → Copier).")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color(.systemBackground)))
     }
 
     // Bulle touchée → clair, bien visible.
