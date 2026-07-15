@@ -597,11 +597,12 @@ function createRendezvous(options = {}) {
     }
 
     // POST /v1/messages — envoie un message chiffré (crée la conversation
-    // scellée si l'id est inconnu).
+    // scellée si l'id est inconnu). Limite large : les photos/vocaux chiffrés
+    // voyagent en base64 dans le ciphertext (~500 Ko photo, ~200 Ko vocal).
     if (req.method === 'POST' && url.pathname === '/v1/messages') {
       const user = authUser(req);
       if (!user) return sendJSON(res, 401, { error: 'X-User-Id requis' });
-      readJSON(262144, (body) => {
+      readJSON(8 * 1024 * 1024, (body) => {
         const conversationId = (body.conversationId || '').trim();
         const senderId = (body.senderId || '').trim();
         const ciphertext = (body.ciphertext || '').trim();
