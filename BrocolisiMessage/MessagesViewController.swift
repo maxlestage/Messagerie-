@@ -52,34 +52,95 @@ enum BrocolisMedia {
     static func audioClear(_ m4a: Data) -> String { audioPrefix + m4a.base64EncodedString() }
 }
 
-/// Réduit une photo pour l'envoi chiffré DANS une bulle iMessage. L'URL d'un
-/// `MSMessage` ne peut pas porter un média lourd : on compresse fort (petit
-/// côté, JPEG basse qualité). Pour une vraie photo pleine résolution, l'app
-/// Brocolis 🥦 (Messagerie) reste le bon canal.
-func brocolisPanelJPEG(from image: UIImage, maxDimension: CGFloat = 640, quality: CGFloat = 0.4) -> Data? {
-    let largest = max(image.size.width, image.size.height)
-    guard largest > 0 else { return nil }
-    let scale = min(1, maxDimension / largest)
-    let target = CGSize(width: image.size.width * scale, height: image.size.height * scale)
-    let renderer = UIGraphicsImageRenderer(size: target)
-    let resized = renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: target)) }
-    return resized.jpegData(compressionQuality: quality)
+// MARK: - Limites de taille des médias (URL d'une bulle iMessage)
+
+/// L'URL d'un `MSMessage` ne peut pas porter un média lourd : on borne tout ce
+/// qui part dans une bulle. Un seul endroit pour régler ces limites.
+enum BrocolisMediaLimits {
+    /// Budget du jeton chiffré (texte base64) qui tient dans l'URL d'une bulle.
+    static let maxTokenChars = 90_000
+    /// Budget des OCTETS bruts du média : base64 gonfle de ~4/3, plus le
+    /// sur-emballage AES/jeton ⇒ on garde une marge sous maxTokenChars.
+    static let maxMediaBytes = 62_000            // ≈ 60 Ko
+    /// Durée maximale d'un vocal.
+    static let maxVoiceSeconds: TimeInterval = 20
+    /// Débit AAC mono utilisé (24 kbit/s ≈ 3 Ko/s) : sert à estimer le poids en
+    /// direct pendant l'enregistrement.
+    static let voiceBytesPerSecond = 3_000
+
+    /// Poids d'un vocal « plein » (durée max) — pour l'afficher à l'utilisateur.
+    static var maxVoiceBytesEstimate: Int { Int(maxVoiceSeconds) * voiceBytesPerSecond }
+}
+
+/// Formate un nombre d'octets en « 42 Ko » / « 1,2 Mo » pour l'affichage.
+func brocolisFormatBytes(_ bytes: Int) -> String {
+    let formatter = ByteCountFormatter()
+    formatter.countStyle = .file
+    formatter.allowedUnits = [.useKB, .useMB]
+    return formatter.string(fromByteCount: Int64(bytes))
+}
+
+/// Formate une durée en « 0:07 ».
+func brocolisFormatDuration(_ seconds: TimeInterval) -> String {
+    let s = Int(seconds.rounded())
+    return String(format: "%d:%02d", s / 60, s % 60)
+}
+
+/// Réduit une photo pour l'envoi chiffré DANS une bulle iMessage. On resize et
+/// on baisse la qualité par paliers JUSQU'À passer sous `maxMediaBytes` : plus
+/// d'erreur « trop lourd », l'image s'adapte toute seule. Pour une vraie photo
+/// pleine résolution, l'app Brocolis 🥦 (Messagerie) reste le bon canal.
+func brocolisPanelJPEG(from image: UIImage, targetBytes: Int = BrocolisMediaLimits.maxMediaBytes) -> Data? {
+    func jpeg(maxDimension: CGFloat, quality: CGFloat) -> Data? {
+        let largest = max(image.size.width, image.size.height)
+        guard largest > 0 else { return nil }
+        let scale = min(1, maxDimension / largest)
+        let target = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let renderer = UIGraphicsImageRenderer(size: target)
+        let resized = renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: target)) }
+        return resized.jpegData(compressionQuality: quality)
+    }
+
+    // Du plus grand/net au plus petit/compressé : on renvoie le PREMIER résultat
+    // qui tient dans le budget.
+    let dimensions: [CGFloat] = [720, 600, 480, 360, 280]
+    let qualities: [CGFloat] = [0.5, 0.4, 0.3, 0.2]
+    for dim in dimensions {
+        for q in qualities {
+            if let data = jpeg(maxDimension: dim, quality: q), data.count <= targetBytes {
+                return data
+            }
+        }
+    }
+    // Dernier recours : le plus léger possible (peut rester sous le budget).
+    return jpeg(maxDimension: 220, quality: 0.15)
 }
 
 // MARK: - Voix : enregistrement et lecture (AVFoundation)
 
 /// Enregistre un vocal court en M4A (AAC mono, léger). Demande la permission
-/// micro au premier usage. Utilisé directement dans le panneau iMessage.
+/// micro au premier usage. Coupe tout seul à `maxVoiceSeconds` et publie la
+/// durée + le poids estimé en direct pour les afficher à l'utilisateur.
 final class PanelVoiceRecorder: ObservableObject {
     @Published var isRecording = false
+    /// Temps écoulé pendant l'enregistrement (mis à jour ~10×/s).
+    @Published var elapsed: TimeInterval = 0
+
     private var recorder: AVAudioRecorder?
     private var fileURL: URL?
+    private var timer: Timer?
+    /// Appelé quand l'enregistrement s'arrête tout seul (durée max atteinte).
+    private var onAutoStop: ((Data?) -> Void)?
 
-    func start() {
+    /// Poids estimé du vocal en cours (octets), d'après la durée et le débit.
+    var estimatedBytes: Int { Int(elapsed) * BrocolisMediaLimits.voiceBytesPerSecond }
+
+    func start(onAutoStop: @escaping (Data?) -> Void) {
         let session = AVAudioSession.sharedInstance()
         session.requestRecordPermission { [weak self] granted in
             DispatchQueue.main.async {
                 guard granted, let self else { return }
+                self.onAutoStop = onAutoStop
                 try? session.setCategory(.playAndRecord, mode: .default,
                                          options: [.defaultToSpeaker])
                 try? session.setActive(true)
@@ -93,19 +154,35 @@ final class PanelVoiceRecorder: ObservableObject {
                 ]
                 self.recorder = try? AVAudioRecorder(url: url, settings: settings)
                 self.fileURL = url
+                self.elapsed = 0
                 self.recorder?.record()
                 self.isRecording = self.recorder?.isRecording ?? false
+                guard self.isRecording else { return }
+                self.timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+                    guard let self, let rec = self.recorder else { return }
+                    self.elapsed = rec.currentTime
+                    if self.elapsed >= BrocolisMediaLimits.maxVoiceSeconds {
+                        let data = self.finish()
+                        self.onAutoStop?(data)
+                    }
+                }
             }
         }
     }
 
-    /// Arrête et renvoie l'audio enregistré (nil si vide/refusé).
-    func stop() -> Data? {
+    /// Arrêt manuel : renvoie l'audio enregistré (nil si vide/refusé).
+    func stop() -> Data? { finish() }
+
+    deinit { timer?.invalidate() }
+
+    private func finish() -> Data? {
+        timer?.invalidate()
+        timer = nil
         recorder?.stop()
         recorder = nil
         isRecording = false
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-        defer { if let url = fileURL { try? FileManager.default.removeItem(at: url) } }
+        defer { if let url = fileURL { try? FileManager.default.removeItem(at: url) }; fileURL = nil }
         guard let url = fileURL, let data = try? Data(contentsOf: url), !data.isEmpty else { return nil }
         return data
     }
@@ -150,6 +227,8 @@ final class BrocolisiMessageModel: ObservableObject {
     @Published var selectedLocked = false
     /// Message d'erreur d'envoi (ex. média trop lourd pour une bulle iMessage).
     @Published var sendError: String?
+    /// Info du dernier média envoyé (ex. « Vocal envoyé · 0:14 · 42 Ko »).
+    @Published var lastMediaInfo: String?
     @Published var isExpanded = false
     @Published var keys: [NamedKey] = []
     @Published var selectedKeyId: String?
@@ -272,7 +351,7 @@ final class MessagesViewController: MSMessagesAppViewController {
             model: model,
             onSend: { [weak self] text in self?.sendEncrypted(text) },
             onSendImage: { [weak self] data in self?.sendEncryptedImage(data) },
-            onSendVoice: { [weak self] data in self?.sendEncryptedVoice(data) },
+            onSendVoice: { [weak self] data, duration in self?.sendEncryptedVoice(data, duration: duration) },
             onInsertPlainToken: { [weak self] text in self?.insertPlainToken(text) },
             onRequestExpand: { [weak self] in self?.requestPresentationStyle(.expanded) }
         )
@@ -317,19 +396,23 @@ final class MessagesViewController: MSMessagesAppViewController {
     /// dans le jeton de l'URL. Sans la bonne clé (et sans l'app), la bulle reste
     /// la placeholder verte : ni image, ni aperçu ne fuient.
     private func sendEncryptedImage(_ jpeg: Data) {
-        insertEncrypted(clear: BrocolisMedia.imageClear(jpeg), summary: "🥦 Photo chiffrée")
+        let info = "Photo envoyée · \(brocolisFormatBytes(jpeg.count))"
+        insertEncrypted(clear: BrocolisMedia.imageClear(jpeg), summary: "🥦 Photo chiffrée", info: info)
     }
 
     /// Envoie un vocal CHIFFRÉ : encodé `BRCM1:aud:`, scellé dans le jeton.
-    /// Inaudible sans la bonne clé et sans l'app.
-    private func sendEncryptedVoice(_ m4a: Data) {
-        insertEncrypted(clear: BrocolisMedia.audioClear(m4a), summary: "🥦 Vocal chiffré")
+    /// Inaudible sans la bonne clé et sans l'app. `duration` sert à afficher le
+    /// temps du vocal à l'utilisateur.
+    private func sendEncryptedVoice(_ m4a: Data, duration: TimeInterval) {
+        let info = "Vocal envoyé · \(brocolisFormatDuration(duration)) · \(brocolisFormatBytes(m4a.count))"
+        insertEncrypted(clear: BrocolisMedia.audioClear(m4a), summary: "🥦 Vocal chiffré", info: info)
     }
 
     /// Cœur commun : scelle `clear` avec la clé choisie et insère la bulle verte
     /// dont l'URL porte le jeton chiffré. L'URL d'un `MSMessage` ne peut pas
-    /// porter un média lourd → garde-fou de taille avec message clair.
-    private func insertEncrypted(clear: String, summary: String) {
+    /// porter un média lourd → garde-fou de taille avec message clair. `info`
+    /// (facultatif) s'affiche après l'envoi (poids/durée du média).
+    private func insertEncrypted(clear: String, summary: String, info: String? = nil) {
         model.sendError = nil
         guard let conversation = activeConversation,
               let key = model.selectedKey,
@@ -337,11 +420,12 @@ final class MessagesViewController: MSMessagesAppViewController {
               let token = try? BrocolisCrypto.encryptToken(Data(clear.utf8), key: sym)
         else { return }
 
-        // ~90 000 caractères : limite prudente pour l'URL d'une bulle iMessage.
-        guard token.utf8.count <= 90_000 else {
+        // Limite prudente pour l'URL d'une bulle iMessage.
+        guard token.utf8.count <= BrocolisMediaLimits.maxTokenChars else {
             model.sendError = "Ce média est trop lourd pour une bulle iMessage. Envoie-le depuis l'app Brocolis 🥦 (Messagerie)."
             return
         }
+        model.lastMediaInfo = info
 
         var comps = URLComponents()
         comps.scheme = "https"
@@ -494,7 +578,7 @@ struct BrocolisiMessageRootView: View {
     @ObservedObject var model: BrocolisiMessageModel
     var onSend: (String) -> Void
     var onSendImage: (Data) -> Void
-    var onSendVoice: (Data) -> Void
+    var onSendVoice: (Data, TimeInterval) -> Void
     var onInsertPlainToken: (String) -> Void
     var onRequestExpand: () -> Void
 
@@ -720,7 +804,7 @@ struct BrocolisiMessageRootView: View {
     }
 
     // Photo 📷 + micro 🎙️ : deux médias chiffrés dans la bulle, comme le texte.
-    private var mediaRow: some View {
+    @ViewBuilder private var mediaRow: some View {
         HStack(spacing: 10) {
             PhotosPicker(selection: $photoItem, matching: .images, photoLibrary: .shared()) {
                 Label("Photo", systemImage: "photo.fill")
@@ -732,6 +816,7 @@ struct BrocolisiMessageRootView: View {
             .onChange(of: photoItem) { newItem in
                 guard let newItem else { return }
                 model.sendError = nil
+                model.lastMediaInfo = nil
                 Task {
                     if let data = try? await newItem.loadTransferable(type: Data.self),
                        let image = UIImage(data: data),
@@ -744,10 +829,14 @@ struct BrocolisiMessageRootView: View {
 
             Button {
                 if recorder.isRecording {
-                    if let m4a = recorder.stop() { onSendVoice(m4a) }
+                    let duration = recorder.elapsed
+                    if let m4a = recorder.stop() { onSendVoice(m4a, duration) }
                 } else {
                     model.sendError = nil
-                    recorder.start()
+                    model.lastMediaInfo = nil
+                    recorder.start(onAutoStop: { data in
+                        if let m4a = data { onSendVoice(m4a, BrocolisMediaLimits.maxVoiceSeconds) }
+                    })
                 }
             } label: {
                 Label(recorder.isRecording ? "Arrêter et envoyer" : "Vocal",
@@ -758,6 +847,31 @@ struct BrocolisiMessageRootView: View {
             .buttonStyle(.bordered)
             .tint(recorder.isRecording ? .red : brocoliGreen)
         }
+
+        if recorder.isRecording {
+            // En direct : minuterie + poids estimé + barre de progression.
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Label("\(brocolisFormatDuration(recorder.elapsed)) / \(brocolisFormatDuration(BrocolisMediaLimits.maxVoiceSeconds))",
+                          systemImage: "record.circle")
+                        .font(.caption).bold().foregroundStyle(.red)
+                    Spacer()
+                    Text("~ \(brocolisFormatBytes(recorder.estimatedBytes))")
+                        .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                }
+                ProgressView(value: min(recorder.elapsed / BrocolisMediaLimits.maxVoiceSeconds, 1))
+                    .tint(.red)
+            }
+        } else if let info = model.lastMediaInfo {
+            // Après envoi : ce que pesait le média.
+            Label(info, systemImage: "checkmark.seal.fill")
+                .font(.caption).foregroundStyle(brocoliGreen)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+
+        // Rappel des limites d'une bulle iMessage.
+        Text("Vocal max : \(brocolisFormatDuration(BrocolisMediaLimits.maxVoiceSeconds)) · ~\(brocolisFormatBytes(BrocolisMediaLimits.maxVoiceBytesEstimate)). Photo compressée automatiquement (~\(brocolisFormatBytes(BrocolisMediaLimits.maxMediaBytes)) max).")
+            .font(.caption2).foregroundStyle(.secondary)
     }
 
     private var trimmedDraft: String {
