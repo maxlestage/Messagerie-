@@ -523,6 +523,8 @@ struct BrocolisiMessageRootView: View {
 
     @State private var draft = ""
     @State private var photoItem: PhotosPickerItem?
+    /// Photo choisie et compressée, EN ATTENTE d'envoi (aperçu avant d'envoyer).
+    @State private var pendingPhoto: Data?
     @StateObject private var recorder = PanelVoiceRecorder()
     @StateObject private var player = PanelVoicePlayer()
 
@@ -760,7 +762,8 @@ struct BrocolisiMessageRootView: View {
                     if let data = try? await newItem.loadTransferable(type: Data.self),
                        let image = UIImage(data: data),
                        let jpeg = brocolisPanelJPEG(from: image) {
-                        await MainActor.run { onSendImage(jpeg) }
+                        // Aperçu avant envoi : on garde la photo compressée.
+                        await MainActor.run { pendingPhoto = jpeg }
                     }
                     await MainActor.run { photoItem = nil }
                 }
@@ -787,6 +790,11 @@ struct BrocolisiMessageRootView: View {
             .tint(recorder.isRecording ? .red : brocoliGreen)
         }
 
+        // Aperçu de la photo choisie AVANT de l'envoyer (avec son poids).
+        if let photo = pendingPhoto, let ui = UIImage(data: photo) {
+            photoPreview(photo, ui)
+        }
+
         if recorder.isRecording {
             // En direct : minuterie + poids estimé + barre de progression.
             VStack(alignment: .leading, spacing: 4) {
@@ -811,6 +819,51 @@ struct BrocolisiMessageRootView: View {
         // Rappel des limites d'une bulle iMessage.
         Text("Vocal max : \(brocolisFormatDuration(BrocolisMediaLimits.maxVoiceSeconds)) · ~\(brocolisFormatBytes(BrocolisMediaLimits.maxVoiceBytesEstimate)). Photo compressée automatiquement (~\(brocolisFormatBytes(BrocolisMediaLimits.maxMediaBytes)) max).")
             .font(.caption2).foregroundStyle(.secondary)
+    }
+
+    // Aperçu de la photo choisie : image + poids, puis Envoyer / Annuler.
+    private func photoPreview(_ data: Data, _ ui: UIImage) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Label("Aperçu avant envoi", systemImage: "photo")
+                    .font(.caption).bold().foregroundStyle(brocoliGreen)
+                Spacer()
+                Text(brocolisFormatBytes(data.count))
+                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+            }
+
+            Image(uiImage: ui)
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: .infinity, maxHeight: 200)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+
+            HStack(spacing: 10) {
+                Button {
+                    onSendImage(data)
+                    pendingPhoto = nil
+                } label: {
+                    Label("Envoyer chiffré", systemImage: "paperplane.fill")
+                        .font(.subheadline).bold()
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(brocoliGreen)
+
+                Button(role: .cancel) {
+                    pendingPhoto = nil
+                } label: {
+                    Label("Annuler", systemImage: "xmark")
+                        .font(.subheadline)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(.secondary)
+            }
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color(.systemBackground)))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(brocoliGreen.opacity(0.35)))
     }
 
     private var trimmedDraft: String {
