@@ -18,6 +18,8 @@ import SwiftUI
 import CryptoKit
 import UIKit
 import AudioToolbox
+import AVFoundation
+import PhotosUI
 
 // MARK: - Préférences messagerie (App Group)
 
@@ -110,12 +112,42 @@ struct ChatBubbleShape: Shape {
 // MARK: - Modèle affiché
 
 /// Un message prêt à afficher : déchiffré localement.
+/// Contenu d'un message affiché. Sans la bonne clé, TOUT est `.locked` :
+/// texte illisible, image invisible, vocal inécoutable.
+enum ChatBody: Equatable {
+    case text(String)
+    case image(Data)   // JPEG déchiffré
+    case audio(Data)   // M4A déchiffré
+    case locked        // clé absente/différente → rien n'est montré
+}
+
 struct ChatLine: Identifiable, Equatable {
     let id: String
-    let text: String
+    let body: ChatBody
     let isMine: Bool
-    let locked: Bool   // vrai si on n'a pas pu déchiffrer (clé différente)
     let seq: UInt64
+
+    var locked: Bool { body == .locked }
+}
+
+/// Enveloppe des médias DANS le texte chiffré : le serveur ne voit même pas
+/// qu'il s'agit d'une image ou d'un vocal — juste un jeton plus long.
+enum MediaPayload {
+    static let imagePrefix = "BRCM1:img:"
+    static let audioPrefix = "BRCM1:aud:"
+
+    /// Décode un texte déchiffré en contenu affichable.
+    static func body(from clear: String) -> ChatBody {
+        if clear.hasPrefix(imagePrefix),
+           let data = Data(base64Encoded: String(clear.dropFirst(imagePrefix.count))) {
+            return .image(data)
+        }
+        if clear.hasPrefix(audioPrefix),
+           let data = Data(base64Encoded: String(clear.dropFirst(audioPrefix.count))) {
+            return .audio(data)
+        }
+        return .text(clear)
+    }
 }
 
 // MARK: - Client réseau (ne transporte que du chiffré)
@@ -360,9 +392,8 @@ final class BrocolisChatStore: ObservableObject {
                 let (text, opened) = BrocolisCrypto.decryptTokens(m.ciphertext, keys: [key])
                 return ChatLine(
                     id: m.id,
-                    text: opened > 0 ? text : "🔒 message chiffré",
+                    body: opened > 0 ? MediaPayload.body(from: text) : .locked,
                     isMine: m.senderId == MessagingPrefs.deviceId,
-                    locked: opened == 0,
                     seq: m.seq
                 )
             }
@@ -372,15 +403,114 @@ final class BrocolisChatStore: ObservableObject {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         draft = ""
+        sendPlain(text, restoreDraftOnFailure: text)
+    }
+
+    /// Envoie une photo (JPEG déjà compressé) — chiffrée comme le texte.
+    func sendImage(_ jpeg: Data) {
+        sendPlain(MediaPayload.imagePrefix + jpeg.base64EncodedString())
+    }
+
+    /// Envoie un message vocal (M4A) — chiffré comme le texte.
+    func sendVoice(_ m4a: Data) {
+        sendPlain(MediaPayload.audioPrefix + m4a.base64EncodedString())
+    }
+
+    /// Chiffre `plain` (texte OU média encodé) et l'envoie. Le serveur ne voit
+    /// qu'un jeton — il ignore même si c'est une image ou un vocal.
+    private func sendPlain(_ plain: String, restoreDraftOnFailure: String? = nil) {
         Task { [weak self] in
             guard let self else { return }
             do {
-                try await self.client.send(text: text, conversationId: self.conversationId, key: self.key)
+                try await self.client.send(text: plain, conversationId: self.conversationId, key: self.key)
             } catch {
-                await MainActor.run { self.draft = text; self.status = "Envoi impossible" }
+                await MainActor.run {
+                    if let draft = restoreDraftOnFailure { self.draft = draft }
+                    self.status = "Envoi impossible"
+                }
             }
         }
     }
+}
+
+// MARK: - Voix : enregistrement et lecture (AVFoundation)
+
+/// Enregistre un vocal en M4A (AAC mono 32 kbit/s : léger, suffisant pour la
+/// voix). Demande la permission micro au premier usage.
+final class VoiceRecorder: ObservableObject {
+    @Published var isRecording = false
+    private var recorder: AVAudioRecorder?
+    private var fileURL: URL?
+
+    func start() {
+        let session = AVAudioSession.sharedInstance()
+        session.requestRecordPermission { [weak self] granted in
+            DispatchQueue.main.async {
+                guard granted, let self else { return }
+                try? session.setCategory(.playAndRecord, mode: .default,
+                                         options: [.defaultToSpeaker])
+                try? session.setActive(true)
+                let url = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("brocolis-voix-\(UUID().uuidString).m4a")
+                let settings: [String: Any] = [
+                    AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+                    AVSampleRateKey: 22_050.0,
+                    AVNumberOfChannelsKey: 1,
+                    AVEncoderBitRateKey: 32_000,
+                ]
+                self.recorder = try? AVAudioRecorder(url: url, settings: settings)
+                self.fileURL = url
+                self.recorder?.record()
+                self.isRecording = self.recorder?.isRecording ?? false
+            }
+        }
+    }
+
+    /// Arrête et renvoie l'audio enregistré (nil si vide/refusé).
+    func stop() -> Data? {
+        recorder?.stop()
+        recorder = nil
+        isRecording = false
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        defer { if let url = fileURL { try? FileManager.default.removeItem(at: url) } }
+        guard let url = fileURL, let data = try? Data(contentsOf: url), !data.isEmpty else { return nil }
+        return data
+    }
+}
+
+/// Joue les vocaux déchiffrés (un seul à la fois, icône synchronisée).
+final class VoicePlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
+    @Published var playingId: String?
+    private var player: AVAudioPlayer?
+
+    func toggle(id: String, data: Data) {
+        if playingId == id {
+            player?.stop()
+            playingId = nil
+            return
+        }
+        try? AVAudioSession.sharedInstance().setCategory(.playback)
+        player = try? AVAudioPlayer(data: data)
+        player?.delegate = self
+        player?.play()
+        playingId = player != nil ? id : nil
+    }
+
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        DispatchQueue.main.async { self.playingId = nil }
+    }
+}
+
+/// Réduit une photo pour l'envoi chiffré : max 1280 px, JPEG qualité 0,6.
+/// (~100-500 Ko : rapide à chiffrer, envoyer et déchiffrer.)
+func brocolisJPEG(from image: UIImage, maxDimension: CGFloat = 1280, quality: CGFloat = 0.6) -> Data? {
+    let largest = max(image.size.width, image.size.height)
+    guard largest > 0 else { return nil }
+    let scale = min(1, maxDimension / largest)
+    let target = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+    let renderer = UIGraphicsImageRenderer(size: target)
+    let resized = renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: target)) }
+    return resized.jpegData(compressionQuality: quality)
 }
 
 // MARK: - Écran : choix du correspondant (parmi les clés)
@@ -519,6 +649,9 @@ final class StoreBox: ObservableObject {
 private struct ChatScreen: View {
     @ObservedObject var store: BrocolisChatStore
     @State private var invite: InvitePayload?
+    @StateObject private var recorder = VoiceRecorder()
+    @StateObject private var player = VoicePlayer()
+    @State private var photoItem: PhotosPickerItem?
 
     /// État de la liaison avec le correspondant, déduit des messages reçus.
     private enum LinkState { case waiting, keyMismatch, connected }
@@ -664,29 +797,75 @@ private struct ChatScreen: View {
     }
 
     // Bulles avec « queue » : le coin côté expéditeur est resserré.
+    // Texte, photo ou vocal — et « 🔒 » uniforme quand la clé manque.
     private func bubble(_ m: ChatLine) -> some View {
         let shape = ChatBubbleShape(isMine: m.isMine)
-        return Text(m.text)
-            .padding(.horizontal, 13).padding(.vertical, 9)
-            .background {
-                if m.isMine {
-                    shape.fill(brocolisBubbleGradient)
-                        .shadow(color: .green.opacity(0.25), radius: 3, y: 1)
+        return Group {
+            switch m.body {
+            case .text(let text):
+                Text(text)
+                    .padding(.horizontal, 13).padding(.vertical, 9)
+                    .background { bubbleFill(shape, isMine: m.isMine) }
+                    .foregroundStyle(m.isMine ? .white : .primary)
+                    .contextMenu {
+                        Button {
+                            UIPasteboard.general.string = text
+                        } label: { Label("Copier", systemImage: "doc.on.doc") }
+                    }
+
+            case .locked:
+                Label("Message chiffré", systemImage: "lock.fill")
+                    .font(.subheadline)
+                    .padding(.horizontal, 13).padding(.vertical, 9)
+                    .background { shape.fill(Color(.secondarySystemBackground)) }
+                    .foregroundStyle(.secondary)
+
+            case .image(let data):
+                if let ui = UIImage(data: data) {
+                    Image(uiImage: ui)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: 230, maxHeight: 300)
+                        .clipShape(shape)
+                        .overlay(shape.stroke(Color.black.opacity(0.08)))
                 } else {
-                    shape.fill(Color(.secondarySystemBackground))
+                    Label("Photo illisible", systemImage: "photo")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                        .padding(10)
+                        .background { shape.fill(Color(.secondarySystemBackground)) }
                 }
-            }
-            .foregroundStyle(m.isMine ? .white : (m.locked ? .secondary : .primary))
-            .frame(maxWidth: .infinity, alignment: m.isMine ? .trailing : .leading)
-            .padding(m.isMine ? .leading : .trailing, 48)
-            .contextMenu {
+
+            case .audio(let data):
                 Button {
-                    UIPasteboard.general.string = m.text
-                } label: { Label("Copier", systemImage: "doc.on.doc") }
+                    player.toggle(id: m.id, data: data)
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: player.playingId == m.id ? "stop.circle.fill" : "play.circle.fill")
+                            .font(.title2)
+                        Image(systemName: "waveform")
+                        Text("Vocal").font(.subheadline).bold()
+                    }
+                    .padding(.horizontal, 13).padding(.vertical, 9)
+                    .background { bubbleFill(shape, isMine: m.isMine) }
+                    .foregroundStyle(m.isMine ? .white : .primary)
+                }
+                .buttonStyle(.plain)
             }
-            .transition(.scale(scale: 0.85, anchor: m.isMine ? .bottomTrailing : .bottomLeading)
-                .combined(with: .opacity))
-            .id(m.id)
+        }
+        .frame(maxWidth: .infinity, alignment: m.isMine ? .trailing : .leading)
+        .padding(m.isMine ? .leading : .trailing, 48)
+        .transition(.scale(scale: 0.85, anchor: m.isMine ? .bottomTrailing : .bottomLeading)
+            .combined(with: .opacity))
+        .id(m.id)
+    }
+
+    @ViewBuilder private func bubbleFill(_ shape: ChatBubbleShape, isMine: Bool) -> some View {
+        if isMine {
+            shape.fill(brocolisBubbleGradient)
+                .shadow(color: .green.opacity(0.25), radius: 3, y: 1)
+        } else {
+            shape.fill(Color(.secondarySystemBackground))
+        }
     }
 
     private var canSend: Bool {
@@ -695,27 +874,74 @@ private struct ChatScreen: View {
 
     private var composer: some View {
         HStack(spacing: 10) {
-            TextField("Message chiffré…", text: $store.draft, axis: .vertical)
-                .padding(.horizontal, 14).padding(.vertical, 9)
-                .background(Capsule().fill(Color(.secondarySystemBackground)))
-                .lineLimit(1...4)
-            Button {
-                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                store.send()
-            } label: {
-                Image(systemName: "arrow.up")
-                    .font(.system(size: 17, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 36, height: 36)
-                    .background(Circle().fill(canSend ? AnyShapeStyle(brocolisBubbleGradient)
-                                                      : AnyShapeStyle(Color.gray.opacity(0.4))))
+            if recorder.isRecording {
+                // Enregistrement en cours : point rouge + stop = envoi chiffré.
+                HStack(spacing: 8) {
+                    Circle().fill(.red).frame(width: 10, height: 10)
+                    Text("Enregistrement…").font(.subheadline).foregroundStyle(.secondary)
+                    Spacer()
+                    Button {
+                        if let data = recorder.stop() { store.sendVoice(data) }
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    } label: {
+                        Image(systemName: "arrow.up")
+                            .font(.system(size: 17, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 36, height: 36)
+                            .background(Circle().fill(brocolisBubbleGradient))
+                    }
+                }
+                .padding(.horizontal, 6)
+            } else {
+                // Photo (chiffrée) — le sélecteur système, sans permission.
+                PhotosPicker(selection: $photoItem, matching: .images) {
+                    Image(systemName: "photo")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(Color(red: 0.18, green: 0.62, blue: 0.29))
+                        .frame(width: 32, height: 32)
+                }
+                // Vocal (chiffré).
+                Button {
+                    recorder.start()
+                } label: {
+                    Image(systemName: "mic")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(Color(red: 0.18, green: 0.62, blue: 0.29))
+                        .frame(width: 32, height: 32)
+                }
+                TextField("Message chiffré…", text: $store.draft, axis: .vertical)
+                    .padding(.horizontal, 14).padding(.vertical, 9)
+                    .background(Capsule().fill(Color(.secondarySystemBackground)))
+                    .lineLimit(1...4)
+                Button {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    store.send()
+                } label: {
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 36, height: 36)
+                        .background(Circle().fill(canSend ? AnyShapeStyle(brocolisBubbleGradient)
+                                                          : AnyShapeStyle(Color.gray.opacity(0.4))))
+                }
+                .disabled(!canSend)
+                .scaleEffect(canSend ? 1.0 : 0.9)
+                .animation(.spring(response: 0.3, dampingFraction: 0.6), value: canSend)
             }
-            .disabled(!canSend)
-            .scaleEffect(canSend ? 1.0 : 0.9)
-            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: canSend)
         }
         .padding(.horizontal, 12).padding(.vertical, 8)
         .background(.bar)
+        .onChange(of: photoItem) { item in
+            guard let item else { return }
+            Task {
+                if let data = try? await item.loadTransferable(type: Data.self),
+                   let image = UIImage(data: data),
+                   let jpeg = brocolisJPEG(from: image) {
+                    store.sendImage(jpeg)
+                }
+                photoItem = nil
+            }
+        }
     }
 }
 
