@@ -44,11 +44,6 @@
 		2000000000000000000B0021 /* BrocolisKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0002 /* BrocolisKeyStore.swift */; };
 		2000000000000000000B0022 /* BrocolisTransform.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0003 /* BrocolisTransform.swift */; };
 		2000000000000000000B0023 /* BrocolisKeyboard.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0022 /* BrocolisKeyboard.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		2000000000000000000B0029 /* MessagesViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0027 /* MessagesViewController.swift */; };
-		2000000000000000000B002A /* BrocolisCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0001 /* BrocolisCrypto.swift */; };
-		2000000000000000000B002B /* BrocolisKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0002 /* BrocolisKeyStore.swift */; };
-		2000000000000000000B002C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0028 /* Assets.xcassets */; };
-		2000000000000000000B002D /* BrocolisiMessage.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0029 /* BrocolisiMessage.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		2000000000000000000B0024 /* BrocolisShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0023 /* BrocolisShortcuts.swift */; };
 		2000000000000000000B0025 /* BrocolisWidgetIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0024 /* BrocolisWidgetIntents.swift */; };
 		2000000000000000000B0026 /* BrocolisWidgetIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0024 /* BrocolisWidgetIntents.swift */; };
@@ -83,13 +78,6 @@
 			remoteGlobalIDString = 4000000000000000000A0005;
 			remoteInfo = BrocolisKeyboard;
 		};
-		8000000000000000000A0009 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 4000000000000000000A0000 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 4000000000000000000A0006;
-			remoteInfo = BrocolisiMessage;
-		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -102,7 +90,6 @@
 				2000000000000000000B000B /* BrocolisAction.appex in Embed Foundation Extensions */,
 				2000000000000000000B0018 /* BrocolisStatus.appex in Embed Foundation Extensions */,
 				2000000000000000000B0023 /* BrocolisKeyboard.appex in Embed Foundation Extensions */,
-				2000000000000000000B002D /* BrocolisiMessage.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -117,11 +104,6 @@
 		1000000000000000000C0005 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		1000000000000000000C0025 /* MessagingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagingView.swift; sourceTree = "<group>"; };
 		1000000000000000000C0026 /* BrocolisContacts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrocolisContacts.swift; sourceTree = "<group>"; };
-		1000000000000000000C0027 /* MessagesViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagesViewController.swift; sourceTree = "<group>"; };
-		1000000000000000000C0028 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		1000000000000000000C0029 /* BrocolisiMessage.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = BrocolisiMessage.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		1000000000000000000C002A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		1000000000000000000C002B /* BrocolisiMessage.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = BrocolisiMessage.entitlements; sourceTree = "<group>"; };
 		1000000000000000000C0006 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		1000000000000000000C0007 /* Brocolis.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Brocolis.entitlements; sourceTree = "<group>"; };
 		1000000000000000000C0008 /* ActionViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActionViewController.swift; sourceTree = "<group>"; };
@@ -191,13 +173,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		5000000000000000000A0012 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -209,7 +184,6 @@
 				3000000000000000000A0004 /* BrocolisAction */,
 				3000000000000000000A0007 /* BrocolisStatus */,
 				3000000000000000000A0008 /* BrocolisKeyboard */,
-				3000000000000000000A0009 /* BrocolisiMessage */,
 				3000000000000000000A0006 /* BrocolisTests */,
 				3000000000000000000A0005 /* Products */,
 			);
@@ -265,21 +239,9 @@
 				1000000000000000000C000C /* BrocolisAction.appex */,
 				1000000000000000000C0019 /* BrocolisStatus.appex */,
 				1000000000000000000C0022 /* BrocolisKeyboard.appex */,
-				1000000000000000000C0029 /* BrocolisiMessage.appex */,
 				1000000000000000000C000F /* BrocolisTests.xctest */,
 			);
 			name = Products;
-			sourceTree = "<group>";
-		};
-		3000000000000000000A0009 /* BrocolisiMessage */ = {
-			isa = PBXGroup;
-			children = (
-				1000000000000000000C0027 /* MessagesViewController.swift */,
-				1000000000000000000C0028 /* Assets.xcassets */,
-				1000000000000000000C002A /* Info.plist */,
-				1000000000000000000C002B /* BrocolisiMessage.entitlements */,
-			);
-			path = BrocolisiMessage;
 			sourceTree = "<group>";
 		};
 		3000000000000000000A0007 /* BrocolisStatus */ = {
@@ -332,7 +294,6 @@
 				8000000000000000000A0001 /* PBXTargetDependency */,
 				8000000000000000000A0005 /* PBXTargetDependency */,
 				8000000000000000000A0008 /* PBXTargetDependency */,
-				8000000000000000000A000A /* PBXTargetDependency */,
 			);
 			name = Brocolis;
 			productName = Brocolis;
@@ -408,23 +369,6 @@
 			productReference = 1000000000000000000C0022 /* BrocolisKeyboard.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
-		4000000000000000000A0006 /* BrocolisiMessage */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 6000000000000000000A0007 /* Build configuration list for PBXNativeTarget "BrocolisiMessage" */;
-			buildPhases = (
-				5000000000000000000A0011 /* Sources */,
-				5000000000000000000A0012 /* Frameworks */,
-				5000000000000000000A0013 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			name = BrocolisiMessage;
-			productName = BrocolisiMessage;
-			productReference = 1000000000000000000C0029 /* BrocolisiMessage.appex */;
-			productType = "com.apple.product-type.app-extension.messages";
-		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -451,9 +395,6 @@
 					4000000000000000000A0005 = {
 						CreatedOnToolsVersion = 15.0;
 					};
-					4000000000000000000A0006 = {
-						CreatedOnToolsVersion = 15.0;
-					};
 				};
 			};
 			buildConfigurationList = 6000000000000000000A0001 /* Build configuration list for PBXProject "Brocolis" */;
@@ -474,7 +415,6 @@
 				4000000000000000000A0002 /* BrocolisAction */,
 				4000000000000000000A0004 /* BrocolisStatus */,
 				4000000000000000000A0005 /* BrocolisKeyboard */,
-				4000000000000000000A0006 /* BrocolisiMessage */,
 				4000000000000000000A0003 /* BrocolisTests */,
 			);
 		};
@@ -514,14 +454,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		5000000000000000000A0013 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				2000000000000000000B002C /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -599,16 +531,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		5000000000000000000A0011 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				2000000000000000000B0029 /* MessagesViewController.swift in Sources */,
-				2000000000000000000B002A /* BrocolisCrypto.swift in Sources */,
-				2000000000000000000B002B /* BrocolisKeyStore.swift in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -631,11 +553,6 @@
 			isa = PBXTargetDependency;
 			target = 4000000000000000000A0005 /* BrocolisKeyboard */;
 			targetProxy = 8000000000000000000A0007 /* PBXContainerItemProxy */;
-		};
-		8000000000000000000A000A /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 4000000000000000000A0006 /* BrocolisiMessage */;
-			targetProxy = 8000000000000000000A0009 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -828,60 +745,6 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
-			};
-			name = Release;
-		};
-		7000000000000000000A000D /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				APPLICATION_EXTENSION_API_ONLY = YES;
-				ASSETCATALOG_COMPILER_APPICON_NAME = "iMessage App Icon";
-				CODE_SIGN_ENTITLEMENTS = BrocolisiMessage/BrocolisiMessage.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = 2FW8T4UX4L;
-				CURRENT_PROJECT_VERSION = 1;
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = BrocolisiMessage/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				MARKETING_VERSION = 1.0.2;
-				PRODUCT_BUNDLE_IDENTIFIER = rs.brocolis.messagerie.imessage;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SKIP_INSTALL = YES;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Debug;
-		};
-		7000000000000000000A000E /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				APPLICATION_EXTENSION_API_ONLY = YES;
-				ASSETCATALOG_COMPILER_APPICON_NAME = "iMessage App Icon";
-				CODE_SIGN_ENTITLEMENTS = BrocolisiMessage/BrocolisiMessage.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = 2FW8T4UX4L;
-				CURRENT_PROJECT_VERSION = 1;
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = BrocolisiMessage/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				MARKETING_VERSION = 1.0.2;
-				PRODUCT_BUNDLE_IDENTIFIER = rs.brocolis.messagerie.imessage;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SKIP_INSTALL = YES;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
 		};
@@ -1080,15 +943,6 @@
 			buildConfigurations = (
 				7000000000000000000A000B /* Debug */,
 				7000000000000000000A000C /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		6000000000000000000A0007 /* Build configuration list for PBXNativeTarget "BrocolisiMessage" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				7000000000000000000A000D /* Debug */,
-				7000000000000000000A000E /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
