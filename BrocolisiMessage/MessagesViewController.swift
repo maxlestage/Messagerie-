@@ -120,9 +120,11 @@ final class MessagesViewController: MSMessagesAppViewController {
         comps.host = "brocolis.invalid" // jamais résolu : simple support du jeton
         comps.queryItems = [URLQueryItem(name: "t", value: token)]
 
+        // Tout le visuel est DANS l'image (fond vert logo + textes) : la bulle
+        // entière est verte au lieu du fond sombre système. L'image voyage avec
+        // le message, le destinataire la voit aussi.
         let layout = MSMessageTemplateLayout()
-        layout.caption = "🥦 Message chiffré"
-        layout.subcaption = "Touche pour lire avec Brocolis"
+        layout.image = BrocolisBubbleImage.make()
 
         let message = MSMessage(session: MSSession())
         message.url = comps.url
@@ -143,6 +145,42 @@ final class MessagesViewController: MSMessagesAppViewController {
         else { return }
         conversation.insertText(token) { _ in }
         requestPresentationStyle(.compact)
+    }
+}
+
+// MARK: - Image de bulle (fond vert du logo, plus de fond sombre)
+
+/// Dessine le contenu de la bulle iMessage : fond `#E8F5DB` (le vert du logo,
+/// comme les widgets), brocoli 🥦 et textes en verts foncés. Tout est dans
+/// l'image pour que la bulle soit verte de bout en bout, clair ou sombre.
+enum BrocolisBubbleImage {
+    static func make() -> UIImage {
+        let size = CGSize(width: 300, height: 190)
+        let renderer = UIGraphicsImageRenderer(size: size)
+        return renderer.image { ctx in
+            UIColor(red: 232.0 / 255, green: 245.0 / 255, blue: 219.0 / 255, alpha: 1).setFill()
+            ctx.fill(CGRect(origin: .zero, size: size))
+
+            let darkGreen = UIColor(red: 31.0 / 255, green: 109.0 / 255, blue: 44.0 / 255, alpha: 1)
+            let midGreen = UIColor(red: 47.0 / 255, green: 158.0 / 255, blue: 74.0 / 255, alpha: 1)
+
+            func drawCentered(_ string: String, font: UIFont, color: UIColor, y: CGFloat) {
+                let attributed = NSAttributedString(string: string, attributes: [
+                    .font: font,
+                    .foregroundColor: color,
+                ])
+                let textSize = attributed.size()
+                attributed.draw(at: CGPoint(x: (size.width - textSize.width) / 2, y: y))
+            }
+
+            drawCentered("🥦", font: .systemFont(ofSize: 62), color: .black, y: 16)
+            drawCentered("Message chiffré",
+                         font: .systemFont(ofSize: 22, weight: .bold),
+                         color: darkGreen, y: 96)
+            drawCentered("Touche pour lire avec Brocolis",
+                         font: .systemFont(ofSize: 15, weight: .medium),
+                         color: midGreen, y: 130)
+        }
     }
 }
 
