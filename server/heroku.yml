@@ -1,6 +1,0 @@
-# Déploiement Heroku en conteneur (optionnel — alternative au buildpack Node).
-#   heroku stack:set container
-#   git subtree push --prefix server heroku main
-build:
-  docker:
-    web: Dockerfile
