@@ -1,0 +1,15 @@
+# Heroku (mode CONTENEUR) pour le service messagerie Rust.
+#
+# ⚠️ NE PAS confondre avec le heroku.yml à la RACINE du dépôt, qui déploie la
+# PROD (serveur Node). Celui-ci sert à une app Heroku DÉDIÉE au service Rust.
+#
+# Heroku ne lit un heroku.yml qu'à la racine de ce qu'on lui pousse. Deux
+# façons de s'en servir (voir docs/DEPLOY_RUST.md) :
+#   1) `heroku container:push` depuis server-rust/ (recommandé, isolé) — ce
+#      fichier est alors ignoré, c'est le Dockerfile qui compte.
+#   2) pousser le sous-arbre server-rust/ comme racine (git subtree) : Heroku
+#      lit alors ce heroku.yml et construit le Dockerfile ci-contre.
+
+build:
+  docker:
+    web: Dockerfile
