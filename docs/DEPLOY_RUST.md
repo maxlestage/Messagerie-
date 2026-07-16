@@ -7,6 +7,18 @@ Ce guide déploie le service **Rust** (`server-rust/`, Actix + SeaORM) sur une
 Le service ne relaie que du **chiffré**. Persistance **Postgres** native
 (rétention 7 jours), temps réel **SSE** + **Redis** (multi-dynos), push **APNs**.
 
+> **Tout-en-un** : le script `server-rust/deploy-rust.sh` enchaîne les étapes
+> 1 à 5 (création app + add-ons + config APNs + build/release + logs), de façon
+> idempotente. Ex. :
+> ```bash
+> cd server-rust
+> ./deploy-rust.sh brocolis-rust
+> # avec APNs :
+> APNS_KEY_ID=… APNS_TEAM_ID=… APNS_BUNDLE_ID=rs.brocolis.messagerie \
+>   APNS_KEY_P8_FILE=./AuthKey_XXXX.p8 ./deploy-rust.sh brocolis-rust
+> ```
+> Les sections ci-dessous détaillent chaque étape (utile si tu préfères la main).
+
 ---
 
 ## 0. Prérequis
