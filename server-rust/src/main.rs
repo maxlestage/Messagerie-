@@ -9,16 +9,45 @@
 
 mod entities;
 
+use actix_web::web::Bytes;
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder};
+use async_stream::stream;
 use chrono::SecondsFormat;
 use sea_orm::sea_query::OnConflict;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, Database, DatabaseConnection, EntityTrait,
     QueryFilter, QueryOrder, Set,
 };
+use std::collections::HashMap;
+use std::sync::Mutex;
 use std::time::Duration;
+use tokio::sync::broadcast;
 
 use entities::{messages, read_cursors};
+
+/// Diffusion temps réel intra-process : un canal `broadcast` par conversation.
+/// Chaque flux SSE s'abonne ; `POST /v1/messages` et `/v1/read` publient.
+/// (Le temps réel INTER-dynos via Redis, comme côté Node, reste à porter.)
+#[derive(Default)]
+struct Broadcaster {
+    channels: Mutex<HashMap<String, broadcast::Sender<String>>>,
+}
+
+impl Broadcaster {
+    fn subscribe(&self, conv: &str) -> broadcast::Receiver<String> {
+        let mut map = self.channels.lock().unwrap();
+        map.entry(conv.to_string())
+            .or_insert_with(|| broadcast::channel(64).0)
+            .subscribe()
+    }
+
+    fn publish(&self, conv: &str, line: String) {
+        let map = self.channels.lock().unwrap();
+        if let Some(tx) = map.get(conv) {
+            let _ = tx.send(line); // aucun abonné : sans importance
+        }
+    }
+}
 
 /// Fenêtre de rétention : une semaine (réglable via MESSAGE_RETENTION_DAYS).
 fn retention_days() -> i64 {
@@ -98,16 +127,22 @@ async fn health() -> impl Responder {
 async fn post_message(
     req: HttpRequest,
     db: web::Data<DatabaseConnection>,
+    bc: web::Data<Broadcaster>,
     body: web::Json<SendBody>,
 ) -> impl Responder {
     let Some(sender) = user_id(&req) else {
         return HttpResponse::Unauthorized().body("x-user-id requis");
     };
+    let conv = body.conversation_id.trim();
+    let ciphertext = body.ciphertext.trim();
+    if conv.is_empty() || ciphertext.is_empty() {
+        return HttpResponse::BadRequest().body("conversationId et ciphertext requis");
+    }
     let db = db.get_ref();
 
     // Déjà présent ? (idempotence : le client peut renvoyer le même id.)
     if let Ok(Some(existing)) = messages::Entity::find()
-        .filter(messages::Column::ConversationId.eq(&body.conversation_id))
+        .filter(messages::Column::ConversationId.eq(conv))
         .filter(messages::Column::MsgId.eq(&body.id))
         .one(db)
         .await
@@ -118,13 +153,20 @@ async fn post_message(
     let active = messages::ActiveModel {
         seq: sea_orm::ActiveValue::NotSet,
         msg_id: Set(body.id.clone()),
-        conversation_id: Set(body.conversation_id.clone()),
+        conversation_id: Set(conv.to_string()),
         sender_id: Set(sender),
-        ciphertext: Set(body.ciphertext.clone()),
+        ciphertext: Set(ciphertext.to_string()),
         sent_at: Set(now_iso()),
     };
     match active.insert(db).await {
-        Ok(saved) => HttpResponse::Ok().json(MessageOut::from(saved)),
+        Ok(saved) => {
+            let out = MessageOut::from(saved);
+            // Diffusion temps réel aux abonnés SSE (clients dédoublonnent par id).
+            if let Ok(json) = serde_json::to_string(&out) {
+                bc.publish(&out.conversation_id, format!("data: {json}\n\n"));
+            }
+            HttpResponse::Created().json(out)
+        }
         Err(e) => {
             eprintln!("insert message: {e}");
             HttpResponse::InternalServerError().body("stockage impossible")
@@ -171,20 +213,33 @@ async fn get_messages(
 async fn post_read(
     req: HttpRequest,
     db: web::Data<DatabaseConnection>,
+    bc: web::Data<Broadcaster>,
     body: web::Json<ReadBody>,
 ) -> impl Responder {
     let Some(user) = user_id(&req) else {
         return HttpResponse::Unauthorized().body("x-user-id requis");
     };
+    let conv = body.conversation_id.trim();
+    if conv.is_empty() {
+        return HttpResponse::BadRequest().body("conversationId requis");
+    }
     let db = db.get_ref();
-    let up_to = body.up_to.max(0);
+
+    // Curseur MONOTONE : on ne recule jamais (max avec la valeur existante).
+    let existing = read_cursors::Entity::find_by_id((conv.to_string(), user.clone()))
+        .one(db)
+        .await
+        .ok()
+        .flatten()
+        .map(|m| m.up_to)
+        .unwrap_or(0);
+    let up_to = body.up_to.max(0).max(existing);
 
     let active = read_cursors::ActiveModel {
-        conversation_id: Set(body.conversation_id.clone()),
-        user_id: Set(user),
+        conversation_id: Set(conv.to_string()),
+        user_id: Set(user.clone()),
         up_to: Set(up_to),
     };
-    // UPSERT : on garde le max (curseur monotone).
     let res = read_cursors::Entity::insert(active)
         .on_conflict(
             OnConflict::columns([
@@ -197,12 +252,69 @@ async fn post_read(
         .exec(db)
         .await;
     match res {
-        Ok(_) => HttpResponse::Ok().json(serde_json::json!({ "ok": true })),
+        Ok(_) => {
+            // Accusé de lecture en temps réel (l'expéditeur verra « Lu »).
+            let line = serde_json::json!({ "type": "read", "reader": user, "upTo": up_to });
+            bc.publish(conv, format!("data: {line}\n\n"));
+            HttpResponse::Ok().json(serde_json::json!({ "ok": true }))
+        }
         Err(e) => {
             eprintln!("read cursor: {e}");
             HttpResponse::InternalServerError().body("curseur impossible")
         }
     }
+}
+
+#[derive(serde::Deserialize)]
+struct StreamQuery {
+    #[serde(rename = "conversationId")]
+    conversation_id: String,
+}
+
+/// GET /v1/stream?conversationId=.. — flux temps réel (Server-Sent Events).
+/// Émet `data: {message}\n\n` à chaque nouveau message et
+/// `data: {"type":"read",...}\n\n` à chaque accusé, plus un keep-alive.
+async fn stream(
+    req: HttpRequest,
+    bc: web::Data<Broadcaster>,
+    q: web::Query<StreamQuery>,
+) -> impl Responder {
+    if user_id(&req).is_none() {
+        return HttpResponse::Unauthorized().body("x-user-id requis");
+    }
+    let conv = q.conversation_id.trim().to_string();
+    if conv.is_empty() {
+        return HttpResponse::BadRequest().body("conversationId requis");
+    }
+
+    let mut rx = bc.subscribe(&conv);
+    let body = stream! {
+        // Amorce + désactive le tampon d'un éventuel proxy.
+        yield Ok::<Bytes, std::convert::Infallible>(Bytes::from_static(b":ok\n\n"));
+        // Heroku coupe une connexion inactive après ~55 s : ping toutes les 25 s.
+        let mut ka = tokio::time::interval(Duration::from_secs(25));
+        ka.tick().await; // consomme le tick immédiat
+        loop {
+            tokio::select! {
+                msg = rx.recv() => {
+                    match msg {
+                        Ok(line) => yield Ok(Bytes::from(line)),
+                        Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                        Err(broadcast::error::RecvError::Closed) => break,
+                    }
+                }
+                _ = ka.tick() => {
+                    yield Ok(Bytes::from_static(b":keep-alive\n\n"));
+                }
+            }
+        }
+    };
+
+    HttpResponse::Ok()
+        .content_type("text/event-stream")
+        .insert_header(("cache-control", "no-cache"))
+        .insert_header(("x-accel-buffering", "no"))
+        .streaming(body)
 }
 
 /// Crée les tables si besoin (idempotent). Postgres via SeaORM.
@@ -272,16 +384,19 @@ async fn main() -> std::io::Result<()> {
     tokio::spawn(retention_loop(db.clone()));
 
     let data = web::Data::new(db);
+    let broadcaster = web::Data::new(Broadcaster::default());
     println!("Messagerie Brocolis 🥦 (Rust/Actix) à l'écoute sur le port {port}");
 
     HttpServer::new(move || {
         App::new()
             .app_data(data.clone())
+            .app_data(broadcaster.clone())
             .app_data(web::JsonConfig::default().limit(8 * 1024 * 1024)) // médias chiffrés
             .route("/health", web::get().to(health))
             .route("/v1/messages", web::post().to(post_message))
             .route("/v1/messages", web::get().to(get_messages))
             .route("/v1/read", web::post().to(post_read))
+            .route("/v1/stream", web::get().to(stream))
     })
     .bind(("0.0.0.0", port))?
     .run()
