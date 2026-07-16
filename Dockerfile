@@ -1,34 +1,32 @@
-# Déploiement Heroku EN CONTENEUR du serveur de rendez-vous, depuis la racine
-# du dépôt. Référencé par heroku.yml. Ne copie que le serveur (server/), pas
-# l'app iOS ni le site.
-FROM node:22-alpine
+# Déploiement Heroku EN CONTENEUR — service messagerie Brocolis 🥦 en RUST
+# (Actix + SeaORM). Remplace l'ancien serveur Node. Référencé par heroku.yml.
+#
+# Contexte de build = racine du dépôt ; on ne prend que server-rust/.
+# Persistance durable native : Postgres (add-on Heroku). Le serveur ne relaie
+# que du chiffré.
 
+FROM rust:1-slim AS build
 WORKDIR /app
 
-# Dépendances (pg + redis) pour la persistance durable Postgres et le temps réel
-# Redis. Installées AVANT de copier les sources pour profiter du cache Docker.
-# Sans DATABASE_URL / REDIS_URL, ces modules ne sont pas sollicités (repli local).
-COPY server/package.json ./
-RUN npm install --omit=dev --no-audit --no-fund
+# Outils de build pour les crates natives (ring, etc.).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      pkg-config perl make \
+    && rm -rf /var/lib/apt/lists/*
 
-# Sources du serveur + vitrine pré-construite (servie sur /site/). index.js fait
-# require des modules ci-dessous au démarrage : SANS ces fichiers, le conteneur
-# plante au boot (exit 1 / H10). Toujours tous les copier.
-COPY server/index.js ./
-COPY server/apns.js ./
-COPY server/messages-store.js ./
-COPY server/durable-snapshot.js ./
-COPY server/realtime.js ./
-COPY server/public ./public
+# Cache des dépendances : compile un projet vide (deps figées par Cargo.lock).
+COPY server-rust/Cargo.toml server-rust/Cargo.lock ./
+RUN mkdir src && echo 'fn main() {}' > src/main.rs \
+    && cargo build --release --locked || true
 
-ENV NODE_ENV=production
-# Fichier SQLite runtime (rapide, synchrone). /tmp est inscriptible sur Heroku.
-# ⚠️ Le disque d'un dyno Heroku est ÉPHÉMÈRE : ce fichier est effacé à chaque
-# déploiement / recyclage. La DURABILITÉ 7 jours est assurée par les snapshots
-# Postgres (durable-snapshot.js) : restaurés au boot, ré-enregistrés en continu.
-ENV DB_PATH=/tmp/brocolis-messages.db
-EXPOSE 8788
+# Sources réelles puis build final.
+COPY server-rust/src ./src
+RUN touch src/main.rs && cargo build --release --locked
 
-USER node
-
-CMD ["node", "index.js"]
+FROM debian:bookworm-slim
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=build /app/target/release/brocolis-messagerie /usr/local/bin/brocolis-messagerie
+ENV MESSAGE_RETENTION_DAYS=7
+# Heroku fournit PORT et DATABASE_URL (Postgres). REDIS_URL / APNS_* optionnels.
+CMD ["brocolis-messagerie"]

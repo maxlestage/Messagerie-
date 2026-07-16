@@ -158,7 +158,7 @@ Plutôt que de copier-coller la clé symétrique, deux personnes peuvent
 3. L'app affiche une **empreinte de sécurité** : comparez-la de vive voix. Si
    elle est identique des deux côtés, personne n'a intercepté l'échange (MITM).
 
-Le serveur de rendez-vous est dans [`server/`](server/) (Node, sans dépendance) ;
+Le serveur de messagerie est dans [`server-rust/`](server-rust/) (Rust · Actix + SeaORM) ;
 l'instance de production tourne sur Heroku (URL ci-dessus, fixée en dur dans
 l'app). L'appairage active automatiquement Brocolis ; l'extension utilise
 ensuite la clé dérivée comme d'habitude.
@@ -241,7 +241,7 @@ fonctionnalités :
 | Appairage X25519 (1:1 + groupe) | identique (même serveur de rendez-vous) |
 | Rotation / expiration + préavis | identique (`AlarmManager`) |
 
-L'interopérabilité est **vérifiée par des tests** : [`server/interop.test.js`](server/interop.test.js)
+L'interopérabilité est **vérifiée par des tests** : les tests de l'app ([`BrocolisTests`](BrocolisTests/))
 valide les primitives contre les vecteurs officiels des RFC (ceux-là mêmes que
 CryptoKit implémente), puis déroule le flux complet entre deux clients
 indépendants — appairage, même clé dérivée, même empreinte, clé de groupe
@@ -276,7 +276,7 @@ BrocolisStatus/               # extension widget : Dynamic Island + écran d'acc
   BrocolisStatusWidget.swift  # widget accueil/verrouillage (état, clé, expiration)
   Info.plist, BrocolisStatus.entitlements
 BrocolisTests/                # tests XCTest (crypto, transform, accord de clé)
-server/                       # serveur de rendez-vous X25519 (Node)
+server-rust/                  # serveur de messagerie chiffrée (Rust · Actix + SeaORM)
 ```
 
 ## Lancer le projet
@@ -352,7 +352,7 @@ Le **serveur de rendez-vous** a ses propres tests Node (exécutables partout) �
 ils vérifient le flux d'appairage, que **les deux appareils dérivent une clé
 identique**, et l'**interopérabilité iPhone ↔ Android** (vecteurs officiels
 RFC 7748 / RFC 5869 / NIST GCM + flux croisé complet, voir
-`server/interop.test.js`) :
+`BrocolisTests/`) :
 
 ```
 cd server && npm test

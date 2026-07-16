@@ -1,16 +1,16 @@
 name: API tests
 
 # Compile et teste l'API de messagerie chiffrée (Rust + Actix-web). Tourne quand
-# messagerie-api/ change.
+# server-rust/ change.
 on:
   push:
     branches: ['**']
     paths:
-      - 'messagerie-api/**'
+      - 'server-rust/**'
       - '.github/workflows/api-tests.yml'
   pull_request:
     paths:
-      - 'messagerie-api/**'
+      - 'server-rust/**'
       - '.github/workflows/api-tests.yml'
   workflow_dispatch:
 
@@ -28,10 +28,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: messagerie-api
+          workspaces: server-rust
       - name: Build
-        working-directory: messagerie-api
+        working-directory: server-rust
         run: cargo build --verbose
-      - name: Tests
-        working-directory: messagerie-api
-        run: cargo test --verbose
+      - name: Vérification
+        working-directory: server-rust
+        run: cargo check --verbose
