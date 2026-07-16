@@ -10,6 +10,10 @@
   "engines": {
     "node": ">=18"
   },
+  "dependencies": {
+    "pg": "^8.13.1",
+    "redis": "^4.7.0"
+  },
   "license": "UNLICENSED",
   "author": "LESTAGE Maxime Nathan",
   "private": true

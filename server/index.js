@@ -23,6 +23,8 @@ const path = require('path');
 const crypto = require('node:crypto');
 const { createApnsSender } = require('./apns.js');
 const { createMessageStore } = require('./messages-store.js');
+const { createRealtime } = require('./realtime.js');
+const { restoreSnapshot, startSnapshots } = require('./durable-snapshot.js');
 
 const TTL_MS = 10 * 60 * 1000; // 10 min
 
@@ -287,6 +289,19 @@ function createRendezvous(options = {}) {
   // convId -> Set(res)  (abonnés SSE, forcément en mémoire : temps réel)
   const sseClients = new Map();
 
+  // Temps réel inter-dynos (Redis, optionnel) : un message publié par un autre
+  // dyno est rediffusé à NOS clients SSE locaux. No-op sans REDIS_URL.
+  const realtime = createRealtime({ redisUrl: options.redisUrl ?? process.env.REDIS_URL });
+  function broadcastLocal(convId, stored) {
+    const clients = sseClients.get(convId);
+    if (!clients) return;
+    const line = `data: ${JSON.stringify(stored)}\n\n`;
+    for (const r of clients) {
+      try { r.write(line); } catch { /* client parti */ }
+    }
+  }
+  realtime.onMessage(broadcastLocal);
+
   function authUser(req) {
     const h = req.headers['x-user-id'];
     const id = (Array.isArray(h) ? h[0] : h || '').trim();
@@ -304,15 +319,10 @@ function createRendezvous(options = {}) {
   }
   function appendMessage(convId, msg) {
     const stored = messageStore.appendMessage(convId, msg);
-    // Diffusion temps réel (les clients dédoublonnent par id, donc renvoyer un
-    // message déjà connu est inoffensif).
-    const clients = sseClients.get(convId);
-    if (clients) {
-      const line = `data: ${JSON.stringify(stored)}\n\n`;
-      for (const r of clients) {
-        try { r.write(line); } catch { /* client parti */ }
-      }
-    }
+    // Diffusion temps réel locale (les clients dédoublonnent par id) puis, si
+    // Redis est branché, aux autres dynos.
+    broadcastLocal(convId, stored);
+    realtime.publish(convId, stored);
     return stored;
   }
 
@@ -742,10 +752,23 @@ function createRendezvous(options = {}) {
 
 if (require.main === module) {
   const PORT = process.env.PORT || 8788;
-  createRendezvous().listen(PORT, () => {
-    // eslint-disable-next-line no-console
-    console.log(`Rendez-vous brocolis 🥦 à l'écoute sur le port ${PORT}`);
-  });
+  const DATABASE_URL = process.env.DATABASE_URL;
+  const DB_PATH = process.env.DB_PATH || ':memory:';
+
+  (async () => {
+    // 1) Persistance durable : restaure le fichier SQLite depuis Postgres AVANT
+    //    d'ouvrir la base (sur Heroku, le disque du dyno était vide au boot).
+    await restoreSnapshot({ databaseUrl: DATABASE_URL, dbPath: DB_PATH });
+
+    // 2) Démarre le serveur (ouvre la base restaurée).
+    createRendezvous().listen(PORT, () => {
+      // eslint-disable-next-line no-console
+      console.log(`Rendez-vous brocolis 🥦 à l'écoute sur le port ${PORT}`);
+    });
+
+    // 3) Sauvegardes durables : périodiques + à l'arrêt (SIGTERM Heroku).
+    startSnapshots({ databaseUrl: DATABASE_URL, dbPath: DB_PATH });
+  })();
 }
 
 module.exports = { createRendezvous };
