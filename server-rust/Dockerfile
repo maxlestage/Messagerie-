@@ -5,9 +5,10 @@
 
 FROM rust:1-slim AS build
 WORKDIR /app
-# Cache des dépendances : on compile d'abord un projet vide avec le Cargo.toml.
-COPY Cargo.toml ./
-RUN mkdir src && echo 'fn main() {}' > src/main.rs && cargo build --release || true
+# Cache des dépendances : on compile d'abord un projet vide (deps figées par
+# Cargo.lock pour un build reproductible).
+COPY Cargo.toml Cargo.lock ./
+RUN mkdir src && echo 'fn main() {}' > src/main.rs && cargo build --release --locked || true
 # Puis les vraies sources.
 COPY src ./src
 RUN touch src/main.rs && cargo build --release
