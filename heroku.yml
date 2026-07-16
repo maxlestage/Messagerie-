@@ -1,5 +1,5 @@
-# Heroku en mode CONTENEUR (si `heroku stack:set container`).
-# Construit le serveur de rendez-vous depuis le Dockerfile à la racine.
+# Heroku en mode CONTENEUR : construit le service messagerie RUST (Actix +
+# SeaORM) depuis le Dockerfile à la racine. (Ancien serveur Node supprimé.)
 build:
   docker:
     web: Dockerfile
