@@ -637,14 +637,30 @@ async fn retention_loop(db: DatabaseConnection) {
     }
 }
 
+/// Force `sslmode=require` sur une URL Postgres distante (Heroku impose TLS avec
+/// un certificat auto-signé ; `require` chiffre sans vérifier la chaîne, comme
+/// le `rejectUnauthorized:false` du serveur Node). Local/déjà réglé : inchangé.
+fn normalize_db_url(url: String) -> String {
+    let is_pg = url.starts_with("postgres://") || url.starts_with("postgresql://");
+    let is_local = url.contains("@localhost") || url.contains("@127.0.0.1");
+    if is_pg && !is_local && !url.contains("sslmode=") {
+        let sep = if url.contains('?') { '&' } else { '?' };
+        format!("{url}{sep}sslmode=require")
+    } else {
+        url
+    }
+}
+
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
     let port: u16 = std::env::var("PORT")
         .ok()
         .and_then(|p| p.parse().ok())
         .unwrap_or(8788);
-    let database_url = std::env::var("DATABASE_URL")
-        .expect("DATABASE_URL requis (Heroku Postgres) pour le service Rust");
+    let database_url = normalize_db_url(
+        std::env::var("DATABASE_URL")
+            .expect("DATABASE_URL requis (Heroku Postgres) pour le service Rust"),
+    );
 
     let db = Database::connect(&database_url)
         .await
