@@ -132,8 +132,6 @@ impl Rendezvous {
     }
 
     /// Récupère le push token de Live Activity d'un peer (pour l'envoi APNs).
-    /// Utilisé par la route d'envoi APNs (portée au lot suivant).
-    #[allow(dead_code)]
     pub fn live_token(&self, code: &str, peer_id: &str) -> Option<String> {
         let map = self.live.lock().unwrap();
         map.get(code).and_then(|t| t.get(peer_id)).map(|e| e.token.clone())

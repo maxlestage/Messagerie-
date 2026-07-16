@@ -7,10 +7,12 @@
 //! Persistance DURABLE native : Postgres est la source de vérité (plus de
 //! snapshot SQLite comme côté Node). `seq` = BIGSERIAL, stable et monotone.
 
+mod apns;
 mod entities;
 mod rendezvous;
 
 use actix_files::Files;
+use apns::Apns;
 use actix_web::web::Bytes;
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use async_stream::stream;
@@ -428,6 +430,60 @@ async fn live_token_post(rdv: web::Data<Rendezvous>, body: web::Json<LiveTokenBo
     HttpResponse::Ok().json(serde_json::json!({ "ok": true }))
 }
 
+// ── Push Live Activity : envoi APNs (update / end) ────────────────────────────
+
+fn default_event() -> String {
+    "update".to_string()
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LiveUpdateBody {
+    code: String,
+    peer_id: String,
+    #[serde(default = "default_event")]
+    event: String,
+    content_state: serde_json::Value,
+    #[serde(default)]
+    dismissal_date: Option<i64>,
+}
+
+async fn live_update_post(
+    rdv: web::Data<Rendezvous>,
+    apns: web::Data<Option<Apns>>,
+    body: web::Json<LiveUpdateBody>,
+) -> impl Responder {
+    let (code, peer_id, event) = (body.code.trim(), body.peer_id.trim(), body.event.trim());
+    if code.is_empty() || peer_id.is_empty() {
+        return HttpResponse::BadRequest().json(serde_json::json!({ "error": "code et peerId requis" }));
+    }
+    if event != "update" && event != "end" {
+        return HttpResponse::BadRequest()
+            .json(serde_json::json!({ "error": "event doit valoir \"update\" ou \"end\"" }));
+    }
+    if !body.content_state.is_object() {
+        return HttpResponse::BadRequest()
+            .json(serde_json::json!({ "error": "contentState (objet) requis" }));
+    }
+    let Some(token) = rdv.live_token(code, peer_id) else {
+        return HttpResponse::NotFound()
+            .json(serde_json::json!({ "error": "aucun token de Live Activity pour ce peerId" }));
+    };
+    let Some(sender) = apns.get_ref().as_ref() else {
+        return HttpResponse::ServiceUnavailable()
+            .json(serde_json::json!({ "error": "push non configuré côté serveur" }));
+    };
+    match sender
+        .send_live_activity(&token, event, &body.content_state, body.dismissal_date)
+        .await
+    {
+        Ok(status) => HttpResponse::Ok().json(serde_json::json!({ "ok": true, "apns": status })),
+        Err(e) => {
+            HttpResponse::BadGateway().json(serde_json::json!({ "error": "échec APNs", "detail": e }))
+        }
+    }
+}
+
 // ── Conversations à participants explicites ──────────────────────────────────
 
 #[derive(serde::Deserialize, serde::Serialize, Clone)]
@@ -612,6 +668,12 @@ async fn main() -> std::io::Result<()> {
     // Vitrine statique optionnelle (répertoire PUBLIC_DIR, défaut "public").
     let public_dir = std::env::var("PUBLIC_DIR").unwrap_or_else(|_| "public".to_string());
 
+    // Push APNs (Live Activity) : None si config incomplète → route 503.
+    let apns = web::Data::new(Apns::from_env());
+    if apns.get_ref().is_some() {
+        println!("APNs configuré : mises à jour de Live Activity actives.");
+    }
+
     let data = web::Data::new(db);
     let broadcaster = web::Data::new(Broadcaster::default());
     println!("Messagerie Brocolis 🥦 (Rust/Actix) à l'écoute sur le port {port}");
@@ -621,6 +683,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(data.clone())
             .app_data(broadcaster.clone())
             .app_data(rdv.clone())
+            .app_data(apns.clone())
             .app_data(web::JsonConfig::default().limit(8 * 1024 * 1024)) // médias chiffrés
             .route("/", web::get().to(home))
             .route("/health", web::get().to(health))
@@ -630,6 +693,7 @@ async fn main() -> std::io::Result<()> {
             .route("/wrap", web::get().to(wrap_get))
             .route("/wrap", web::post().to(wrap_post))
             .route("/push/live-activity/token", web::post().to(live_token_post))
+            .route("/push/live-activity/update", web::post().to(live_update_post))
             // Messagerie
             .route("/v1/conversations", web::post().to(conversations_post))
             .route("/v1/conversations", web::get().to(conversations_get))
