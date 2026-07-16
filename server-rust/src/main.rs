@@ -718,7 +718,6 @@ async fn main() -> std::io::Result<()> {
             .app_data(apns.clone())
             .app_data(realtime.clone())
             .app_data(web::JsonConfig::default().limit(8 * 1024 * 1024)) // médias chiffrés
-            .route("/", web::get().to(home))
             .route("/health", web::get().to(health))
             // Rendez-vous X25519
             .route("/pair", web::get().to(pair_get))
@@ -734,9 +733,18 @@ async fn main() -> std::io::Result<()> {
             .route("/v1/messages", web::get().to(get_messages))
             .route("/v1/read", web::post().to(post_read))
             .route("/v1/stream", web::get().to(stream));
-        // Vitrine servie sur /site/ si le répertoire existe.
+        // Vitrine React (Vite/HashRouter) : servie À LA RACINE quand le bundle
+        // est présent (image Docker → PUBLIC_DIR), et aussi sur /site/ (rétro-
+        // compat). L'utilisateur qui ouvre l'URL du serveur voit donc le vrai
+        // site (accueil, doc, Salon, navigation) et pas seulement l'API.
+        // `Files` en dernier : les routes d'API ci-dessus gardent la priorité.
         if std::path::Path::new(&public_dir).is_dir() {
-            app = app.service(Files::new("/site", &public_dir).index_file("index.html"));
+            app = app
+                .service(Files::new("/site", &public_dir).index_file("index.html"))
+                .service(Files::new("/", &public_dir).index_file("index.html"));
+        } else {
+            // Pas de bundle (dev local) : page d'accueil minimale de l'API.
+            app = app.route("/", web::get().to(home));
         }
         // CORS ouvert : le serveur ne relaie que du public/chiffré (clés
         // publiques, jetons). Permet au site (Salon des rendez-vous) de lire
