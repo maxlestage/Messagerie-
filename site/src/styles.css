@@ -375,3 +375,45 @@ a { color: var(--link); }
 }
 .server-page .cta { justify-content: flex-start; margin-top: 4px; }
 .server-page .btn { cursor: pointer; font: inherit; }
+
+/* ── Salon des rendez-vous ─────────────────────────────────────────────── */
+.salon-page ol.salon-steps { margin: 0 0 16px; padding-left: 20px; }
+.salon-page ol.salon-steps li { color: var(--ink); margin: 6px 0; line-height: 1.45; }
+.salon-fingerprint {
+  background: var(--box-bg); border: 1px solid var(--box-border);
+  border-radius: 12px; padding: 12px 14px; color: var(--ink); font-size: 14px;
+}
+.salon-form { margin: 8px 0 16px; }
+.salon-form label { display: block; font-weight: 600; margin-bottom: 6px; color: var(--ink); }
+.salon-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.salon-input {
+  flex: 1 1 160px; min-width: 0; padding: 12px 14px; font-size: 16px;
+  border: 1px solid var(--card-border); border-radius: 12px;
+  background: var(--surface); color: var(--ink);
+}
+.salon-input:focus { outline: 2px solid var(--green); outline-offset: 1px; }
+.salon-room {
+  border: 1px solid var(--card-border); border-radius: 16px;
+  background: var(--card); padding: 14px; margin: 6px 0 18px;
+  box-shadow: 0 6px 20px var(--shadow);
+}
+.salon-room-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 10px; }
+.salon-code-badge {
+  background: var(--code-bg); border-radius: 8px; padding: 2px 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px;
+}
+.salon-refreshing { color: var(--muted); font-style: italic; font-size: 13px; }
+.salon-empty { color: var(--muted); }
+.salon-error { color: var(--ink); }
+.salon-error p { color: var(--muted); font-size: 14px; margin: 6px 0 0; }
+.salon-peers { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.salon-peers li {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  flex-wrap: wrap; padding: 10px 12px; border-radius: 12px;
+  background: var(--box-bg); border: 1px solid var(--box-border);
+}
+.salon-peer-id { font-weight: 600; color: var(--ink); }
+.salon-peer-pub {
+  color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px; word-break: break-all;
+}
