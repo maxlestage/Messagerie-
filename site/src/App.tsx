@@ -8,6 +8,7 @@ import type { I18nKey } from "./i18n/dict";
 import { Navbar } from "./components/Navbar";
 import { LicensePage } from "./components/LicensePage";
 import { ServerPage } from "./components/ServerPage";
+import { SalonPage } from "./components/SalonPage";
 
 const REPO_URL = "https://github.com/maxlestage/Messagerie-";
 const BROCOLIS_URL = "https://maxlestage.github.io/brocolis/";
@@ -71,6 +72,7 @@ function HomePage() {
           <p className="tagline" dangerouslySetInnerHTML={{ __html: t("hero.tagline") }} />
           <div className="cta">
             <a className="btn primary" href={REPO_URL}>{t("cta.repo")}</a>
+            <Link className="btn" to="/salon">{t("cta.salon")}</Link>
             <Link className="btn" to="/serveur">{t("cta.server")}</Link>
             <a className="btn" href={BROCOLIS_URL}>{t("cta.brocolis")}</a>
           </div>
@@ -129,6 +131,7 @@ export default function App() {
           <Route path="/" element={<HomePage />} />
           <Route path="/license" element={<LicensePage />} />
           <Route path="/serveur" element={<ServerPage />} />
+          <Route path="/salon" element={<SalonPage />} />
           <Route path="*" element={<HomePage />} />
         </Routes>
 
