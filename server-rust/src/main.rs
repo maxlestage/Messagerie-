@@ -9,10 +9,12 @@
 
 mod apns;
 mod entities;
+mod realtime;
 mod rendezvous;
 
 use actix_files::Files;
 use apns::Apns;
+use realtime::Realtime;
 use actix_web::web::Bytes;
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use async_stream::stream;
@@ -133,6 +135,7 @@ async fn post_message(
     req: HttpRequest,
     db: web::Data<DatabaseConnection>,
     bc: web::Data<Broadcaster>,
+    rt: web::Data<Realtime>,
     body: web::Json<SendBody>,
 ) -> impl Responder {
     let Some(sender) = user_id(&req) else {
@@ -166,9 +169,12 @@ async fn post_message(
     match active.insert(db).await {
         Ok(saved) => {
             let out = MessageOut::from(saved);
-            // Diffusion temps réel aux abonnés SSE (clients dédoublonnent par id).
+            // Diffusion temps réel : abonnés SSE locaux, puis (si Redis) les
+            // autres dynos. Les clients dédoublonnent par id.
             if let Ok(json) = serde_json::to_string(&out) {
-                bc.publish(&out.conversation_id, format!("data: {json}\n\n"));
+                let line = format!("data: {json}\n\n");
+                bc.publish(&out.conversation_id, line.clone());
+                rt.publish(&out.conversation_id, &line);
             }
             HttpResponse::Created().json(out)
         }
@@ -676,6 +682,16 @@ async fn main() -> std::io::Result<()> {
 
     let data = web::Data::new(db);
     let broadcaster = web::Data::new(Broadcaster::default());
+
+    // Temps réel inter-dynos (Redis, optionnel) : rediffuse aux abonnés locaux.
+    let bc_for_redis = broadcaster.clone().into_inner();
+    let realtime = web::Data::new(
+        Realtime::connect(std::env::var("REDIS_URL").ok(), move |conv, line| {
+            bc_for_redis.publish(&conv, line);
+        })
+        .await,
+    );
+
     println!("Messagerie Brocolis 🥦 (Rust/Actix) à l'écoute sur le port {port}");
 
     HttpServer::new(move || {
@@ -684,6 +700,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(broadcaster.clone())
             .app_data(rdv.clone())
             .app_data(apns.clone())
+            .app_data(realtime.clone())
             .app_data(web::JsonConfig::default().limit(8 * 1024 * 1024)) // médias chiffrés
             .route("/", web::get().to(home))
             .route("/health", web::get().to(health))
