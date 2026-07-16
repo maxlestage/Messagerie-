@@ -26,6 +26,13 @@ const { createMessageStore } = require('./messages-store.js');
 
 const TTL_MS = 10 * 60 * 1000; // 10 min
 
+// Rétention des messages : on garde une semaine d'historique (réglable via
+// MESSAGE_RETENTION_DAYS). Au-delà, les messages sont purgés du store.
+const MESSAGE_RETENTION_DAYS = Number(process.env.MESSAGE_RETENTION_DAYS) || 7;
+const MESSAGE_RETENTION_MS = MESSAGE_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+// On ne balaie pas la base à chaque requête : au plus une fois toutes les 10 min.
+const MSG_PRUNE_INTERVAL_MS = 10 * 60 * 1000;
+
 /// Construit l'expéditeur APNs (mises à jour de Live Activity) depuis
 /// l'environnement, ou `null` si la configuration est incomplète.
 function createApnsSenderFromEnv() {
@@ -309,6 +316,26 @@ function createRendezvous(options = {}) {
     return stored;
   }
 
+  // Rétention 7 jours : purge (au plus toutes les 10 min) les messages dont la
+  // date dépasse la fenêtre. Le store peut être SQLite (durable si le disque
+  // l'est) ou mémoire ; les deux implémentent `pruneBefore`.
+  let lastMsgPrune = 0;
+  function pruneMessages(force = false) {
+    const now = Date.now();
+    if (!force && now - lastMsgPrune < MSG_PRUNE_INTERVAL_MS) return;
+    lastMsgPrune = now;
+    if (typeof messageStore.pruneBefore !== 'function') return;
+    const cutoff = new Date(now - MESSAGE_RETENTION_MS).toISOString();
+    try {
+      messageStore.pruneBefore(cutoff);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(`Purge des messages impossible (${err && err.message}).`);
+    }
+  }
+  // Purge initiale au démarrage (retire l'historique périmé au boot).
+  pruneMessages(true);
+
   function prune() {
     const now = Date.now();
     for (const [code, peers] of codes) {
@@ -347,6 +374,7 @@ function createRendezvous(options = {}) {
 
   const server = http.createServer((req, res) => {
     prune();
+    pruneMessages();
     const url = new URL(req.url, 'http://localhost');
 
     if (req.method === 'GET' && url.pathname === '/') {

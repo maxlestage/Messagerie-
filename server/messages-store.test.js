@@ -85,3 +85,31 @@ test('repli mémoire quand aucun dbPath', () => {
   const m = s.appendMessage('c', { id: '1', senderId: 'a', ciphertext: 'X', sentAt: 't' });
   assert.strictEqual(m.seq, 1);
 });
+
+// Rétention : les messages plus vieux que la fenêtre sont purgés, les récents
+// gardés. Testé sur les DEUX backends (SQLite + mémoire).
+for (const makeStore of [
+  { name: 'SQLite', build: () => createMessageStore({ dbPath: ':memory:' }) },
+  { name: 'mémoire', build: () => createMessageStore({}) },
+]) {
+  test(`rétention (${makeStore.name}) : pruneBefore garde 7 j, supprime le reste`, () => {
+    const s = makeStore.build();
+    const day = 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const old = new Date(now - 10 * day).toISOString(); // 10 j → doit partir
+    const recent = new Date(now - 2 * day).toISOString(); // 2 j → doit rester
+
+    s.ensureSealed('c', old);
+    s.appendMessage('c', { id: 'vieux', senderId: 'a', ciphertext: 'X', sentAt: old });
+    s.appendMessage('c', { id: 'recent', senderId: 'a', ciphertext: 'Y', sentAt: recent });
+    assert.strictEqual(s.messagesAfter('c', 0).length, 2);
+
+    const cutoff = new Date(now - 7 * day).toISOString();
+    const removed = s.pruneBefore(cutoff);
+    assert.strictEqual(removed, 1);
+
+    const left = s.messagesAfter('c', 0);
+    assert.strictEqual(left.length, 1);
+    assert.strictEqual(left[0].id, 'recent');
+  });
+}
