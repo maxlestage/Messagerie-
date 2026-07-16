@@ -7,8 +7,14 @@
 //! Persistance DURABLE native : Postgres est la source de vérité (plus de
 //! snapshot SQLite comme côté Node). `seq` = BIGSERIAL, stable et monotone.
 
+mod apns;
 mod entities;
+mod realtime;
+mod rendezvous;
 
+use actix_files::Files;
+use apns::Apns;
+use realtime::Realtime;
 use actix_web::web::Bytes;
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use async_stream::stream;
@@ -23,7 +29,8 @@ use std::sync::Mutex;
 use std::time::Duration;
 use tokio::sync::broadcast;
 
-use entities::{messages, read_cursors};
+use entities::{conversations, messages, read_cursors};
+use rendezvous::Rendezvous;
 
 /// Diffusion temps réel intra-process : un canal `broadcast` par conversation.
 /// Chaque flux SSE s'abonne ; `POST /v1/messages` et `/v1/read` publient.
@@ -128,6 +135,7 @@ async fn post_message(
     req: HttpRequest,
     db: web::Data<DatabaseConnection>,
     bc: web::Data<Broadcaster>,
+    rt: web::Data<Realtime>,
     body: web::Json<SendBody>,
 ) -> impl Responder {
     let Some(sender) = user_id(&req) else {
@@ -161,9 +169,12 @@ async fn post_message(
     match active.insert(db).await {
         Ok(saved) => {
             let out = MessageOut::from(saved);
-            // Diffusion temps réel aux abonnés SSE (clients dédoublonnent par id).
+            // Diffusion temps réel : abonnés SSE locaux, puis (si Redis) les
+            // autres dynos. Les clients dédoublonnent par id.
             if let Ok(json) = serde_json::to_string(&out) {
-                bc.publish(&out.conversation_id, format!("data: {json}\n\n"));
+                let line = format!("data: {json}\n\n");
+                bc.publish(&out.conversation_id, line.clone());
+                rt.publish(&out.conversation_id, &line);
             }
             HttpResponse::Created().json(out)
         }
@@ -317,6 +328,266 @@ async fn stream(
         .streaming(body)
 }
 
+// ── Rendez-vous X25519 (relais de clés publiques, éphémère) ───────────────────
+
+#[derive(serde::Deserialize)]
+struct PairQuery {
+    code: String,
+    #[serde(default, rename = "peerId")]
+    peer_id: String,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PairBody {
+    code: String,
+    peer_id: String,
+    #[serde(rename = "pub")]
+    pub_key: String,
+}
+
+async fn pair_get(rdv: web::Data<Rendezvous>, q: web::Query<PairQuery>) -> impl Responder {
+    let code = q.code.trim();
+    if code.is_empty() {
+        return HttpResponse::BadRequest().json(serde_json::json!({ "error": "code requis" }));
+    }
+    HttpResponse::Ok().json(rdv.peers_excluding(code, q.peer_id.trim()))
+}
+
+async fn pair_post(rdv: web::Data<Rendezvous>, body: web::Json<PairBody>) -> impl Responder {
+    let (code, peer_id, pub_key) =
+        (body.code.trim(), body.peer_id.trim(), body.pub_key.trim());
+    if code.is_empty() || peer_id.is_empty() || pub_key.is_empty() {
+        return HttpResponse::BadRequest()
+            .json(serde_json::json!({ "error": "code, peerId et pub requis" }));
+    }
+    match rdv.add_peer(code, peer_id, pub_key) {
+        Ok(peers) => HttpResponse::Ok().json(peers),
+        Err(()) => HttpResponse::Conflict()
+            .json(serde_json::json!({ "error": "ce code a déjà atteint le maximum de participants" })),
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct WrapQuery {
+    code: String,
+    #[serde(rename = "peerId")]
+    peer_id: String,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WrapItem {
+    to_peer_id: String,
+    blob: String,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WrapBody {
+    code: String,
+    from_peer_id: String,
+    from_pub: String,
+    items: Vec<WrapItem>,
+}
+
+async fn wrap_get(rdv: web::Data<Rendezvous>, q: web::Query<WrapQuery>) -> impl Responder {
+    let (code, peer_id) = (q.code.trim(), q.peer_id.trim());
+    if code.is_empty() || peer_id.is_empty() {
+        return HttpResponse::BadRequest()
+            .json(serde_json::json!({ "error": "code et peerId requis" }));
+    }
+    HttpResponse::Ok().json(rdv.get_wrap(code, peer_id))
+}
+
+async fn wrap_post(rdv: web::Data<Rendezvous>, body: web::Json<WrapBody>) -> impl Responder {
+    let (code, from, from_pub) =
+        (body.code.trim(), body.from_peer_id.trim(), body.from_pub.trim());
+    if code.is_empty() || from.is_empty() || from_pub.is_empty() {
+        return HttpResponse::BadRequest()
+            .json(serde_json::json!({ "error": "code, fromPeerId, fromPub et items requis" }));
+    }
+    let items: Vec<(String, String)> = body
+        .items
+        .iter()
+        .map(|it| (it.to_peer_id.trim().to_string(), it.blob.trim().to_string()))
+        .collect();
+    let count = rdv.put_wraps(code, from, from_pub, &items);
+    HttpResponse::Ok().json(serde_json::json!({ "ok": true, "count": count }))
+}
+
+// ── Push Live Activity : enregistrement du token (envoi APNs à venir) ─────────
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LiveTokenBody {
+    code: String,
+    peer_id: String,
+    token: String,
+}
+
+async fn live_token_post(rdv: web::Data<Rendezvous>, body: web::Json<LiveTokenBody>) -> impl Responder {
+    let (code, peer_id, token) = (body.code.trim(), body.peer_id.trim(), body.token.trim());
+    if code.is_empty() || peer_id.is_empty() || token.is_empty() {
+        return HttpResponse::BadRequest()
+            .json(serde_json::json!({ "error": "code, peerId et token requis" }));
+    }
+    rdv.put_live_token(code, peer_id, token);
+    HttpResponse::Ok().json(serde_json::json!({ "ok": true }))
+}
+
+// ── Push Live Activity : envoi APNs (update / end) ────────────────────────────
+
+fn default_event() -> String {
+    "update".to_string()
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LiveUpdateBody {
+    code: String,
+    peer_id: String,
+    #[serde(default = "default_event")]
+    event: String,
+    content_state: serde_json::Value,
+    #[serde(default)]
+    dismissal_date: Option<i64>,
+}
+
+async fn live_update_post(
+    rdv: web::Data<Rendezvous>,
+    apns: web::Data<Option<Apns>>,
+    body: web::Json<LiveUpdateBody>,
+) -> impl Responder {
+    let (code, peer_id, event) = (body.code.trim(), body.peer_id.trim(), body.event.trim());
+    if code.is_empty() || peer_id.is_empty() {
+        return HttpResponse::BadRequest().json(serde_json::json!({ "error": "code et peerId requis" }));
+    }
+    if event != "update" && event != "end" {
+        return HttpResponse::BadRequest()
+            .json(serde_json::json!({ "error": "event doit valoir \"update\" ou \"end\"" }));
+    }
+    if !body.content_state.is_object() {
+        return HttpResponse::BadRequest()
+            .json(serde_json::json!({ "error": "contentState (objet) requis" }));
+    }
+    let Some(token) = rdv.live_token(code, peer_id) else {
+        return HttpResponse::NotFound()
+            .json(serde_json::json!({ "error": "aucun token de Live Activity pour ce peerId" }));
+    };
+    let Some(sender) = apns.get_ref().as_ref() else {
+        return HttpResponse::ServiceUnavailable()
+            .json(serde_json::json!({ "error": "push non configuré côté serveur" }));
+    };
+    match sender
+        .send_live_activity(&token, event, &body.content_state, body.dismissal_date)
+        .await
+    {
+        Ok(status) => HttpResponse::Ok().json(serde_json::json!({ "ok": true, "apns": status })),
+        Err(e) => {
+            HttpResponse::BadGateway().json(serde_json::json!({ "error": "échec APNs", "detail": e }))
+        }
+    }
+}
+
+// ── Conversations à participants explicites ──────────────────────────────────
+
+#[derive(serde::Deserialize, serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct Participant {
+    id: String,
+    #[serde(default)]
+    display_name: String,
+}
+
+#[derive(serde::Deserialize)]
+struct CreateConversation {
+    participants: Vec<Participant>,
+}
+
+async fn conversations_post(
+    req: HttpRequest,
+    db: web::Data<DatabaseConnection>,
+    body: web::Json<CreateConversation>,
+) -> impl Responder {
+    let Some(user) = user_id(&req) else {
+        return HttpResponse::Unauthorized().json(serde_json::json!({ "error": "X-User-Id requis" }));
+    };
+    if body.participants.len() < 2 {
+        return HttpResponse::BadRequest()
+            .json(serde_json::json!({ "error": "au moins 2 participants requis" }));
+    }
+    if !body.participants.iter().any(|p| p.id == user) {
+        return HttpResponse::Forbidden()
+            .json(serde_json::json!({ "error": "tu dois faire partie de la conversation" }));
+    }
+    let clean: Vec<Participant> = body
+        .participants
+        .iter()
+        .map(|p| Participant { id: p.id.clone(), display_name: p.display_name.clone() })
+        .collect();
+    let id = uuid::Uuid::new_v4().to_string();
+    let created_at = now_iso();
+    let participants_json = serde_json::to_string(&clean).unwrap_or_else(|_| "[]".into());
+
+    let active = conversations::ActiveModel {
+        id: Set(id.clone()),
+        participants: Set(participants_json),
+        created_at: Set(created_at.clone()),
+    };
+    if let Err(e) = active.insert(db.get_ref()).await {
+        eprintln!("insert conversation: {e}");
+        return HttpResponse::InternalServerError()
+            .json(serde_json::json!({ "error": "création impossible" }));
+    }
+    HttpResponse::Created().json(serde_json::json!({
+        "id": id, "participants": clean, "createdAt": created_at
+    }))
+}
+
+async fn conversations_get(
+    req: HttpRequest,
+    db: web::Data<DatabaseConnection>,
+) -> impl Responder {
+    let Some(user) = user_id(&req) else {
+        return HttpResponse::Unauthorized().json(serde_json::json!({ "error": "X-User-Id requis" }));
+    };
+    let rows = conversations::Entity::find()
+        .all(db.get_ref())
+        .await
+        .unwrap_or_default();
+    let mut out = Vec::new();
+    for r in rows {
+        let participants: Vec<Participant> =
+            serde_json::from_str(&r.participants).unwrap_or_default();
+        if !participants.is_empty() && participants.iter().any(|p| p.id == user) {
+            out.push(serde_json::json!({
+                "id": r.id, "participants": participants, "createdAt": r.created_at
+            }));
+        }
+    }
+    HttpResponse::Ok().json(out)
+}
+
+// ── Vitrine ──────────────────────────────────────────────────────────────────
+
+const HOME_HTML: &str = r#"<!doctype html><html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Brocolis 🥦 — serveur</title>
+<style>body{font-family:system-ui;background:#e9f6ec;color:#15321f;display:grid;
+place-items:center;min-height:100vh;margin:0}main{max-width:34rem;padding:2rem;
+text-align:center}h1{font-size:2rem}code{background:#f1f8f3;padding:.15rem .4rem;
+border-radius:.4rem}</style></head><body><main>
+<h1>Brocolis 🥦</h1>
+<p>Serveur de messagerie chiffrée (Rust · Actix). Il ne relaie que du chiffré.</p>
+<p>API : <code>/health</code>, <code>/pair</code>, <code>/wrap</code>,
+<code>/v1/messages</code>, <code>/v1/stream</code>.</p>
+</main></body></html>"#;
+
+async fn home() -> impl Responder {
+    HttpResponse::Ok().content_type("text/html; charset=utf-8").body(HOME_HTML)
+}
+
 /// Crée les tables si besoin (idempotent). Postgres via SeaORM.
 async fn ensure_schema(db: &DatabaseConnection) -> Result<(), sea_orm::DbErr> {
     db.execute_unprepared(
@@ -383,20 +654,75 @@ async fn main() -> std::io::Result<()> {
     // Rétention en tâche de fond.
     tokio::spawn(retention_loop(db.clone()));
 
+    let max_peers: usize = std::env::var("MAX_PEERS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(16);
+    let rdv = web::Data::new(Rendezvous::new(max_peers));
+    // Purge des relais éphémères (pair/wrap/tokens) toutes les minutes.
+    {
+        let rdv = rdv.clone();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(Duration::from_secs(60));
+            loop {
+                tick.tick().await;
+                rdv.prune();
+            }
+        });
+    }
+
+    // Vitrine statique optionnelle (répertoire PUBLIC_DIR, défaut "public").
+    let public_dir = std::env::var("PUBLIC_DIR").unwrap_or_else(|_| "public".to_string());
+
+    // Push APNs (Live Activity) : None si config incomplète → route 503.
+    let apns = web::Data::new(Apns::from_env());
+    if apns.get_ref().is_some() {
+        println!("APNs configuré : mises à jour de Live Activity actives.");
+    }
+
     let data = web::Data::new(db);
     let broadcaster = web::Data::new(Broadcaster::default());
+
+    // Temps réel inter-dynos (Redis, optionnel) : rediffuse aux abonnés locaux.
+    let bc_for_redis = broadcaster.clone().into_inner();
+    let realtime = web::Data::new(
+        Realtime::connect(std::env::var("REDIS_URL").ok(), move |conv, line| {
+            bc_for_redis.publish(&conv, line);
+        })
+        .await,
+    );
+
     println!("Messagerie Brocolis 🥦 (Rust/Actix) à l'écoute sur le port {port}");
 
     HttpServer::new(move || {
-        App::new()
+        let mut app = App::new()
             .app_data(data.clone())
             .app_data(broadcaster.clone())
+            .app_data(rdv.clone())
+            .app_data(apns.clone())
+            .app_data(realtime.clone())
             .app_data(web::JsonConfig::default().limit(8 * 1024 * 1024)) // médias chiffrés
+            .route("/", web::get().to(home))
             .route("/health", web::get().to(health))
+            // Rendez-vous X25519
+            .route("/pair", web::get().to(pair_get))
+            .route("/pair", web::post().to(pair_post))
+            .route("/wrap", web::get().to(wrap_get))
+            .route("/wrap", web::post().to(wrap_post))
+            .route("/push/live-activity/token", web::post().to(live_token_post))
+            .route("/push/live-activity/update", web::post().to(live_update_post))
+            // Messagerie
+            .route("/v1/conversations", web::post().to(conversations_post))
+            .route("/v1/conversations", web::get().to(conversations_get))
             .route("/v1/messages", web::post().to(post_message))
             .route("/v1/messages", web::get().to(get_messages))
             .route("/v1/read", web::post().to(post_read))
-            .route("/v1/stream", web::get().to(stream))
+            .route("/v1/stream", web::get().to(stream));
+        // Vitrine servie sur /site/ si le répertoire existe.
+        if std::path::Path::new(&public_dir).is_dir() {
+            app = app.service(Files::new("/site", &public_dir).index_file("index.html"));
+        }
+        app
     })
     .bind(("0.0.0.0", port))?
     .run()
