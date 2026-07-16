@@ -738,7 +738,13 @@ async fn main() -> std::io::Result<()> {
         if std::path::Path::new(&public_dir).is_dir() {
             app = app.service(Files::new("/site", &public_dir).index_file("index.html"));
         }
-        app
+        // CORS ouvert : le serveur ne relaie que du public/chiffré (clés
+        // publiques, jetons). Permet au site (Salon des rendez-vous) de lire
+        // l'état d'un code depuis un autre domaine.
+        app.wrap(
+            actix_web::middleware::DefaultHeaders::new()
+                .add(("Access-Control-Allow-Origin", "*")),
+        )
     })
     .bind(("0.0.0.0", port))?
     .run()

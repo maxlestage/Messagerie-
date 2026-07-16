@@ -16,6 +16,7 @@ type NavItem =
 const NAV_ITEMS: ReadonlyArray<NavItem> = [
   { kind: "section", id: "features", key: "nav.features" },
   { kind: "section", id: "doc", key: "nav.doc" },
+  { kind: "route", to: "/salon", key: "nav.salon" },
   { kind: "route", to: "/serveur", key: "nav.server" },
   { kind: "route", to: "/license", key: "nav.license" },
   { kind: "external", href: BROCOLIS_URL, key: "nav.brocolis" },
