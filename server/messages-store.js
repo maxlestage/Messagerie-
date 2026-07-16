@@ -15,6 +15,10 @@
 //  Le serveur ne stocke QUE du chiffré : la colonne `ciphertext` est un jeton
 //  Brocolis illisible sans la clé.
 //
+//  RÉTENTION : `pruneBefore(cutoffISO)` supprime les messages plus vieux que la
+//  fenêtre choisie (7 jours par défaut, réglable côté serveur). Appelé
+//  périodiquement par le serveur pour ne garder qu'une semaine d'historique.
+//
 
 'use strict';
 
@@ -56,6 +60,7 @@ function createSqliteStore(dbPath) {
     );
     CREATE UNIQUE INDEX IF NOT EXISTS idx_msg_unique ON messages(conversation_id, msg_id);
     CREATE INDEX IF NOT EXISTS idx_msg_conv_seq ON messages(conversation_id, seq);
+    CREATE INDEX IF NOT EXISTS idx_msg_sent_at ON messages(sent_at);
     CREATE TABLE IF NOT EXISTS read_cursors (
       conversation_id TEXT NOT NULL,
       user_id         TEXT NOT NULL,
@@ -88,6 +93,20 @@ function createSqliteStore(dbPath) {
        DO UPDATE SET up_to = MAX(up_to, excluded.up_to)`
     ),
     getReads: db.prepare(`SELECT user_id, up_to FROM read_cursors WHERE conversation_id = ?`),
+    // Rétention : on efface les messages plus vieux que la fenêtre (7 j par
+    // défaut), puis les conversations scellées devenues vides et les curseurs
+    // de lecture orphelins. `sent_at`/`created_at` sont des ISO 8601 : leur ordre
+    // lexicographique == ordre chronologique, donc `<` compare bien les dates.
+    pruneMsgs: db.prepare(`DELETE FROM messages WHERE sent_at < ?`),
+    pruneConvs: db.prepare(
+      `DELETE FROM conversations
+        WHERE participants = '[]' AND created_at < ?
+          AND id NOT IN (SELECT DISTINCT conversation_id FROM messages)`
+    ),
+    pruneReads: db.prepare(
+      `DELETE FROM read_cursors
+        WHERE conversation_id NOT IN (SELECT DISTINCT conversation_id FROM messages)`
+    ),
   };
 
   function mapRow(r) {
@@ -152,6 +171,16 @@ function createSqliteStore(dbPath) {
       const out = {};
       for (const r of q.getReads.all(convId)) out[r.user_id] = Number(r.up_to);
       return out;
+    },
+
+    /// Rétention : supprime tout message dont `sent_at` est antérieur à
+    /// `cutoffISO`, puis fait le ménage (conversations scellées vides, curseurs
+    /// orphelins). Renvoie le nombre de messages supprimés.
+    pruneBefore(cutoffISO) {
+      const r = q.pruneMsgs.run(cutoffISO);
+      q.pruneConvs.run(cutoffISO);
+      q.pruneReads.run();
+      return Number((r && r.changes) || 0);
     },
   };
 }
@@ -225,6 +254,26 @@ function createMemoryStore() {
       const m = reads.get(convId);
       if (m) for (const [u, v] of m) out[u] = v;
       return out;
+    },
+
+    /// Rétention (même contrat que SQLite) : purge les messages plus vieux que
+    /// `cutoffISO`, puis les conversations scellées vides et curseurs orphelins.
+    pruneBefore(cutoffISO) {
+      let removed = 0;
+      for (const [convId, arr] of messages) {
+        const kept = arr.filter((m) => m.sentAt >= cutoffISO);
+        removed += arr.length - kept.length;
+        messages.set(convId, kept);
+      }
+      for (const [id, c] of conversations) {
+        const empty = (messages.get(id) || []).length === 0;
+        if (empty && c.participants.length === 0 && c.createdAt < cutoffISO) {
+          conversations.delete(id);
+          messages.delete(id);
+          reads.delete(id);
+        }
+      }
+      return removed;
     },
   };
 }
