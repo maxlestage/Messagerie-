@@ -32,6 +32,6 @@ jobs:
       - name: Build
         working-directory: server-rust
         run: cargo build --verbose
-      - name: Vérification
+      - name: Tests unitaires
         working-directory: server-rust
-        run: cargo check --verbose
+        run: cargo test --verbose

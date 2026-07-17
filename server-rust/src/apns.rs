@@ -92,17 +92,8 @@ impl Apns {
         dismissal_date: Option<i64>,
     ) -> Result<u16, String> {
         let jwt = self.jwt()?;
-        let mut aps = serde_json::json!({
-            "timestamp": unix_secs(),
-            "event": event,
-            "content-state": content_state,
-        });
-        if event == "end" {
-            if let Some(d) = dismissal_date {
-                aps["dismissal-date"] = serde_json::json!(d);
-            }
-        }
-        let payload = serde_json::json!({ "aps": aps });
+        let payload =
+            live_activity_payload(event, content_state, dismissal_date, unix_secs());
         let url = format!("{}/3/device/{}", self.host, device_token);
 
         let resp = self
@@ -117,5 +108,69 @@ impl Apns {
             .await
             .map_err(|e| e.to_string())?;
         Ok(resp.status().as_u16())
+    }
+}
+
+/// Construit la charge utile `aps` d'une mise à jour de Live Activity (fonction
+/// pure, testable). `event` vaut "update" ou "end" ; `dismissal-date` n'est
+/// ajouté que pour un "end". Même forme que `buildLiveActivityPayload` (Node).
+fn live_activity_payload(
+    event: &str,
+    content_state: &serde_json::Value,
+    dismissal_date: Option<i64>,
+    timestamp: u64,
+) -> serde_json::Value {
+    let mut aps = serde_json::json!({
+        "timestamp": timestamp,
+        "event": event,
+        "content-state": content_state,
+    });
+    if event == "end" {
+        if let Some(d) = dismissal_date {
+            aps["dismissal-date"] = serde_json::json!(d);
+        }
+    }
+    serde_json::json!({ "aps": aps })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn payload_update_has_core_fields_and_no_dismissal() {
+        let cs = json!({ "peer": "bob", "unread": 2 });
+        let p = live_activity_payload("update", &cs, Some(1234), 42);
+        let aps = &p["aps"];
+        assert_eq!(aps["event"], "update");
+        assert_eq!(aps["timestamp"], 42);
+        assert_eq!(aps["content-state"], cs);
+        // Une mise à jour ne porte jamais de date de rejet.
+        assert!(aps.get("dismissal-date").is_none());
+    }
+
+    #[test]
+    fn payload_end_carries_dismissal_date() {
+        let cs = json!({});
+        let p = live_activity_payload("end", &cs, Some(999), 7);
+        assert_eq!(p["aps"]["event"], "end");
+        assert_eq!(p["aps"]["dismissal-date"], 999);
+    }
+
+    #[test]
+    fn payload_end_without_dismissal_omits_it() {
+        let cs = json!({});
+        let p = live_activity_payload("end", &cs, None, 7);
+        assert!(p["aps"].get("dismissal-date").is_none());
+    }
+
+    #[test]
+    fn from_env_is_none_when_unconfigured() {
+        // Sans les variables APNS_*, l'expéditeur est absent (route -> 503).
+        // (Le test s'appuie sur l'absence de config dans l'environnement CI.)
+        if std::env::var("APNS_KEY_P8").is_err() {
+            assert!(Apns::from_env().is_none());
+        }
     }
 }
