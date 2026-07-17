@@ -78,6 +78,24 @@ fn user_id(req: &HttpRequest) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
+/// Contrôle d'accès à une conversation (parité avec le serveur Node).
+/// - conversation inconnue ⇒ autorisée (traitée comme scellée : rien de lisible
+///   sans la clé de toute façon, le serveur ne relaie que du chiffré) ;
+/// - conversation sans participants explicites (scellée) ⇒ autorisée ;
+/// - conversation à participants ⇒ l'appelant doit en faire partie.
+/// Défense en profondeur : le vrai secret reste le chiffrement de bout en bout.
+async fn can_access(db: &DatabaseConnection, conv: &str, user: &str) -> bool {
+    match conversations::Entity::find_by_id(conv.to_string()).one(db).await {
+        Ok(Some(c)) => {
+            let participants: Vec<Participant> =
+                serde_json::from_str(&c.participants).unwrap_or_default();
+            participants.is_empty() || participants.iter().any(|p| p.id == user)
+        }
+        // Inconnue ou erreur de lecture : on n'ajoute pas de blocage (comme Node).
+        _ => true,
+    }
+}
+
 /// Sortie JSON d'un message, au MÊME format que le serveur Node.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -148,6 +166,10 @@ async fn post_message(
     }
     let db = db.get_ref();
 
+    if !can_access(db, conv, &sender).await {
+        return HttpResponse::Forbidden().body("accès refusé à cette conversation");
+    }
+
     // Déjà présent ? (idempotence : le client peut renvoyer le même id.)
     if let Ok(Some(existing)) = messages::Entity::find()
         .filter(messages::Column::ConversationId.eq(conv))
@@ -187,10 +209,17 @@ async fn post_message(
 
 /// GET /v1/messages?conversationId=&after= — suite des messages + accusés.
 async fn get_messages(
+    req: HttpRequest,
     db: web::Data<DatabaseConnection>,
     q: web::Query<MessagesQuery>,
 ) -> impl Responder {
+    let Some(user) = user_id(&req) else {
+        return HttpResponse::Unauthorized().body("x-user-id requis");
+    };
     let db = db.get_ref();
+    if !can_access(db, &q.conversation_id, &user).await {
+        return HttpResponse::Forbidden().body("accès refusé à cette conversation");
+    }
     let rows = messages::Entity::find()
         .filter(messages::Column::ConversationId.eq(&q.conversation_id))
         .filter(messages::Column::Seq.gt(q.after))
@@ -235,6 +264,10 @@ async fn post_read(
         return HttpResponse::BadRequest().body("conversationId requis");
     }
     let db = db.get_ref();
+
+    if !can_access(db, conv, &user).await {
+        return HttpResponse::Forbidden().body("accès refusé à cette conversation");
+    }
 
     // Curseur MONOTONE : on ne recule jamais (max avec la valeur existante).
     let existing = read_cursors::Entity::find_by_id((conv.to_string(), user.clone()))
@@ -287,15 +320,19 @@ struct StreamQuery {
 /// `data: {"type":"read",...}\n\n` à chaque accusé, plus un keep-alive.
 async fn stream(
     req: HttpRequest,
+    db: web::Data<DatabaseConnection>,
     bc: web::Data<Broadcaster>,
     q: web::Query<StreamQuery>,
 ) -> impl Responder {
-    if user_id(&req).is_none() {
+    let Some(user) = user_id(&req) else {
         return HttpResponse::Unauthorized().body("x-user-id requis");
-    }
+    };
     let conv = q.conversation_id.trim().to_string();
     if conv.is_empty() {
         return HttpResponse::BadRequest().body("conversationId requis");
+    }
+    if !can_access(db.get_ref(), &conv, &user).await {
+        return HttpResponse::Forbidden().body("accès refusé à cette conversation");
     }
 
     let mut rx = bc.subscribe(&conv);
