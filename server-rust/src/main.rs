@@ -21,15 +21,15 @@ use async_stream::stream;
 use chrono::SecondsFormat;
 use sea_orm::sea_query::OnConflict;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, Database, DatabaseConnection, EntityTrait,
-    QueryFilter, QueryOrder, Set,
+    ActiveModelTrait, ColumnTrait, ConnectOptions, ConnectionTrait, Database, DatabaseConnection,
+    EntityTrait, QueryFilter, QueryOrder, Set,
 };
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Duration;
 use tokio::sync::broadcast;
 
-use entities::{conversations, messages, read_cursors};
+use entities::{conversation_members, conversations, messages, read_cursors};
 use rendezvous::Rendezvous;
 
 /// Diffusion temps réel intra-process : un canal `broadcast` par conversation.
@@ -577,6 +577,36 @@ async fn conversations_post(
         return HttpResponse::InternalServerError()
             .json(serde_json::json!({ "error": "création impossible" }));
     }
+
+    // Index d'appartenance : une ligne (conversation, membre) par participant,
+    // pour lister les conversations d'un utilisateur sans balayer toute la table.
+    let mut seen = std::collections::HashSet::new();
+    let members: Vec<conversation_members::ActiveModel> = clean
+        .iter()
+        .filter(|p| !p.id.is_empty() && seen.insert(p.id.clone()))
+        .map(|p| conversation_members::ActiveModel {
+            conversation_id: Set(id.clone()),
+            user_id: Set(p.id.clone()),
+        })
+        .collect();
+    if !members.is_empty() {
+        let res = conversation_members::Entity::insert_many(members)
+            .on_conflict(
+                OnConflict::columns([
+                    conversation_members::Column::ConversationId,
+                    conversation_members::Column::UserId,
+                ])
+                .do_nothing()
+                .to_owned(),
+            )
+            .exec(db.get_ref())
+            .await;
+        if let Err(e) = res {
+            // Non bloquant : la conversation existe ; l'index se recréera au besoin.
+            eprintln!("insert conversation_members: {e}");
+        }
+    }
+
     HttpResponse::Created().json(serde_json::json!({
         "id": id, "participants": clean, "createdAt": created_at
     }))
@@ -589,20 +619,38 @@ async fn conversations_get(
     let Some(user) = user_id(&req) else {
         return HttpResponse::Unauthorized().json(serde_json::json!({ "error": "X-User-Id requis" }));
     };
+    let db = db.get_ref();
+
+    // 1) Les ids des conversations de CET utilisateur, via l'index (idx_members_user)
+    //    — O(ses conversations), et non plus un balayage de toute la table.
+    let ids: Vec<String> = conversation_members::Entity::find()
+        .filter(conversation_members::Column::UserId.eq(&user))
+        .all(db)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|m| m.conversation_id)
+        .collect();
+    if ids.is_empty() {
+        return HttpResponse::Ok().json(serde_json::json!([]));
+    }
+
+    // 2) On ne charge que ces conversations-là (par clé primaire).
     let rows = conversations::Entity::find()
-        .all(db.get_ref())
+        .filter(conversations::Column::Id.is_in(ids))
+        .all(db)
         .await
         .unwrap_or_default();
-    let mut out = Vec::new();
-    for r in rows {
-        let participants: Vec<Participant> =
-            serde_json::from_str(&r.participants).unwrap_or_default();
-        if !participants.is_empty() && participants.iter().any(|p| p.id == user) {
-            out.push(serde_json::json!({
+    let out: Vec<serde_json::Value> = rows
+        .into_iter()
+        .map(|r| {
+            let participants: Vec<Participant> =
+                serde_json::from_str(&r.participants).unwrap_or_default();
+            serde_json::json!({
                 "id": r.id, "participants": participants, "createdAt": r.created_at
-            }));
-        }
-    }
+            })
+        })
+        .collect();
     HttpResponse::Ok().json(out)
 }
 
@@ -651,6 +699,14 @@ async fn ensure_schema(db: &DatabaseConnection) -> Result<(), sea_orm::DbErr> {
             up_to           BIGINT NOT NULL,
             PRIMARY KEY (conversation_id, user_id)
         );
+        CREATE TABLE IF NOT EXISTS conversation_members (
+            conversation_id TEXT NOT NULL,
+            user_id         TEXT NOT NULL,
+            PRIMARY KEY (conversation_id, user_id)
+        );
+        -- Index clé : « les conversations de cet utilisateur » sans balayer la
+        -- table entière. Indispensable dès que le nombre de conversations grandit.
+        CREATE INDEX IF NOT EXISTS idx_members_user ON conversation_members(user_id);
         "#,
     )
     .await
@@ -720,7 +776,22 @@ async fn main() -> std::io::Result<()> {
             .expect("DATABASE_URL requis (Heroku Postgres) pour le service Rust"),
     );
 
-    let db = Database::connect(&database_url)
+    // Pool de connexions BORNÉ : chaque dyno garde son pool sous le plafond de
+    // connexions de Postgres (Heroku : ~20 sur les petits plans). Sans borne, un
+    // pic — ou plusieurs dynos — épuiserait le cap et ferait tomber la base.
+    // `DB_MAX_CONNECTIONS` permet de l'ajuster selon le plan/PgBouncer.
+    let max_conns: u32 = std::env::var("DB_MAX_CONNECTIONS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(10);
+    let mut opt = ConnectOptions::new(database_url);
+    opt.max_connections(max_conns)
+        .min_connections(1)
+        .acquire_timeout(Duration::from_secs(8))
+        .idle_timeout(Duration::from_secs(300))
+        .max_lifetime(Duration::from_secs(30 * 60))
+        .sqlx_logging(false);
+    let db = Database::connect(opt)
         .await
         .expect("connexion Postgres impossible");
     ensure_schema(&db).await.expect("création du schéma impossible");
@@ -798,6 +869,9 @@ async fn main() -> std::io::Result<()> {
                 .add(("Access-Control-Allow-Origin", "*")),
         )
     })
+    // TCP_NODELAY : envoie les petits paquets (messages, événements SSE)
+    // immédiatement, sans attendre l'algorithme de Nagle. Latence temps réel.
+    .tcp_nodelay(true)
     .bind(("0.0.0.0", port))?
     .run()
     .await
