@@ -152,3 +152,125 @@ impl Rendezvous {
         sweep(&self.live, |l| l.ts);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn peer_ids(v: &serde_json::Value) -> Vec<String> {
+        v["peers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["peerId"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn pair_exchanges_public_keys_and_excludes_self() {
+        let rdv = Rendezvous::new(16);
+        // Alice arrive : personne d'autre encore.
+        let a = rdv.add_peer("4813", "alice", "PUB_A").unwrap();
+        assert!(peer_ids(&a).is_empty());
+        // Bob arrive : il voit Alice, mais pas lui-même.
+        let b = rdv.add_peer("4813", "bob", "PUB_B").unwrap();
+        assert_eq!(peer_ids(&b), vec!["alice"]);
+        assert_eq!(b["peers"][0]["pub"], "PUB_A");
+        // Alice re-sonde : elle voit maintenant Bob.
+        let a2 = rdv.peers_excluding("4813", "alice");
+        assert_eq!(peer_ids(&a2), vec!["bob"]);
+        assert_eq!(a2["peers"][0]["pub"], "PUB_B");
+    }
+
+    #[test]
+    fn pair_codes_are_isolated() {
+        let rdv = Rendezvous::new(16);
+        rdv.add_peer("1111", "alice", "A").unwrap();
+        let other = rdv.add_peer("2222", "bob", "B").unwrap();
+        // Codes différents : Bob ne voit pas Alice.
+        assert!(peer_ids(&other).is_empty());
+    }
+
+    #[test]
+    fn pair_reconnect_updates_key_without_growing() {
+        let rdv = Rendezvous::new(2);
+        rdv.add_peer("c", "alice", "A1").unwrap();
+        rdv.add_peer("c", "bob", "B").unwrap();
+        // Alice se reconnecte avec une nouvelle clé : pas un nouveau participant.
+        rdv.add_peer("c", "alice", "A2").unwrap();
+        let seen = rdv.peers_excluding("c", "bob");
+        let alice = seen["peers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["peerId"] == "alice")
+            .unwrap();
+        assert_eq!(alice["pub"], "A2");
+    }
+
+    #[test]
+    fn pair_enforces_max_peers() {
+        let rdv = Rendezvous::new(2);
+        rdv.add_peer("full", "a", "A").unwrap();
+        rdv.add_peer("full", "b", "B").unwrap();
+        // Le 3e participant est refusé…
+        assert!(rdv.add_peer("full", "c", "C").is_err());
+        // …mais un participant déjà présent peut toujours se ré-annoncer.
+        assert!(rdv.add_peer("full", "a", "A2").is_ok());
+    }
+
+    #[test]
+    fn wrap_is_delivered_per_recipient() {
+        let rdv = Rendezvous::new(16);
+        let n = rdv.put_wraps(
+            "g",
+            "alice",
+            "PUB_A",
+            &[
+                ("bob".into(), "BLOB_BOB".into()),
+                ("carol".into(), "BLOB_CAROL".into()),
+            ],
+        );
+        assert_eq!(n, 2);
+        let bob = rdv.get_wrap("g", "bob");
+        assert_eq!(bob["wrap"]["from"], "alice");
+        assert_eq!(bob["wrap"]["fromPub"], "PUB_A");
+        assert_eq!(bob["wrap"]["blob"], "BLOB_BOB");
+        // Un destinataire inconnu obtient null.
+        assert!(rdv.get_wrap("g", "dan")["wrap"].is_null());
+    }
+
+    #[test]
+    fn wrap_skips_empty_items() {
+        let rdv = Rendezvous::new(16);
+        let n = rdv.put_wraps(
+            "g",
+            "a",
+            "P",
+            &[("".into(), "x".into()), ("bob".into(), "".into()), ("carol".into(), "ok".into())],
+        );
+        assert_eq!(n, 1);
+        assert_eq!(rdv.get_wrap("g", "carol")["wrap"]["blob"], "ok");
+    }
+
+    #[test]
+    fn live_token_round_trips() {
+        let rdv = Rendezvous::new(16);
+        assert!(rdv.live_token("code", "bob").is_none());
+        rdv.put_live_token("code", "bob", "TOKEN_XYZ");
+        assert_eq!(rdv.live_token("code", "bob").as_deref(), Some("TOKEN_XYZ"));
+    }
+
+    #[test]
+    fn prune_keeps_fresh_entries() {
+        let rdv = Rendezvous::new(16);
+        rdv.add_peer("c", "alice", "A").unwrap();
+        rdv.put_wraps("c", "alice", "A", &[("bob".into(), "B".into())]);
+        rdv.put_live_token("c", "alice", "T");
+        // Rien n'a expiré (TTL = 10 min) : tout survit.
+        rdv.prune();
+        assert_eq!(peer_ids(&rdv.peers_excluding("c", "bob")), vec!["alice"]);
+        assert_eq!(rdv.get_wrap("c", "bob")["wrap"]["blob"], "B");
+        assert!(rdv.live_token("c", "alice").is_some());
+    }
+}
