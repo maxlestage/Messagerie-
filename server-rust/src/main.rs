@@ -688,6 +688,27 @@ fn normalize_db_url(url: String) -> String {
     }
 }
 
+/// Enregistre TOUTES les routes de l'API (hors vitrine statique). Partagé entre
+/// le serveur de production et les tests d'intégration : les tests exercent donc
+/// exactement le même câblage que la prod (pas de dérive possible).
+fn configure_api(cfg: &mut web::ServiceConfig) {
+    cfg.route("/health", web::get().to(health))
+        // Rendez-vous X25519
+        .route("/pair", web::get().to(pair_get))
+        .route("/pair", web::post().to(pair_post))
+        .route("/wrap", web::get().to(wrap_get))
+        .route("/wrap", web::post().to(wrap_post))
+        .route("/push/live-activity/token", web::post().to(live_token_post))
+        .route("/push/live-activity/update", web::post().to(live_update_post))
+        // Messagerie
+        .route("/v1/conversations", web::post().to(conversations_post))
+        .route("/v1/conversations", web::get().to(conversations_get))
+        .route("/v1/messages", web::post().to(post_message))
+        .route("/v1/messages", web::get().to(get_messages))
+        .route("/v1/read", web::post().to(post_read))
+        .route("/v1/stream", web::get().to(stream));
+}
+
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
     let port: u16 = std::env::var("PORT")
@@ -755,21 +776,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(apns.clone())
             .app_data(realtime.clone())
             .app_data(web::JsonConfig::default().limit(8 * 1024 * 1024)) // médias chiffrés
-            .route("/health", web::get().to(health))
-            // Rendez-vous X25519
-            .route("/pair", web::get().to(pair_get))
-            .route("/pair", web::post().to(pair_post))
-            .route("/wrap", web::get().to(wrap_get))
-            .route("/wrap", web::post().to(wrap_post))
-            .route("/push/live-activity/token", web::post().to(live_token_post))
-            .route("/push/live-activity/update", web::post().to(live_update_post))
-            // Messagerie
-            .route("/v1/conversations", web::post().to(conversations_post))
-            .route("/v1/conversations", web::get().to(conversations_get))
-            .route("/v1/messages", web::post().to(post_message))
-            .route("/v1/messages", web::get().to(get_messages))
-            .route("/v1/read", web::post().to(post_read))
-            .route("/v1/stream", web::get().to(stream));
+            .configure(configure_api);
         // Vitrine React (Vite/HashRouter) : servie À LA RACINE quand le bundle
         // est présent (image Docker → PUBLIC_DIR), et aussi sur /site/ (rétro-
         // compat). L'utilisateur qui ouvre l'URL du serveur voit donc le vrai
@@ -846,5 +853,240 @@ mod tests {
         assert_eq!(v["ciphertext"], "ZZ");
         assert_eq!(v["sentAt"], "2026-01-01T00:00:00.000Z");
         assert_eq!(v["seq"], 7);
+    }
+}
+
+/// Tests d'INTÉGRATION bout-en-bout des handlers `/v1/*` contre un vrai Postgres
+/// (équivalent de `messaging.test.js` / `messages-store.test.js` côté Node).
+/// SAUTÉS proprement si aucune base n'est configurée (`TEST_DATABASE_URL` ou
+/// `DATABASE_URL`) : `cargo test` reste vert sans Postgres ; la CI en fournit un.
+#[cfg(test)]
+mod integration {
+    use super::*;
+    use actix_web::test;
+    use serde_json::json;
+
+    async fn test_db() -> Option<DatabaseConnection> {
+        let url = std::env::var("TEST_DATABASE_URL")
+            .or_else(|_| std::env::var("DATABASE_URL"))
+            .ok()?;
+        let db = Database::connect(normalize_db_url(url)).await.ok()?;
+        ensure_schema(&db).await.ok()?;
+        Some(db)
+    }
+
+    // Récupère la base ou saute le test (retour anticipé) si aucune n'est là.
+    macro_rules! db_or_skip {
+        () => {
+            match test_db().await {
+                Some(db) => db,
+                None => {
+                    eprintln!("[skip] aucune base : définir TEST_DATABASE_URL ou DATABASE_URL");
+                    return;
+                }
+            }
+        };
+    }
+
+    // Construit l'app de test avec le MÊME câblage de routes que la prod.
+    macro_rules! make_app {
+        ($db:expr) => {
+            test::init_service(
+                App::new()
+                    .app_data(web::Data::new($db.clone()))
+                    .app_data(web::Data::new(Broadcaster::default()))
+                    .app_data(web::Data::new(Rendezvous::new(16)))
+                    .app_data(web::Data::new(Option::<Apns>::None))
+                    .app_data(web::Data::new(Realtime::disabled()))
+                    .app_data(web::JsonConfig::default().limit(8 * 1024 * 1024))
+                    .configure(configure_api),
+            )
+            .await
+        };
+    }
+
+    // Crée une conversation et renvoie son id (String). Macro pour éviter de
+    // devoir nommer le type opaque du service de test.
+    macro_rules! create_conv {
+        ($app:expr, $owner:expr, $participants:expr) => {{
+            let req = test::TestRequest::post()
+                .uri("/v1/conversations")
+                .insert_header(("X-User-Id", $owner))
+                .set_json(json!({ "participants": $participants }))
+                .to_request();
+            let resp = test::call_service(&$app, req).await;
+            assert_eq!(resp.status(), 201, "création conversation");
+            let body: serde_json::Value = test::read_body_json(resp).await;
+            body["id"].as_str().unwrap().to_string()
+        }};
+    }
+
+    #[actix_web::test]
+    async fn message_lifecycle_end_to_end() {
+        let db = db_or_skip!();
+        let app = make_app!(db);
+
+        let conv = create_conv!(
+            app,
+            "alice",
+            json!([{ "id": "alice", "displayName": "Alice" },
+                   { "id": "bob", "displayName": "Bob" }])
+        );
+
+        // Bob envoie un message.
+        let mid = uuid::Uuid::new_v4().to_string();
+        let req = test::TestRequest::post()
+            .uri("/v1/messages")
+            .insert_header(("X-User-Id", "bob"))
+            .set_json(json!({ "conversationId": conv, "id": mid, "ciphertext": "SECRET" }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 201);
+        let posted: serde_json::Value = test::read_body_json(resp).await;
+        let seq = posted["seq"].as_i64().unwrap();
+        assert_eq!(posted["senderId"], "bob");
+        assert_eq!(posted["ciphertext"], "SECRET");
+
+        // Ré-envoi du MÊME id : idempotent (200, même seq, pas de doublon).
+        let req = test::TestRequest::post()
+            .uri("/v1/messages")
+            .insert_header(("X-User-Id", "bob"))
+            .set_json(json!({ "conversationId": conv, "id": mid, "ciphertext": "SECRET" }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+        let again: serde_json::Value = test::read_body_json(resp).await;
+        assert_eq!(again["seq"].as_i64().unwrap(), seq);
+
+        // Alice lit l'historique : un seul message, curseur = seq, aucun lecteur.
+        let req = test::TestRequest::get()
+            .uri(&format!("/v1/messages?conversationId={conv}"))
+            .insert_header(("X-User-Id", "alice"))
+            .to_request();
+        let got: serde_json::Value = test::call_and_read_body_json(&app, req).await;
+        assert_eq!(got["messages"].as_array().unwrap().len(), 1);
+        assert_eq!(got["cursor"].as_i64().unwrap(), seq);
+        assert!(got["readers"].as_object().unwrap().is_empty());
+
+        // Alice pose un accusé de lecture jusqu'à seq.
+        let req = test::TestRequest::post()
+            .uri("/v1/read")
+            .insert_header(("X-User-Id", "alice"))
+            .set_json(json!({ "conversationId": conv, "upTo": seq }))
+            .to_request();
+        assert_eq!(test::call_service(&app, req).await.status(), 200);
+
+        // Bob voit maintenant qu'Alice a lu jusqu'à seq.
+        let req = test::TestRequest::get()
+            .uri(&format!("/v1/messages?conversationId={conv}"))
+            .insert_header(("X-User-Id", "bob"))
+            .to_request();
+        let got: serde_json::Value = test::call_and_read_body_json(&app, req).await;
+        assert_eq!(got["readers"]["alice"].as_i64().unwrap(), seq);
+
+        // Rattrapage `after=seq` : plus rien de neuf.
+        let req = test::TestRequest::get()
+            .uri(&format!("/v1/messages?conversationId={conv}&after={seq}"))
+            .insert_header(("X-User-Id", "alice"))
+            .to_request();
+        let got: serde_json::Value = test::call_and_read_body_json(&app, req).await;
+        assert!(got["messages"].as_array().unwrap().is_empty());
+        assert_eq!(got["cursor"].as_i64().unwrap(), seq);
+    }
+
+    #[actix_web::test]
+    async fn access_control_end_to_end() {
+        let db = db_or_skip!();
+        let app = make_app!(db);
+
+        let conv = create_conv!(
+            app,
+            "alice",
+            json!([{ "id": "alice", "displayName": "Alice" },
+                   { "id": "bob", "displayName": "Bob" }])
+        );
+
+        // GET messages sans X-User-Id → 401.
+        let req = test::TestRequest::get()
+            .uri(&format!("/v1/messages?conversationId={conv}"))
+            .to_request();
+        assert_eq!(test::call_service(&app, req).await.status(), 401);
+
+        // GET messages en non-participant (carol) → 403.
+        let req = test::TestRequest::get()
+            .uri(&format!("/v1/messages?conversationId={conv}"))
+            .insert_header(("X-User-Id", "carol"))
+            .to_request();
+        assert_eq!(test::call_service(&app, req).await.status(), 403);
+
+        // POST message en non-participant → 403.
+        let req = test::TestRequest::post()
+            .uri("/v1/messages")
+            .insert_header(("X-User-Id", "carol"))
+            .set_json(json!({ "conversationId": conv, "id": "x", "ciphertext": "y" }))
+            .to_request();
+        assert_eq!(test::call_service(&app, req).await.status(), 403);
+
+        // POST read en non-participant → 403.
+        let req = test::TestRequest::post()
+            .uri("/v1/read")
+            .insert_header(("X-User-Id", "carol"))
+            .set_json(json!({ "conversationId": conv, "upTo": 1 }))
+            .to_request();
+        assert_eq!(test::call_service(&app, req).await.status(), 403);
+
+        // GET stream en non-participant → 403 (le handler refuse avant de diffuser).
+        let req = test::TestRequest::get()
+            .uri(&format!("/v1/stream?conversationId={conv}"))
+            .insert_header(("X-User-Id", "carol"))
+            .to_request();
+        assert_eq!(test::call_service(&app, req).await.status(), 403);
+
+        // Conversation INCONNUE (scellée) → autorisée (200), rien de lisible sans clé.
+        let unknown = uuid::Uuid::new_v4().to_string();
+        let req = test::TestRequest::get()
+            .uri(&format!("/v1/messages?conversationId={unknown}"))
+            .insert_header(("X-User-Id", "zoe"))
+            .to_request();
+        assert_eq!(test::call_service(&app, req).await.status(), 200);
+    }
+
+    #[actix_web::test]
+    async fn conversation_membership_rules() {
+        let db = db_or_skip!();
+        let app = make_app!(db);
+
+        // Moins de 2 participants → 400.
+        let req = test::TestRequest::post()
+            .uri("/v1/conversations")
+            .insert_header(("X-User-Id", "alice"))
+            .set_json(json!({ "participants": [{ "id": "alice" }] }))
+            .to_request();
+        assert_eq!(test::call_service(&app, req).await.status(), 400);
+
+        // Créateur absent de la liste → 403.
+        let req = test::TestRequest::post()
+            .uri("/v1/conversations")
+            .insert_header(("X-User-Id", "alice"))
+            .set_json(json!({ "participants": [{ "id": "bob" }, { "id": "carol" }] }))
+            .to_request();
+        assert_eq!(test::call_service(&app, req).await.status(), 403);
+
+        // Conversation valide, puis elle apparaît dans la liste d'Alice.
+        let conv = create_conv!(app, "alice", json!([{ "id": "alice" }, { "id": "bob" }]));
+        let req = test::TestRequest::get()
+            .uri("/v1/conversations")
+            .insert_header(("X-User-Id", "alice"))
+            .to_request();
+        let list: serde_json::Value = test::call_and_read_body_json(&app, req).await;
+        assert!(list.as_array().unwrap().iter().any(|c| c["id"] == conv));
+
+        // Carol (non-membre) ne la voit pas.
+        let req = test::TestRequest::get()
+            .uri("/v1/conversations")
+            .insert_header(("X-User-Id", "carol"))
+            .to_request();
+        let list: serde_json::Value = test::call_and_read_body_json(&app, req).await;
+        assert!(!list.as_array().unwrap().iter().any(|c| c["id"] == conv));
     }
 }
