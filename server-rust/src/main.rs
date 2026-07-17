@@ -795,3 +795,56 @@ async fn main() -> std::io::Result<()> {
     .run()
     .await
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_forces_sslmode_on_remote_postgres() {
+        let out = normalize_db_url("postgres://u:p@ec2.example.com:5432/db".into());
+        assert!(out.ends_with("?sslmode=require"), "got: {out}");
+    }
+
+    #[test]
+    fn normalize_appends_with_ampersand_when_query_exists() {
+        let out = normalize_db_url("postgres://u:p@host/db?connect_timeout=5".into());
+        assert!(out.contains("connect_timeout=5"));
+        assert!(out.ends_with("&sslmode=require"), "got: {out}");
+    }
+
+    #[test]
+    fn normalize_leaves_local_and_preset_urls_untouched() {
+        // Local : pas de TLS imposé.
+        let local = "postgres://brocolis:brocolis@localhost/brocolis".to_string();
+        assert_eq!(normalize_db_url(local.clone()), local);
+        let loop_ip = "postgresql://u@127.0.0.1:5432/db".to_string();
+        assert_eq!(normalize_db_url(loop_ip.clone()), loop_ip);
+        // sslmode déjà présent : on n'y touche pas.
+        let preset = "postgres://u@host/db?sslmode=disable".to_string();
+        assert_eq!(normalize_db_url(preset.clone()), preset);
+        // Non-postgres : inchangé.
+        let other = "mysql://u@host/db".to_string();
+        assert_eq!(normalize_db_url(other.clone()), other);
+    }
+
+    #[test]
+    fn message_out_serializes_in_camel_case() {
+        let m = messages::Model {
+            seq: 7,
+            msg_id: "m1".into(),
+            conversation_id: "c1".into(),
+            sender_id: "alice".into(),
+            ciphertext: "ZZ".into(),
+            sent_at: "2026-01-01T00:00:00.000Z".into(),
+        };
+        let v = serde_json::to_value(MessageOut::from(m)).unwrap();
+        // Format de fil identique au serveur Node (clés camelCase).
+        assert_eq!(v["id"], "m1");
+        assert_eq!(v["conversationId"], "c1");
+        assert_eq!(v["senderId"], "alice");
+        assert_eq!(v["ciphertext"], "ZZ");
+        assert_eq!(v["sentAt"], "2026-01-01T00:00:00.000Z");
+        assert_eq!(v["seq"], 7);
+    }
+}
