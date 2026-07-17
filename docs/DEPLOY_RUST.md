@@ -124,6 +124,12 @@ Deux options, au choix :
 
 ---
 
+## Monter en charge
+
+Pour scaler le serveur (dynos, plafond de connexions Postgres, PgBouncer, Redis
+inter-dynos, CDN pour la vitrine, partitionnement/sharding) : voir
+[SCALING.md](SCALING.md).
+
 ## Dépannage
 
 - **Boot qui plante sur Postgres / SSL** : le service force déjà `sslmode=require`
