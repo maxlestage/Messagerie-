@@ -19,9 +19,10 @@ entre dynos). On peut donc scaler **horizontalement** sans coordination.
 | Pool de connexions Postgres | **Borné** (`DB_MAX_CONNECTIONS`, défaut 10) + timeouts | `main()` |
 | Latence temps réel | `TCP_NODELAY` activé | `HttpServer` |
 | Historique de conversation | **Paginé** (`limit` défaut 200, plafond 500, `hasMore`/`cursor`) | `GET /v1/messages` |
-| Table `messages` | **Partitionnée HASH par `conversation_id`** (16 partitions) → *partition pruning* | schéma |
+| Table `messages` | **Partitionnée composite** : HASH(`conversation_id`, 16) × RANGE(`sent_at`, /jour) + `DEFAULT` | schéma |
+| Idempotence | Table dédiée **`message_dedup`** (race-safe, hors partitionnement) | `post_message` |
 | Temps réel multi-dynos | **Redis** (pub/sub) déjà câblé | `realtime.rs` |
-| Rétention | `DELETE` indexé (`sent_at`), fenêtre `MESSAGE_RETENTION_DAYS` (7 j) | `retention_loop` |
+| Rétention | **`DROP PARTITION`** quotidien + filet `DELETE`, fenêtre `MESSAGE_RETENTION_DAYS` (7 j) | `maintenance_loop` |
 
 **Conséquence** : passer à l'échelle est surtout une question de réglages d'infra
 ci-dessous, pas de réécriture applicative.
@@ -143,12 +144,19 @@ déchargé.
 
 ## 4. Base de données à grande échelle
 
-### 4.1 Partitionnement (déjà fait)
+### 4.1 Partitionnement composite (déjà fait)
 
-`messages` est partitionnée **HASH par `conversation_id`** (16 partitions) :
-chaque conversation vit dans une partition, et les requêtes filtrées par
-conversation (envoi, historique, idempotence) ne scannent qu'**une** partition.
-`EXPLAIN` le confirme (pas de balayage des 16).
+`messages` est partitionnée en **composite** :
+- **niveau 1 — HASH(`conversation_id`)**, 16 partitions : chaque conversation
+  vit dans une partition, les requêtes par conversation ne scannent qu'**une**
+  branche (`EXPLAIN` le confirme), et c'est aligné pour Citus (4.2) ;
+- **niveau 2 — RANGE(`sent_at`) par jour + partition `DEFAULT`** : permet une
+  rétention par `DROP PARTITION` (4.3) sans jamais bloquer l'INSERT.
+
+La clé primaire est `(conversation_id, sent_at, seq)` (elle doit contenir les
+deux clés de partition). L'unicité `(conversation_id, msg_id)` — donc
+l'idempotence — est portée par une table dédiée **`message_dedup`**, car une
+contrainte d'unicité sur `messages` devrait contenir `sent_at`.
 
 ### 4.2 Sharding distribué (Citus) — cap suivant
 
@@ -158,29 +166,29 @@ sharding distribué type **Citus** : on distribue `messages` (et
 et chaque shard vit sur un worker. Aucune requête chaude ne traverse plusieurs
 conversations, donc la co-localisation est parfaite.
 
-### 4.3 Rétention : `DELETE` aujourd'hui, partitionnement par temps plus tard
+### 4.3 Rétention par `DROP PARTITION` (déjà fait)
 
-Aujourd'hui la purge est un `DELETE FROM messages WHERE sent_at < cutoff`,
-appuyé sur l'index `idx_msg_sent_at`. **Suffisant à toute échelle réaliste**
-pour une fenêtre de 7 jours.
+La rétention supprime désormais les **partitions quotidiennes** plus vieilles
+que `MESSAGE_RETENTION_DAYS` par `DROP TABLE` — quasi gratuit, sans `DELETE`
+ligne à ligne ni *bloat*. Mécanique (dans le serveur, tâche horaire) :
 
-**Pourquoi on ne partitionne PAS (encore) par temps**, malgré l'attrait du
-`DROP PARTITION` quasi gratuit :
+1. **`ensure_time_partitions`** crée à l'avance les partitions du jour et des
+   jours suivants (fenêtre `[today-1 .. today+2]`) sur les 16 partitions de
+   hachage. Appelée aussi **au démarrage** avant de servir.
+2. **`drop_old_partitions`** `DROP` les partitions quotidiennes datées avant
+   `today - rétention`.
+3. **Filet** : un `DELETE` résiduel purge ce qui aurait atterri dans une
+   partition `DEFAULT` (cron en retard, décalage d'horloge), plus la table
+   `message_dedup`, sous la même fenêtre.
 
-- Il faudrait du **sous-partitionnement** (HASH conversation × RANGE temps),
-  donc **re-réécrire** la table `messages`.
-- L'**INSERT** deviendrait **dépendant d'un cron** qui pré-crée les partitions
-  temporelles futures : si le cron rate, le serveur **ne peut plus insérer de
-  message**. Pour une messagerie, c'est un **risque de disponibilité**, pas une
-  optimisation.
-- Le gain (`DROP` vs `DELETE`) n'apparaît qu'à **très gros volume d'écriture**,
-  quand le `DELETE` + le *vacuum* deviennent un point chaud mesuré.
+La **partition `DEFAULT`** garantit que l'INSERT **ne rate jamais**, même si le
+cron n'a pas encore créé la partition du jour : la ligne tombe dans `DEFAULT`
+(toujours lisible) et sera nettoyée par le filet. C'est la brique qui rend le
+partitionnement temporel **sûr** pour une messagerie.
 
-**Déclencheur d'adoption** : quand `pg:diagnose` / les métriques montrent que la
-purge de rétention (ou le bloat post-`DELETE`) est un goulot réel. À ce
-moment-là, adopter le sous-partitionnement **avec** un cron robuste de
-création/`DROP` de partitions et une **partition `DEFAULT`** de sécurité pour ne
-jamais bloquer l'INSERT.
+> Réglage : le nombre de partitions de hachage (16) et la granularité
+> (quotidienne) sont figés dans le schéma. Une granularité plus grossière
+> (hebdomadaire) réduirait le nombre de partitions si besoin.
 
 ### 4.4 Hygiène des métadonnées
 
@@ -212,6 +220,5 @@ cache hit ratio, latence des requêtes `/v1/messages`, mémoire Redis.
    formule (3.2), puis monter le plan Postgres.
 4. **Beaucoup de dynos** : **PgBouncer** (3.3) et baisser `DB_MAX_CONNECTIONS`.
 5. **Trafic vitrine** : **CDN** ou héberger la vitrine hors dynos (3.6).
-6. **Postgres saturé en écriture** : **Citus** (4.2) ; envisager le
-   partitionnement par temps pour la rétention (4.3) **seulement** si la purge
-   devient un point chaud mesuré.
+6. **Postgres saturé en écriture** : **Citus** (4.2), aligné sur le
+   partitionnement composite déjà en place (4.1).
