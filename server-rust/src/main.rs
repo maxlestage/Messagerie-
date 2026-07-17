@@ -22,7 +22,7 @@ use chrono::SecondsFormat;
 use sea_orm::sea_query::OnConflict;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectOptions, ConnectionTrait, Database, DatabaseConnection,
-    EntityTrait, QueryFilter, QueryOrder, Set,
+    EntityTrait, QueryFilter, QueryOrder, QuerySelect, Set,
 };
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -142,7 +142,16 @@ struct MessagesQuery {
     conversation_id: String,
     #[serde(default)]
     after: i64,
+    /// Taille de page demandée (optionnelle). Bornée par `MAX_MESSAGES_PAGE`.
+    #[serde(default)]
+    limit: Option<i64>,
 }
+
+/// Pagination de `GET /v1/messages` : on ne renvoie jamais tout un historique
+/// d'un coup (une longue conversation pourrait peser des Mo de médias chiffrés).
+/// Le client avance page par page avec `after=<cursor>` tant que `hasMore`.
+const DEFAULT_MESSAGES_PAGE: u64 = 200;
+const MAX_MESSAGES_PAGE: u64 = 500;
 
 async fn health() -> impl Responder {
     HttpResponse::Ok().content_type("text/plain").body("ok")
@@ -220,13 +229,28 @@ async fn get_messages(
     if !can_access(db, &q.conversation_id, &user).await {
         return HttpResponse::Forbidden().body("accès refusé à cette conversation");
     }
-    let rows = messages::Entity::find()
+    // Taille de page effective : défaut 200, plafonnée à 500, jamais illimitée.
+    let page = q
+        .limit
+        .filter(|n| *n > 0)
+        .map(|n| (n as u64).min(MAX_MESSAGES_PAGE))
+        .unwrap_or(DEFAULT_MESSAGES_PAGE);
+
+    // On demande UNE ligne de plus que la page pour savoir s'il en reste, sans
+    // second aller-retour : si on en obtient page+1, il y a une page suivante.
+    let mut rows = messages::Entity::find()
         .filter(messages::Column::ConversationId.eq(&q.conversation_id))
         .filter(messages::Column::Seq.gt(q.after))
         .order_by_asc(messages::Column::Seq)
+        .limit(page + 1)
         .all(db)
         .await
         .unwrap_or_default();
+
+    let has_more = rows.len() as u64 > page;
+    if has_more {
+        rows.truncate(page as usize); // on ne renvoie que la page demandée
+    }
 
     let cursor = rows.last().map(|m| m.seq).unwrap_or(q.after);
     let out: Vec<MessageOut> = rows.into_iter().map(MessageOut::from).collect();
@@ -246,6 +270,10 @@ async fn get_messages(
         "messages": out,
         "cursor": cursor,
         "readers": readers,
+        // Champs additifs (les anciens clients les ignorent) : pour paginer,
+        // rappeler avec `after=cursor` tant que `hasMore` est vrai.
+        "hasMore": has_more,
+        "limit": page,
     }))
 }
 
@@ -993,6 +1021,79 @@ mod integration {
             let body: serde_json::Value = test::read_body_json(resp).await;
             body["id"].as_str().unwrap().to_string()
         }};
+    }
+
+    // Envoie un message et renvoie son `seq`.
+    macro_rules! post_msg {
+        ($app:expr, $sender:expr, $conv:expr, $id:expr, $ct:expr) => {{
+            let req = test::TestRequest::post()
+                .uri("/v1/messages")
+                .insert_header(("X-User-Id", $sender))
+                .set_json(json!({ "conversationId": $conv, "id": $id, "ciphertext": $ct }))
+                .to_request();
+            let resp = test::call_service(&$app, req).await;
+            assert_eq!(resp.status(), 201, "envoi message");
+            let body: serde_json::Value = test::read_body_json(resp).await;
+            body["seq"].as_i64().unwrap()
+        }};
+    }
+
+    #[actix_web::test]
+    async fn messages_are_paginated() {
+        let db = db_or_skip!();
+        let app = make_app!(db);
+        let conv = create_conv!(app, "alice", json!([{ "id": "alice" }, { "id": "bob" }]));
+
+        // Cinq messages dans l'ordre.
+        let mut ids = Vec::new();
+        for i in 0..5 {
+            let id = uuid::Uuid::new_v4().to_string();
+            post_msg!(app, "bob", conv, id, format!("c{i}"));
+            ids.push(id);
+        }
+
+        // Une page depuis `after`, taille `limit`. Macro pour éviter de nommer
+        // le type opaque du service de test.
+        macro_rules! page {
+            ($after:expr, $limit:expr) => {{
+                let req = test::TestRequest::get()
+                    .uri(&format!(
+                        "/v1/messages?conversationId={}&after={}&limit={}",
+                        conv, $after, $limit
+                    ))
+                    .insert_header(("X-User-Id", "alice"))
+                    .to_request();
+                let v: serde_json::Value = test::call_and_read_body_json(&app, req).await;
+                v
+            }};
+        }
+
+        // Page 1 : 2 messages, il en reste.
+        let p1 = page!(0, 2);
+        assert_eq!(p1["messages"].as_array().unwrap().len(), 2);
+        assert_eq!(p1["hasMore"], true);
+        assert_eq!(p1["limit"], 2);
+        assert_eq!(p1["messages"][0]["id"], ids[0]);
+        assert_eq!(p1["messages"][1]["id"], ids[1]);
+        let c1 = p1["cursor"].as_i64().unwrap();
+
+        // Page 2 : 2 messages de plus.
+        let p2 = page!(c1, 2);
+        assert_eq!(p2["messages"].as_array().unwrap().len(), 2);
+        assert_eq!(p2["hasMore"], true);
+        assert_eq!(p2["messages"][0]["id"], ids[2]);
+        assert_eq!(p2["messages"][1]["id"], ids[3]);
+        let c2 = p2["cursor"].as_i64().unwrap();
+
+        // Page 3 : le dernier, plus rien après.
+        let p3 = page!(c2, 2);
+        assert_eq!(p3["messages"].as_array().unwrap().len(), 1);
+        assert_eq!(p3["hasMore"], false);
+        assert_eq!(p3["messages"][0]["id"], ids[4]);
+
+        // `limit` hors bornes est ramené au plafond (jamais illimité).
+        let capped = page!(0, 100_000);
+        assert_eq!(capped["limit"], MAX_MESSAGES_PAGE);
     }
 
     #[actix_web::test]
