@@ -22,14 +22,14 @@ use chrono::SecondsFormat;
 use sea_orm::sea_query::OnConflict;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectOptions, ConnectionTrait, Database, DatabaseConnection,
-    EntityTrait, QueryFilter, QueryOrder, QuerySelect, Set,
+    DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Set,
 };
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Duration;
 use tokio::sync::broadcast;
 
-use entities::{conversation_members, conversations, messages, read_cursors};
+use entities::{conversation_members, conversations, message_dedup, messages, read_cursors};
 use rendezvous::Rendezvous;
 
 /// Diffusion temps réel intra-process : un canal `broadcast` par conversation.
@@ -179,14 +179,46 @@ async fn post_message(
         return HttpResponse::Forbidden().body("accès refusé à cette conversation");
     }
 
-    // Déjà présent ? (idempotence : le client peut renvoyer le même id.)
-    if let Ok(Some(existing)) = messages::Entity::find()
-        .filter(messages::Column::ConversationId.eq(conv))
-        .filter(messages::Column::MsgId.eq(&body.id))
-        .one(db)
-        .await
-    {
-        return HttpResponse::Ok().json(MessageOut::from(existing));
+    let sent = now_iso();
+
+    // Idempotence RACE-SAFE : on « réserve » (conversation_id, msg_id) dans la
+    // table de dédup. `messages` étant partitionnée par temps, elle ne peut plus
+    // porter cette unicité (il faudrait y inclure sent_at) — d'où la table dédiée.
+    let reserve = message_dedup::Entity::insert(message_dedup::ActiveModel {
+        conversation_id: Set(conv.to_string()),
+        msg_id: Set(body.id.clone()),
+        sent_at: Set(sent.clone()),
+    })
+    .on_conflict(
+        OnConflict::columns([
+            message_dedup::Column::ConversationId,
+            message_dedup::Column::MsgId,
+        ])
+        .do_nothing()
+        .to_owned(),
+    )
+    .exec(db)
+    .await;
+
+    match reserve {
+        // Déjà connu : on renvoie le message existant (idempotent).
+        Err(DbErr::RecordNotInserted) => {
+            if let Ok(Some(existing)) = messages::Entity::find()
+                .filter(messages::Column::ConversationId.eq(conv))
+                .filter(messages::Column::MsgId.eq(&body.id))
+                .one(db)
+                .await
+            {
+                return HttpResponse::Ok().json(MessageOut::from(existing));
+            }
+            // Réservation présente mais message absent (tentative précédente
+            // interrompue) : on ré-insère ci-dessous pour se rétablir.
+        }
+        Err(e) => {
+            eprintln!("réservation dedup: {e}");
+            return HttpResponse::InternalServerError().body("stockage impossible");
+        }
+        Ok(_) => {}
     }
 
     let active = messages::ActiveModel {
@@ -195,7 +227,7 @@ async fn post_message(
         conversation_id: Set(conv.to_string()),
         sender_id: Set(sender),
         ciphertext: Set(ciphertext.to_string()),
-        sent_at: Set(now_iso()),
+        sent_at: Set(sent),
     };
     match active.insert(db).await {
         Ok(saved) => {
@@ -710,26 +742,35 @@ async fn ensure_schema(db: &DatabaseConnection) -> Result<(), sea_orm::DbErr> {
             participants TEXT NOT NULL DEFAULT '[]',
             created_at   TEXT NOT NULL
         );
-        -- Table `messages` PARTITIONNÉE PAR CONVERSATION (HASH sur
-        -- conversation_id, 16 partitions). Chaque conversation vit dans UNE
-        -- partition : les requêtes filtrées par conversation (envoi, historique)
-        -- ne touchent qu'une partition (partition pruning), les index restent
-        -- plus petits, et c'est le socle d'un sharding distribué (Citus) ultérieur.
-        -- La clé primaire doit contenir la clé de partition → (conversation_id, seq).
-        -- Migration idempotente et ATOMIQUE : convertit une table existante
-        -- non partitionnée sans perdre de données, et ne fait rien si déjà fait.
+        -- Table `messages` PARTITIONNÉE EN COMPOSITE :
+        --   niveau 1 : HASH(conversation_id), 16 partitions (localité par
+        --              conversation + socle de sharding Citus) ;
+        --   niveau 2 : RANGE(sent_at) par JOUR + une partition DEFAULT de
+        --              sécurité. Objectif : la rétention devient un DROP de
+        --              partition (quasi gratuit, pas de DELETE ligne à ligne ni
+        --              de bloat), et le DEFAULT garantit que l'INSERT ne rate
+        --              JAMAIS, même si le cron d'entretien a du retard.
+        -- La clé primaire doit contenir les DEUX clés de partition :
+        --   (conversation_id, sent_at, seq).
+        -- Conséquence : l'unicité (conversation_id, msg_id) ne peut plus être un
+        -- index sur `messages` (il devrait contenir sent_at) → l'idempotence
+        -- passe par la table `message_dedup` ci-dessous.
+        -- Migration idempotente et ATOMIQUE depuis toute forme antérieure (table
+        -- simple, ou hash-simple de l'étape précédente) sans perte de données.
         DO $mig$
         DECLARE
-          tbl_exists bool;
-          is_part    bool;
-          i          int;
+          tbl_exists   bool;
+          is_composite bool;
+          i            int;
+          d            date;
         BEGIN
           SELECT EXISTS(SELECT 1 FROM pg_class WHERE relname='messages' AND relkind IN ('r','p'))
             INTO tbl_exists;
-          SELECT EXISTS(SELECT 1 FROM pg_class WHERE relname='messages' AND relkind='p')
-            INTO is_part;
+          -- « composite » = la partition de hachage messages_p0 est elle-même partitionnée.
+          SELECT EXISTS(SELECT 1 FROM pg_class WHERE relname='messages_p0' AND relkind='p')
+            INTO is_composite;
 
-          IF NOT is_part THEN
+          IF NOT is_composite THEN
             IF tbl_exists THEN
               ALTER TABLE messages RENAME TO messages_legacy;
             END IF;
@@ -741,14 +782,30 @@ async fn ensure_schema(db: &DatabaseConnection) -> Result<(), sea_orm::DbErr> {
               sender_id       TEXT NOT NULL,
               ciphertext      TEXT NOT NULL,
               sent_at         TEXT NOT NULL,
-              PRIMARY KEY (conversation_id, seq)
+              PRIMARY KEY (conversation_id, sent_at, seq)
             ) PARTITION BY HASH (conversation_id);
 
+            -- 16 partitions de hachage, chacune sous-partitionnée par jour + DEFAULT.
             FOR i IN 0..15 LOOP
               EXECUTE format(
-                'CREATE TABLE IF NOT EXISTS messages_p%s PARTITION OF messages '
-                || 'FOR VALUES WITH (MODULUS 16, REMAINDER %s)', i, i
-              );
+                'CREATE TABLE messages_p%s PARTITION OF messages '
+                || 'FOR VALUES WITH (MODULUS 16, REMAINDER %s) PARTITION BY RANGE (sent_at)', i, i);
+              EXECUTE format(
+                'CREATE TABLE messages_p%s_def PARTITION OF messages_p%s DEFAULT', i, i);
+            END LOOP;
+
+            -- Partitions quotidiennes sur [today-8 .. today+2], créées AVANT toute
+            -- recopie pour que les données récentes y atterrissent (le DEFAULT ne
+            -- récupère que ce qui est hors fenêtre).
+            FOR i IN 0..15 LOOP
+              FOR d IN
+                SELECT generate_series(current_date - 8, current_date + 2, interval '1 day')::date
+              LOOP
+                EXECUTE format(
+                  'CREATE TABLE IF NOT EXISTS messages_p%s_d%s PARTITION OF messages_p%s '
+                  || 'FOR VALUES FROM (%L) TO (%L)',
+                  i, to_char(d,'YYYYMMDD'), i, to_char(d,'YYYY-MM-DD'), to_char(d + 1,'YYYY-MM-DD'));
+              END LOOP;
             END LOOP;
 
             IF tbl_exists THEN
@@ -758,17 +815,30 @@ async fn ensure_schema(db: &DatabaseConnection) -> Result<(), sea_orm::DbErr> {
               -- Réaligne la séquence sur le max recopié (sinon collisions de PK).
               PERFORM setval(
                 pg_get_serial_sequence('messages','seq'),
-                GREATEST((SELECT COALESCE(MAX(seq),0) FROM messages), 1)
-              );
-              DROP TABLE messages_legacy;
+                GREATEST((SELECT COALESCE(MAX(seq),0) FROM messages), 1));
             END IF;
+          END IF;
+
+          -- Idempotence (conversation_id, msg_id), race-safe, hors partitionnement.
+          CREATE TABLE IF NOT EXISTS message_dedup (
+            conversation_id TEXT NOT NULL,
+            msg_id          TEXT NOT NULL,
+            sent_at         TEXT NOT NULL,
+            PRIMARY KEY (conversation_id, msg_id)
+          );
+          IF tbl_exists AND NOT is_composite THEN
+            INSERT INTO message_dedup (conversation_id, msg_id, sent_at)
+              SELECT conversation_id, msg_id, MIN(sent_at)
+              FROM messages GROUP BY conversation_id, msg_id
+              ON CONFLICT DO NOTHING;
+            DROP TABLE IF EXISTS messages_legacy;
           END IF;
         END
         $mig$;
-        -- Index (cascadent sur chaque partition). L'unicité (conversation_id,
-        -- msg_id) reste garantie car elle contient la clé de partition.
-        -- L'accès historique (conversation_id, seq) est déjà couvert par la PK.
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_msg_unique ON messages(conversation_id, msg_id);
+        CREATE INDEX IF NOT EXISTS idx_dedup_sent_at ON message_dedup(sent_at);
+        -- Accès historique (conversation_id, seq) : index NON unique (pas besoin de
+        -- contenir la clé de partition), cascade sur toutes les partitions.
+        CREATE INDEX IF NOT EXISTS idx_msg_conv_seq ON messages(conversation_id, seq);
         CREATE INDEX IF NOT EXISTS idx_msg_sent_at ON messages(sent_at);
         CREATE TABLE IF NOT EXISTS read_cursors (
             conversation_id TEXT NOT NULL,
@@ -790,11 +860,59 @@ async fn ensure_schema(db: &DatabaseConnection) -> Result<(), sea_orm::DbErr> {
     .map(|_| ())
 }
 
-/// Purge périodique des messages plus vieux que la fenêtre de rétention.
-async fn retention_loop(db: DatabaseConnection) {
+/// Crée (idempotent, best-effort) les partitions quotidiennes autour
+/// d'aujourd'hui pour les 16 partitions de hachage, afin que les nouveaux
+/// messages atterrissent dans une partition DATÉE (et non dans le DEFAULT, qui
+/// n'est qu'un filet). Tolère l'échec d'un CREATE (ex. si le DEFAULT contient
+/// déjà des lignes de la plage) : les données restent lisibles et purgeables.
+async fn ensure_time_partitions(db: &DatabaseConnection) {
+    let today = chrono::Utc::now().date_naive();
+    for off in -1..=2 {
+        let d = today + chrono::Duration::days(off);
+        let lo = d.format("%Y-%m-%d");
+        let hi = (d + chrono::Duration::days(1)).format("%Y-%m-%d");
+        let tag = d.format("%Y%m%d");
+        for i in 0..16 {
+            let sql = format!(
+                "CREATE TABLE IF NOT EXISTS messages_p{i}_d{tag} PARTITION OF messages_p{i} \
+                 FOR VALUES FROM ('{lo}') TO ('{hi}')"
+            );
+            let _ = db.execute_unprepared(&sql).await;
+        }
+    }
+}
+
+/// Rétention par DROP : supprime les partitions quotidiennes plus vieilles que
+/// la fenêtre — quasi gratuit (pas de DELETE ligne à ligne ni de bloat). Les
+/// partitions DEFAULT (`messages_pN_def`) ne sont jamais touchées.
+async fn drop_old_partitions(db: &DatabaseConnection, days: i64) {
+    let cutoff_tag = (chrono::Utc::now().date_naive() - chrono::Duration::days(days))
+        .format("%Y%m%d")
+        .to_string();
+    let sql = format!(
+        r#"DO $drop$
+        DECLARE r record;
+        BEGIN
+          FOR r IN SELECT relname FROM pg_class
+                   WHERE relname ~ '^messages_p[0-9]+_d[0-9]{{8}}$' LOOP
+            IF substring(r.relname from '_d([0-9]{{8}})$') < '{cutoff_tag}' THEN
+              EXECUTE format('DROP TABLE IF EXISTS %I', r.relname);
+            END IF;
+          END LOOP;
+        END $drop$;"#
+    );
+    let _ = db.execute_unprepared(&sql).await;
+}
+
+/// Boucle d'entretien (horaire) : crée les partitions à venir, DROP les
+/// anciennes (rétention), puis passe un filet — purge des éventuels restes en
+/// partition DEFAULT et de la table de dédup — sous la fenêtre de rétention.
+async fn maintenance_loop(db: DatabaseConnection) {
     let days = retention_days();
     loop {
-        tokio::time::sleep(Duration::from_secs(10 * 60)).await;
+        ensure_time_partitions(&db).await;
+        drop_old_partitions(&db, days).await;
+
         let cutoff = (chrono::Utc::now() - chrono::Duration::days(days))
             .to_rfc3339_opts(SecondsFormat::Millis, true);
         if let Err(e) = messages::Entity::delete_many()
@@ -802,8 +920,16 @@ async fn retention_loop(db: DatabaseConnection) {
             .exec(&db)
             .await
         {
-            eprintln!("purge rétention: {e}");
+            eprintln!("purge rétention (filet DEFAULT): {e}");
         }
+        if let Err(e) = message_dedup::Entity::delete_many()
+            .filter(message_dedup::Column::SentAt.lt(&cutoff))
+            .exec(&db)
+            .await
+        {
+            eprintln!("purge dédup: {e}");
+        }
+        tokio::time::sleep(Duration::from_secs(60 * 60)).await;
     }
 }
 
@@ -872,9 +998,12 @@ async fn main() -> std::io::Result<()> {
         .await
         .expect("connexion Postgres impossible");
     ensure_schema(&db).await.expect("création du schéma impossible");
+    // Partitions temporelles du jour prêtes avant de servir (utile au redémarrage
+    // d'une base déjà migrée, si l'entretien n'a pas tourné depuis un moment).
+    ensure_time_partitions(&db).await;
 
-    // Rétention en tâche de fond.
-    tokio::spawn(retention_loop(db.clone()));
+    // Entretien des partitions + rétention par DROP, en tâche de fond.
+    tokio::spawn(maintenance_loop(db.clone()));
 
     let max_peers: usize = std::env::var("MAX_PEERS")
         .ok()
@@ -1174,7 +1303,78 @@ mod integration {
             .unwrap()
             .unwrap();
         let n: i64 = row.try_get_by_index(0).unwrap();
-        assert_eq!(n, 16, "16 partitions attendues");
+        assert_eq!(n, 16, "16 partitions de hachage attendues");
+
+        // …composite : la partition de hachage messages_p0 est elle-même
+        // partitionnée (par temps).
+        let row = db
+            .query_one(Statement::from_string(
+                DbBackend::Postgres,
+                "SELECT relkind::text FROM pg_class WHERE relname='messages_p0'".to_owned(),
+            ))
+            .await
+            .unwrap()
+            .expect("messages_p0 introuvable");
+        let sub: String = row.try_get_by_index(0).unwrap();
+        assert_eq!(sub, "p", "messages_p0 doit être sous-partitionnée par temps");
+
+        // La table de dédup (idempotence) doit exister.
+        let row = db
+            .query_one(Statement::from_string(
+                DbBackend::Postgres,
+                "SELECT count(*)::bigint FROM pg_class WHERE relname='message_dedup'".to_owned(),
+            ))
+            .await
+            .unwrap()
+            .unwrap();
+        let dedup: i64 = row.try_get_by_index(0).unwrap();
+        assert_eq!(dedup, 1, "table message_dedup attendue");
+    }
+
+    #[actix_web::test]
+    async fn partition_maintenance_creates_today_and_drops_old() {
+        let db = db_or_skip!();
+        use sea_orm::{DbBackend, Statement};
+
+        // Entretien : crée les partitions du jour, DROP les trop vieilles.
+        ensure_time_partitions(&db).await;
+        drop_old_partitions(&db, retention_days()).await;
+
+        // La partition quotidienne d'aujourd'hui existe sur les 16 hash.
+        let today = chrono::Utc::now().date_naive().format("%Y%m%d").to_string();
+        let row = db
+            .query_one(Statement::from_string(
+                DbBackend::Postgres,
+                format!(
+                    "SELECT count(*)::bigint FROM pg_class \
+                     WHERE relname ~ '^messages_p[0-9]+_d{today}$'"
+                ),
+            ))
+            .await
+            .unwrap()
+            .unwrap();
+        let n: i64 = row.try_get_by_index(0).unwrap();
+        assert_eq!(n, 16, "16 partitions quotidiennes du jour attendues");
+
+        // Aucune partition quotidienne plus vieille que la fenêtre ne subsiste.
+        let cutoff = (chrono::Utc::now().date_naive()
+            - chrono::Duration::days(retention_days()))
+        .format("%Y%m%d")
+        .to_string();
+        let row = db
+            .query_one(Statement::from_string(
+                DbBackend::Postgres,
+                format!(
+                    "SELECT count(*)::bigint FROM pg_class \
+                     WHERE relname ~ '^messages_p[0-9]+_d[0-9]{{8}}$' \
+                     AND substring(relname from '_d([0-9]{{8}})$') < '{cutoff}'"
+                ),
+            ))
+            .await
+            .unwrap()
+            .unwrap();
+        let stale: i64 = row.try_get_by_index(0).unwrap();
+        assert_eq!(stale, 0, "aucune partition périmée ne doit subsister");
     }
 
     #[actix_web::test]
