@@ -710,16 +710,65 @@ async fn ensure_schema(db: &DatabaseConnection) -> Result<(), sea_orm::DbErr> {
             participants TEXT NOT NULL DEFAULT '[]',
             created_at   TEXT NOT NULL
         );
-        CREATE TABLE IF NOT EXISTS messages (
-            seq             BIGSERIAL PRIMARY KEY,
-            msg_id          TEXT NOT NULL,
-            conversation_id TEXT NOT NULL,
-            sender_id       TEXT NOT NULL,
-            ciphertext      TEXT NOT NULL,
-            sent_at         TEXT NOT NULL
-        );
+        -- Table `messages` PARTITIONNÉE PAR CONVERSATION (HASH sur
+        -- conversation_id, 16 partitions). Chaque conversation vit dans UNE
+        -- partition : les requêtes filtrées par conversation (envoi, historique)
+        -- ne touchent qu'une partition (partition pruning), les index restent
+        -- plus petits, et c'est le socle d'un sharding distribué (Citus) ultérieur.
+        -- La clé primaire doit contenir la clé de partition → (conversation_id, seq).
+        -- Migration idempotente et ATOMIQUE : convertit une table existante
+        -- non partitionnée sans perdre de données, et ne fait rien si déjà fait.
+        DO $mig$
+        DECLARE
+          tbl_exists bool;
+          is_part    bool;
+          i          int;
+        BEGIN
+          SELECT EXISTS(SELECT 1 FROM pg_class WHERE relname='messages' AND relkind IN ('r','p'))
+            INTO tbl_exists;
+          SELECT EXISTS(SELECT 1 FROM pg_class WHERE relname='messages' AND relkind='p')
+            INTO is_part;
+
+          IF NOT is_part THEN
+            IF tbl_exists THEN
+              ALTER TABLE messages RENAME TO messages_legacy;
+            END IF;
+
+            CREATE TABLE messages (
+              seq             BIGSERIAL,
+              msg_id          TEXT NOT NULL,
+              conversation_id TEXT NOT NULL,
+              sender_id       TEXT NOT NULL,
+              ciphertext      TEXT NOT NULL,
+              sent_at         TEXT NOT NULL,
+              PRIMARY KEY (conversation_id, seq)
+            ) PARTITION BY HASH (conversation_id);
+
+            FOR i IN 0..15 LOOP
+              EXECUTE format(
+                'CREATE TABLE IF NOT EXISTS messages_p%s PARTITION OF messages '
+                || 'FOR VALUES WITH (MODULUS 16, REMAINDER %s)', i, i
+              );
+            END LOOP;
+
+            IF tbl_exists THEN
+              INSERT INTO messages (seq, msg_id, conversation_id, sender_id, ciphertext, sent_at)
+                SELECT seq, msg_id, conversation_id, sender_id, ciphertext, sent_at
+                FROM messages_legacy;
+              -- Réaligne la séquence sur le max recopié (sinon collisions de PK).
+              PERFORM setval(
+                pg_get_serial_sequence('messages','seq'),
+                GREATEST((SELECT COALESCE(MAX(seq),0) FROM messages), 1)
+              );
+              DROP TABLE messages_legacy;
+            END IF;
+          END IF;
+        END
+        $mig$;
+        -- Index (cascadent sur chaque partition). L'unicité (conversation_id,
+        -- msg_id) reste garantie car elle contient la clé de partition.
+        -- L'accès historique (conversation_id, seq) est déjà couvert par la PK.
         CREATE UNIQUE INDEX IF NOT EXISTS idx_msg_unique ON messages(conversation_id, msg_id);
-        CREATE INDEX IF NOT EXISTS idx_msg_conv_seq ON messages(conversation_id, seq);
         CREATE INDEX IF NOT EXISTS idx_msg_sent_at ON messages(sent_at);
         CREATE TABLE IF NOT EXISTS read_cursors (
             conversation_id TEXT NOT NULL,
@@ -1094,6 +1143,38 @@ mod integration {
         // `limit` hors bornes est ramené au plafond (jamais illimité).
         let capped = page!(0, 100_000);
         assert_eq!(capped["limit"], MAX_MESSAGES_PAGE);
+    }
+
+    #[actix_web::test]
+    async fn messages_table_is_hash_partitioned() {
+        let db = db_or_skip!();
+        use sea_orm::{DbBackend, Statement};
+
+        // `messages` doit être une table PARTITIONNÉE (relkind='p')…
+        let row = db
+            .query_one(Statement::from_string(
+                DbBackend::Postgres,
+                "SELECT relkind::text FROM pg_class WHERE relname='messages'".to_owned(),
+            ))
+            .await
+            .unwrap()
+            .expect("table messages introuvable");
+        let relkind: String = row.try_get_by_index(0).unwrap();
+        assert_eq!(relkind, "p", "messages doit rester partitionnée");
+
+        // …avec ses 16 partitions.
+        let row = db
+            .query_one(Statement::from_string(
+                DbBackend::Postgres,
+                "SELECT count(*)::bigint FROM pg_inherits i \
+                 JOIN pg_class p ON p.oid = i.inhparent WHERE p.relname='messages'"
+                    .to_owned(),
+            ))
+            .await
+            .unwrap()
+            .unwrap();
+        let n: i64 = row.try_get_by_index(0).unwrap();
+        assert_eq!(n, 16, "16 partitions attendues");
     }
 
     #[actix_web::test]
