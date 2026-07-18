@@ -187,7 +187,9 @@ struct BrocolisStatusWidgetView: View {
                     Text(loc("« \(name) » — expirée", "« \(name) » — expired", "« \(name) » — caducada"))
                         .font(.caption).foregroundStyle(.orange)
                 } else {
-                    Text(loc("« \(name) » — expire \(exp, style: .relative)", "« \(name) » — expires \(exp, style: .relative)", "« \(name) » — caduca \(exp, style: .relative)"))
+                    // La date relative auto-actualisée (Text(_:style:)) doit rester
+                    // un Text séparé : elle n'existe pas dans une String via loc().
+                    (Text(loc("« \(name) » — expire ", "« \(name) » — expires ", "« \(name) » — caduca ")) + Text(exp, style: .relative))
                         .font(.caption).foregroundStyle(.secondary)
                 }
             } else {

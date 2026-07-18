@@ -22,6 +22,20 @@ import AVFoundation
 import PhotosUI
 import LocalAuthentication
 
+/// Comme `loc`, mais renvoie un `Text` qui REND le Markdown (**gras**, `code`).
+/// Indispensable car `Text(uneString)` (chaîne dynamique) afficherait le Markdown
+/// verbatim, contrairement à `Text("littéral")`. Repli verbatim si parsing échoue.
+func locText(_ fr: String, _ en: String, _ es: String) -> Text {
+    let s = loc(fr, en, es)
+    if let attr = try? AttributedString(
+        markdown: s,
+        options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+    ) {
+        return Text(attr)
+    }
+    return Text(s)
+}
+
 // MARK: - Préférences messagerie (App Group)
 
 /// Petits réglages persistés dans l'App Group : identité d'appareil (pour
@@ -583,7 +597,7 @@ struct MessagingHomeView: View {
                         Label(loc("Configurer le serveur", "Configure the server", "Configurar el servidor"), systemImage: "network")
                     }
                 } footer: {
-                    Text(loc("Renseigne l'URL de ton API `messagerie-api` (ex. `https://…`). Sans elle, impossible d'échanger des messages en direct.", "Enter the URL of your `messagerie-api` API (e.g. `https://…`). Without it, exchanging live messages is impossible.", "Introduce la URL de tu API `messagerie-api` (p. ej. `https://…`). Sin ella, es imposible intercambiar mensajes en directo."))
+                    locText("Renseigne l'URL de ton API `messagerie-api` (ex. `https://…`). Sans elle, impossible d'échanger des messages en direct.", "Enter the URL of your `messagerie-api` API (e.g. `https://…`). Without it, exchanging live messages is impossible.", "Introduce la URL de tu API `messagerie-api` (p. ej. `https://…`). Sin ella, es imposible intercambiar mensajes en directo.")
                 }
             }
 
@@ -604,7 +618,7 @@ struct MessagingHomeView: View {
             } header: {
                 Text(loc("Correspondants", "Contacts", "Contactos"))
             } footer: {
-                Text(loc("Une **clé = une personne**. Choisis qui : les messages sont chiffrés avec sa clé, lisibles en clair ici et illisibles partout ailleurs.", "One **key = one person**. Choose who: messages are encrypted with their key, readable in the clear here and unreadable everywhere else.", "Una **clave = una persona**. Elige a quién: los mensajes se cifran con su clave, legibles en claro aquí e ilegibles en cualquier otro lugar."))
+                locText("Une **clé = une personne**. Choisis qui : les messages sont chiffrés avec sa clé, lisibles en clair ici et illisibles partout ailleurs.", "One **key = one person**. Choose who: messages are encrypted with their key, readable in the clear here and unreadable everywhere else.", "Una **clave = una persona**. Elige a quién: los mensajes se cifran con su clave, legibles en claro aquí e ilegibles en cualquier otro lugar.")
             }
         }
         .navigationTitle(loc("Messagerie", "Messaging", "Mensajería"))
@@ -758,7 +772,7 @@ private struct ChatScreen: View {
         case .waiting:
             bannerBox(color: .orange, icon: "hourglass") {
                 Text(loc("En attente de \(store.correspondent.name)", "Waiting for \(store.correspondent.name)", "Esperando a \(store.correspondent.name)")).font(.subheadline).bold()
-                Text(loc("Pour qu'il reçoive tes messages, il doit avoir Brocolis 🥦 **et TA clé**. Envoie-la-lui :", "For them to receive your messages, they must have Brocolis 🥦 **and YOUR key**. Send it to them:", "Para que reciba tus mensajes, debe tener Brocolis 🥦 **y TU clave**. Envíasela:"))
+                locText("Pour qu'il reçoive tes messages, il doit avoir Brocolis 🥦 **et TA clé**. Envoie-la-lui :", "For them to receive your messages, they must have Brocolis 🥦 **and YOUR key**. Send it to them:", "Para que reciba tus mensajes, debe tener Brocolis 🥦 **y TU clave**. Envíasela:")
                     .font(.caption).foregroundStyle(.secondary)
                 inviteButton
             }
@@ -766,7 +780,7 @@ private struct ChatScreen: View {
             bannerBox(color: .red, icon: "key.slash") {
                 Text(loc("\(store.correspondent.name) écrit, mais vos clés ne correspondent pas", "\(store.correspondent.name) is writing, but your keys don’t match", "\(store.correspondent.name) escribe, pero vuestras claves no coinciden"))
                     .font(.subheadline).bold()
-                Text(loc("Ses messages restent 🔒 car sa clé n'est pas exactement la tienne. La solution sûre : refaites l'**appairage** (le même code à deux), ou renvoie-lui ta clé.", "Their messages stay 🔒 because their key isn’t exactly yours. The safe fix: redo the **pairing** (the same code together), or send them your key again.", "Sus mensajes siguen 🔒 porque su clave no es exactamente la tuya. La solución segura: rehaced el **emparejamiento** (el mismo código entre los dos), o vuélvele a enviar tu clave."))
+                locText("Ses messages restent 🔒 car sa clé n'est pas exactement la tienne. La solution sûre : refaites l'**appairage** (le même code à deux), ou renvoie-lui ta clé.", "Their messages stay 🔒 because their key isn’t exactly yours. The safe fix: redo the **pairing** (the same code together), or send them your key again.", "Sus mensajes siguen 🔒 porque su clave no es exactamente la tuya. La solución segura: rehaced el **emparejamiento** (el mismo código entre los dos), o vuélvele a enviar tu clave.")
                     .font(.caption).foregroundStyle(.secondary)
                 inviteButton
             }
