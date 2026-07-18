@@ -762,9 +762,18 @@ struct BrocolisiMessageRootView: View {
                     }
                 }
 
+                // Champ à CONTRASTE GARANTI : `.roundedBorder` s'adapte mal au
+                // thème sombre du panneau iMessage (on voyait mal ce qu'on tapait).
+                // Ici : texte `.primary` + fond adaptatif + police `.body` lisible.
                 TextField(loc("Message secret…", "Secret message…", "Mensaje secreto…"), text: $draft, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
+                    .font(.body)
+                    .foregroundStyle(.primary)
+                    .tint(brocoliGreen) // curseur vert bien visible
                     .lineLimit(1...4)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(Color(.secondarySystemBackground)))
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(brocoliGreen.opacity(0.4), lineWidth: 1))
                     .onTapGesture {
                         // En présentation compacte, le clavier n'est pas
                         // autorisé : on demande le plein écran d'abord.
