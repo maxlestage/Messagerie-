@@ -42,20 +42,20 @@ struct ConversationView: View {
             Divider()
             composer
         }
-        .navigationTitle("Conversation")
+        .navigationTitle(loc("Conversation", "Conversation", "Conversación"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {
                     Button {
                         if let s = UIPasteboard.general.string { pasted = s }
-                    } label: { Label("Coller la discussion", systemImage: "doc.on.clipboard") }
+                    } label: { Label(loc("Coller la discussion", "Paste the conversation", "Pega la conversación"), systemImage: "doc.on.clipboard") }
                     Button {
                         UIPasteboard.general.string = rendered.fullText
-                        toast("Conversation en clair copiée")
-                    } label: { Label("Copier tout en clair", systemImage: "doc.on.doc") }
+                        toast(loc("Conversation en clair copiée", "Plaintext conversation copied", "Conversación en claro copiada"))
+                    } label: { Label(loc("Copier tout en clair", "Copy all as plaintext", "Copiar todo en claro"), systemImage: "doc.on.doc") }
                     Button(role: .destructive) { pasted = "" } label: {
-                        Label("Effacer", systemImage: "trash")
+                        Label(loc("Effacer", "Clear", "Borrar"), systemImage: "trash")
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
@@ -91,16 +91,16 @@ struct ConversationView: View {
             Image(systemName: "text.bubble")
                 .font(.system(size: 44))
                 .foregroundStyle(.secondary)
-            Text("Colle ici toute ta discussion")
+            Text(loc("Colle ici toute ta discussion", "Paste your whole conversation here", "Pega aquí toda tu conversación"))
                 .font(.headline)
-            Text("Brocolis déchiffre à la volée tout ce qui est protégé par une de tes clés. Les messages chiffrés avec d'autres clés restent 🔒.")
+            Text(loc("Brocolis déchiffre à la volée tout ce qui est protégé par une de tes clés. Les messages chiffrés avec d'autres clés restent 🔒.", "Brocolis decrypts on the fly everything protected by one of your keys. Messages encrypted with other keys stay 🔒.", "Brocolis descifra al vuelo todo lo que está protegido por una de tus claves. Los mensajes cifrados con otras claves permanecen 🔒."))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
             Button {
                 if let s = UIPasteboard.general.string { pasted = s }
             } label: {
-                Label("Coller la discussion", systemImage: "doc.on.clipboard")
+                Label(loc("Coller la discussion", "Paste the conversation", "Pega la conversación"), systemImage: "doc.on.clipboard")
             }
             .buttonStyle(.borderedProminent)
         }
@@ -113,11 +113,11 @@ struct ConversationView: View {
         if r.decryptedCount > 0 || r.lockedCount > 0 {
             HStack(spacing: 12) {
                 if r.decryptedCount > 0 {
-                    Label("\(r.decryptedCount) lu(s)", systemImage: "lock.open.fill")
+                    Label(loc("\(r.decryptedCount) lu(s)", "\(r.decryptedCount) read", "\(r.decryptedCount) leído(s)"), systemImage: "lock.open.fill")
                         .foregroundStyle(.green)
                 }
                 if r.lockedCount > 0 {
-                    Label("\(r.lockedCount) pour les autres", systemImage: "lock.fill")
+                    Label(loc("\(r.lockedCount) pour les autres", "\(r.lockedCount) for others", "\(r.lockedCount) para los demás"), systemImage: "lock.fill")
                         .foregroundStyle(.secondary)
                 }
             }
@@ -174,7 +174,7 @@ struct ConversationView: View {
                     Spacer()
                     Button {
                         UIPasteboard.general.string = token
-                        toast("Message chiffré copié")
+                        toast(loc("Message chiffré copié", "Encrypted message copied", "Mensaje cifrado copiado"))
                     } label: {
                         Image(systemName: "doc.on.doc")
                     }
@@ -182,8 +182,8 @@ struct ConversationView: View {
                 .padding(.horizontal)
             } else if !reply.trimmingCharacters(in: .whitespaces).isEmpty {
                 Text(BrocolisKeyStore.isExpired
-                     ? "⌛️ Clé expirée — renouvelle-la pour chiffrer."
-                     : "🔑 Aucune clé sélectionnée pour chiffrer.")
+                     ? loc("⌛️ Clé expirée — renouvelle-la pour chiffrer.", "⌛️ Key expired — renew it to encrypt.", "⌛️ Clave caducada — renuévala para cifrar.")
+                     : loc("🔑 Aucune clé sélectionnée pour chiffrer.", "🔑 No key selected to encrypt.", "🔑 Ninguna clave seleccionada para cifrar."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -191,13 +191,13 @@ struct ConversationView: View {
             }
 
             HStack(spacing: 8) {
-                TextField("Écris ta réponse…", text: $reply, axis: .vertical)
+                TextField(loc("Écris ta réponse…", "Write your reply…", "Escribe tu respuesta…"), text: $reply, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
                     .lineLimit(1...4)
                 Button {
                     if let token = encryptedReply {
                         UIPasteboard.general.string = token
-                        toast("Message chiffré copié")
+                        toast(loc("Message chiffré copié", "Encrypted message copied", "Mensaje cifrado copiado"))
                         reply = ""
                     }
                 } label: {

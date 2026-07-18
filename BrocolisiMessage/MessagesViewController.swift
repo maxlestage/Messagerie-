@@ -424,7 +424,11 @@ final class MessagesViewController: MSMessagesAppViewController {
     /// dans le jeton de l'URL. Sans la bonne clé (et sans l'app), la bulle reste
     /// la placeholder verte : ni image, ni aperçu ne fuient.
     private func sendEncryptedImage(_ jpeg: Data) {
-        let info = "Photo envoyée · \(brocolisFormatBytes(jpeg.count))"
+        let info = loc(
+            "Photo envoyée · \(brocolisFormatBytes(jpeg.count))",
+            "Photo sent · \(brocolisFormatBytes(jpeg.count))",
+            "Foto enviada · \(brocolisFormatBytes(jpeg.count))"
+        )
         insertEncrypted(clear: BrocolisMedia.imageClear(jpeg), summary: "🥦 Photo chiffrée", info: info)
     }
 
@@ -432,7 +436,11 @@ final class MessagesViewController: MSMessagesAppViewController {
     /// Inaudible sans la bonne clé et sans l'app. `duration` sert à afficher le
     /// temps du vocal à l'utilisateur.
     private func sendEncryptedVoice(_ m4a: Data, duration: TimeInterval) {
-        let info = "Vocal envoyé · \(brocolisFormatDuration(duration)) · \(brocolisFormatBytes(m4a.count))"
+        let info = loc(
+            "Vocal envoyé · \(brocolisFormatDuration(duration)) · \(brocolisFormatBytes(m4a.count))",
+            "Voice message sent · \(brocolisFormatDuration(duration)) · \(brocolisFormatBytes(m4a.count))",
+            "Mensaje de voz enviado · \(brocolisFormatDuration(duration)) · \(brocolisFormatBytes(m4a.count))"
+        )
         insertEncrypted(clear: BrocolisMedia.audioClear(m4a), summary: "🥦 Vocal chiffré", info: info)
     }
 
@@ -450,7 +458,11 @@ final class MessagesViewController: MSMessagesAppViewController {
 
         // Limite prudente pour l'URL d'une bulle iMessage.
         guard token.utf8.count <= BrocolisMediaLimits.maxTokenChars else {
-            model.sendError = "Ce média est trop lourd pour une bulle iMessage. Envoie-le depuis l'app Brocolis 🥦 (Messagerie)."
+            model.sendError = loc(
+                "Ce média est trop lourd pour une bulle iMessage. Envoie-le depuis l'app Brocolis 🥦 (Messagerie).",
+                "This media is too large for an iMessage bubble. Send it from the Brocolis 🥦 app (Messagerie).",
+                "Este contenido es demasiado pesado para una burbuja de iMessage. Envíalo desde la app Brocolis 🥦 (Messagerie)."
+            )
             return
         }
         model.lastMediaInfo = info
@@ -601,7 +613,8 @@ struct BrocolisiMessageRootView: View {
                              set: { model.setActive($0) })) {
             HStack(spacing: 6) {
                 Text("🥦")
-                Text(model.isActive ? "Brocolis actif" : "Brocolis en pause")
+                Text(model.isActive ? loc("Brocolis actif", "Brocolis active", "Brocolis activo")
+                                    : loc("Brocolis en pause", "Brocolis paused", "Brocolis en pausa"))
                     .font(.subheadline).bold()
                     .foregroundStyle(model.isActive ? brocoliGreen : .secondary)
             }
@@ -612,7 +625,9 @@ struct BrocolisiMessageRootView: View {
     }
 
     private var pausedCard: some View {
-        Label("En pause : rien ne se déchiffre et rien ne s'envoie. Active l'interrupteur pour lire et écrire.",
+        Label(loc("En pause : rien ne se déchiffre et rien ne s'envoie. Active l'interrupteur pour lire et écrire.",
+                  "Paused: nothing is decrypted and nothing is sent. Turn on the switch to read and write.",
+                  "En pausa: no se descifra ni se envía nada. Activa el interruptor para leer y escribir."),
               systemImage: "pause.circle.fill")
             .font(.footnote).foregroundStyle(.secondary)
             .padding(12)
@@ -627,7 +642,7 @@ struct BrocolisiMessageRootView: View {
             Button {
                 model.readClipboard()
             } label: {
-                Label("Lire un message copié", systemImage: "doc.on.clipboard")
+                Label(loc("Lire un message copié", "Read a copied message", "Leer un mensaje copiado"), systemImage: "doc.on.clipboard")
                     .font(.subheadline).bold()
                     .frame(maxWidth: .infinity)
             }
@@ -636,7 +651,7 @@ struct BrocolisiMessageRootView: View {
 
             if let clear = model.clipboardClear {
                 VStack(alignment: .leading, spacing: 6) {
-                    Label("Déchiffré", systemImage: "lock.open.fill")
+                    Label(loc("Déchiffré", "Decrypted", "Descifrado"), systemImage: "lock.open.fill")
                         .font(.caption).bold().foregroundStyle(brocoliGreen)
                     Text(clear)
                         .font(.body)
@@ -646,11 +661,15 @@ struct BrocolisiMessageRootView: View {
                 .padding(10)
                 .background(RoundedRectangle(cornerRadius: 12).fill(brocoliBg))
             } else if model.clipboardLocked {
-                Text("Rien à déchiffrer dans le presse-papiers (copie d'abord un message 🥦, appui long → Copier).")
+                Text(loc("Rien à déchiffrer dans le presse-papiers (copie d'abord un message 🥦, appui long → Copier).",
+                         "Nothing to decrypt in the clipboard (copy a 🥦 message first, long-press → Copy).",
+                         "No hay nada que descifrar en el portapapeles (copia antes un mensaje 🥦, mantén pulsado → Copiar)."))
                     .font(.caption2).foregroundStyle(.secondary)
             }
 
-            Text("Bulle verte « 🥦 » : touche-la, elle s'ouvre déchiffrée ici — sans copier. Message reçu en texte : copie-le, il s'affiche tout seul à l'ouverture (ou touche le bouton).")
+            Text(loc("Bulle verte « 🥦 » : touche-la, elle s'ouvre déchiffrée ici — sans copier. Message reçu en texte : copie-le, il s'affiche tout seul à l'ouverture (ou touche le bouton).",
+                     "Green bubble « 🥦 »: tap it, it opens decrypted here — without copying. Message received as text: copy it, it shows up on its own when opening (or tap the button).",
+                     "Burbuja verde « 🥦 »: tócala, se abre descifrada aquí — sin copiar. Mensaje recibido como texto: cópialo, aparece solo al abrir (o toca el botón)."))
                 .font(.caption2).foregroundStyle(.secondary)
         }
         .padding(12)
@@ -660,7 +679,7 @@ struct BrocolisiMessageRootView: View {
     // Bulle touchée → clair, bien visible.
     private func readCard(_ text: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label("Message déchiffré", systemImage: "lock.open.fill")
+            Label(loc("Message déchiffré", "Decrypted message", "Mensaje descifrado"), systemImage: "lock.open.fill")
                 .font(.caption).bold().foregroundStyle(brocoliGreen)
             Text(text)
                 .font(.body)
@@ -676,7 +695,7 @@ struct BrocolisiMessageRootView: View {
     @ViewBuilder private var mediaReadCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             if let data = model.selectedImage, let ui = UIImage(data: data) {
-                Label("Photo déchiffrée", systemImage: "lock.open.fill")
+                Label(loc("Photo déchiffrée", "Decrypted photo", "Foto descifrada"), systemImage: "lock.open.fill")
                     .font(.caption).bold().foregroundStyle(brocoliGreen)
                 Image(uiImage: ui)
                     .resizable()
@@ -684,12 +703,12 @@ struct BrocolisiMessageRootView: View {
                     .frame(maxWidth: .infinity)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
             } else if let data = model.selectedAudio {
-                Label("Vocal déchiffré", systemImage: "lock.open.fill")
+                Label(loc("Vocal déchiffré", "Decrypted voice message", "Mensaje de voz descifrado"), systemImage: "lock.open.fill")
                     .font(.caption).bold().foregroundStyle(brocoliGreen)
                 Button {
                     player.toggle(data: data)
                 } label: {
-                    Label(player.isPlaying ? "Arrêter" : "Écouter le vocal",
+                    Label(player.isPlaying ? loc("Arrêter", "Stop", "Detener") : loc("Écouter le vocal", "Play voice message", "Reproducir mensaje de voz"),
                           systemImage: player.isPlaying ? "stop.fill" : "play.fill")
                         .font(.subheadline).bold()
                         .frame(maxWidth: .infinity)
@@ -704,7 +723,9 @@ struct BrocolisiMessageRootView: View {
     }
 
     private var lockedCard: some View {
-        Label("Ce message est chiffré avec une clé que tu n'as pas.",
+        Label(loc("Ce message est chiffré avec une clé que tu n'as pas.",
+                  "This message is encrypted with a key you don’t have.",
+                  "Este mensaje está cifrado con una clave que no tienes."),
               systemImage: "lock.fill")
             .font(.footnote).foregroundStyle(.secondary)
             .padding(12)
@@ -714,7 +735,9 @@ struct BrocolisiMessageRootView: View {
 
     @ViewBuilder private var composer: some View {
         if model.keys.isEmpty {
-            Label("Ouvre Brocolis 🥦 pour créer une clé ou t'appairer.",
+            Label(loc("Ouvre Brocolis 🥦 pour créer une clé ou t'appairer.",
+                      "Open Brocolis 🥦 to create a key or pair up.",
+                      "Abre Brocolis 🥦 para crear una clave o emparejarte."),
                   systemImage: "key.slash")
                 .font(.footnote).foregroundStyle(.secondary)
                 .padding(12)
@@ -723,7 +746,7 @@ struct BrocolisiMessageRootView: View {
         } else {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    Label("Chiffrer pour", systemImage: "key.fill")
+                    Label(loc("Chiffrer pour", "Encrypt for", "Cifrar para"), systemImage: "key.fill")
                         .font(.caption).foregroundStyle(.secondary)
                     Spacer()
                     Menu {
@@ -739,7 +762,7 @@ struct BrocolisiMessageRootView: View {
                     }
                 }
 
-                TextField("Message secret…", text: $draft, axis: .vertical)
+                TextField(loc("Message secret…", "Secret message…", "Mensaje secreto…"), text: $draft, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
                     .lineLimit(1...4)
                     .onTapGesture {
@@ -760,7 +783,7 @@ struct BrocolisiMessageRootView: View {
                     Button {
                         send(via: onSend)
                     } label: {
-                        Label("Envoyer chiffré", systemImage: "paperplane.fill")
+                        Label(loc("Envoyer chiffré", "Send encrypted", "Enviar cifrado"), systemImage: "paperplane.fill")
                             .font(.subheadline).bold()
                             .frame(maxWidth: .infinity)
                     }
@@ -777,10 +800,12 @@ struct BrocolisiMessageRootView: View {
                     .buttonStyle(.bordered)
                     .tint(brocoliGreen)
                     .disabled(trimmedDraft.isEmpty)
-                    .accessibilityLabel("Insérer en texte brut")
+                    .accessibilityLabel(loc("Insérer en texte brut", "Insert as plain text", "Insertar como texto sin formato"))
                 }
 
-                Text("Texte, photo 📷 et vocal 🎙️ partent chiffrés : la bulle « 🥦 » se lit d'un tap avec Brocolis. Sans la clé et sans l'app, rien n'est lisible ni audible. Le bouton « Abc » insère le jeton en texte (compatible clavier/app).")
+                Text(loc("Texte, photo 📷 et vocal 🎙️ partent chiffrés : la bulle « 🥦 » se lit d'un tap avec Brocolis. Sans la clé et sans l'app, rien n'est lisible ni audible. Le bouton « Abc » insère le jeton en texte (compatible clavier/app).",
+                         "Text, photo 📷 and voice message 🎙️ go out encrypted: the « 🥦 » bubble reads with one tap using Brocolis. Without the key and without the app, nothing is readable or audible. The « Abc » button inserts the token as text (compatible with keyboard/app).",
+                         "Texto, foto 📷 y mensaje de voz 🎙️ salen cifrados: la burbuja « 🥦 » se lee con un toque usando Brocolis. Sin la clave y sin la app, nada es legible ni audible. El botón « Abc » inserta el token como texto (compatible con teclado/app)."))
                     .font(.caption2).foregroundStyle(.secondary)
             }
             .padding(12)
@@ -792,7 +817,7 @@ struct BrocolisiMessageRootView: View {
     @ViewBuilder private var mediaRow: some View {
         HStack(spacing: 10) {
             PhotosPicker(selection: $photoItem, matching: .images, photoLibrary: .shared()) {
-                Label("Photo", systemImage: "photo.fill")
+                Label(loc("Photo", "Photo", "Foto"), systemImage: "photo.fill")
                     .font(.subheadline).bold()
                     .frame(maxWidth: .infinity)
             }
@@ -825,7 +850,7 @@ struct BrocolisiMessageRootView: View {
                     })
                 }
             } label: {
-                Label(recorder.isRecording ? "Arrêter et envoyer" : "Vocal",
+                Label(recorder.isRecording ? loc("Arrêter et envoyer", "Stop and send", "Detener y enviar") : loc("Vocal", "Voice message", "Mensaje de voz"),
                       systemImage: recorder.isRecording ? "stop.circle.fill" : "mic.fill")
                     .font(.subheadline).bold()
                     .frame(maxWidth: .infinity)
@@ -861,7 +886,9 @@ struct BrocolisiMessageRootView: View {
         }
 
         // Rappel des limites d'une bulle iMessage.
-        Text("Vocal max : \(brocolisFormatDuration(BrocolisMediaLimits.maxVoiceSeconds)) · ~\(brocolisFormatBytes(BrocolisMediaLimits.maxVoiceBytesEstimate)). Photo compressée automatiquement (~\(brocolisFormatBytes(BrocolisMediaLimits.maxMediaBytes)) max).")
+        Text(loc("Vocal max : \(brocolisFormatDuration(BrocolisMediaLimits.maxVoiceSeconds)) · ~\(brocolisFormatBytes(BrocolisMediaLimits.maxVoiceBytesEstimate)). Photo compressée automatiquement (~\(brocolisFormatBytes(BrocolisMediaLimits.maxMediaBytes)) max).",
+                 "Voice message max: \(brocolisFormatDuration(BrocolisMediaLimits.maxVoiceSeconds)) · ~\(brocolisFormatBytes(BrocolisMediaLimits.maxVoiceBytesEstimate)). Photo compressed automatically (~\(brocolisFormatBytes(BrocolisMediaLimits.maxMediaBytes)) max).",
+                 "Mensaje de voz máx.: \(brocolisFormatDuration(BrocolisMediaLimits.maxVoiceSeconds)) · ~\(brocolisFormatBytes(BrocolisMediaLimits.maxVoiceBytesEstimate)). Foto comprimida automáticamente (~\(brocolisFormatBytes(BrocolisMediaLimits.maxMediaBytes)) máx.)."))
             .font(.caption2).foregroundStyle(.secondary)
     }
 
@@ -869,7 +896,7 @@ struct BrocolisiMessageRootView: View {
     private func photoPreview(_ data: Data, _ ui: UIImage) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
-                Label("Aperçu avant envoi", systemImage: "photo")
+                Label(loc("Aperçu avant envoi", "Preview before sending", "Vista previa antes de enviar"), systemImage: "photo")
                     .font(.caption).bold().foregroundStyle(brocoliGreen)
                 Spacer()
                 Text(brocolisFormatBytes(data.count))
@@ -887,7 +914,7 @@ struct BrocolisiMessageRootView: View {
                     onSendImage(data)
                     pendingPhoto = nil
                 } label: {
-                    Label("Envoyer chiffré", systemImage: "paperplane.fill")
+                    Label(loc("Envoyer chiffré", "Send encrypted", "Enviar cifrado"), systemImage: "paperplane.fill")
                         .font(.subheadline).bold()
                         .frame(maxWidth: .infinity)
                 }
@@ -897,7 +924,7 @@ struct BrocolisiMessageRootView: View {
                 Button(role: .cancel) {
                     pendingPhoto = nil
                 } label: {
-                    Label("Annuler", systemImage: "xmark")
+                    Label(loc("Annuler", "Cancel", "Cancelar"), systemImage: "xmark")
                         .font(.subheadline)
                         .frame(maxWidth: .infinity)
                 }

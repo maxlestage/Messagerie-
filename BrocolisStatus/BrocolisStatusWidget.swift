@@ -58,7 +58,7 @@ struct BrocolisStatusWidgetView: View {
     @Environment(\.widgetFamily) private var family
     let entry: BrocolisEntry
 
-    private var statusText: String { entry.isActive ? "Actif" : "Inactif" }
+    private var statusText: String { entry.isActive ? loc("Actif", "Active", "Activo") : loc("Inactif", "Inactive", "Inactivo") }
     private var statusColor: Color { entry.isActive ? .green : .secondary }
 
     // Bouton interactif (iOS 17+) : bascule actif/pause SANS ouvrir l'app.
@@ -66,7 +66,7 @@ struct BrocolisStatusWidgetView: View {
     @ViewBuilder private var toggleButton: some View {
         if #available(iOSApplicationExtension 17.0, *) {
             Button(intent: ToggleActiveWidgetIntent()) {
-                Label(entry.isActive ? "Mettre en pause" : "Activer",
+                Label(entry.isActive ? loc("Mettre en pause", "Pause", "Pausar") : loc("Activer", "Activate", "Activar"),
                       systemImage: entry.isActive ? "pause.fill" : "play.fill")
                     .font(.caption).fontWeight(.semibold)
                     .lineLimit(1).minimumScaleFactor(0.7)
@@ -80,7 +80,7 @@ struct BrocolisStatusWidgetView: View {
     var body: some View {
         switch family {
         case .accessoryInline:
-            Text(entry.isActive ? "🥦 Actif" : "🥦 Inactif")
+            Text(entry.isActive ? loc("🥦 Actif", "🥦 Active", "🥦 Activo") : loc("🥦 Inactif", "🥦 Inactive", "🥦 Inactivo"))
 
         case .accessoryCircular:
             VStack(spacing: 0) {
@@ -92,7 +92,7 @@ struct BrocolisStatusWidgetView: View {
 
         case .accessoryRectangular:
             VStack(alignment: .leading, spacing: 2) {
-                Text(entry.isActive ? "🥦 Brocolis actif" : "🥦 Brocolis inactif")
+                Text(entry.isActive ? loc("🥦 Brocolis actif", "🥦 Brocolis active", "🥦 Brocolis activo") : loc("🥦 Brocolis inactif", "🥦 Brocolis inactive", "🥦 Brocolis inactivo"))
                     .font(.headline)
                 detailLine
             }
@@ -108,11 +108,11 @@ struct BrocolisStatusWidgetView: View {
                 }
                 Divider()
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Clé sélectionnée")
+                    Text(loc("Clé sélectionnée", "Selected key", "Clave seleccionada"))
                         .font(.caption2).foregroundStyle(.secondary)
                     detailLine
                     Spacer(minLength: 0)
-                    Text("\(entry.keyCount) clé\(entry.keyCount > 1 ? "s" : "") enregistrée\(entry.keyCount > 1 ? "s" : "")")
+                    Text(loc("\(entry.keyCount) clé\(entry.keyCount > 1 ? "s" : "") enregistrée\(entry.keyCount > 1 ? "s" : "")", "\(entry.keyCount) key\(entry.keyCount > 1 ? "s" : "") saved", "\(entry.keyCount) clave\(entry.keyCount > 1 ? "s" : "") guardada\(entry.keyCount > 1 ? "s" : "")"))
                         .font(.caption2).foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -129,20 +129,20 @@ struct BrocolisStatusWidgetView: View {
                 toggleButton
                 Divider()
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Clé sélectionnée")
+                    Text(loc("Clé sélectionnée", "Selected key", "Clave seleccionada"))
                         .font(.caption).foregroundStyle(.secondary)
                     detailLine.font(.body)
                 }
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Trousseau")
+                    Text(loc("Trousseau", "Keychain", "Llavero"))
                         .font(.caption).foregroundStyle(.secondary)
-                    Text("\(entry.keyCount) clé\(entry.keyCount > 1 ? "s" : "") — au déchiffrement, toutes sont essayées.")
+                    Text(loc("\(entry.keyCount) clé\(entry.keyCount > 1 ? "s" : "") — au déchiffrement, toutes sont essayées.", "\(entry.keyCount) key\(entry.keyCount > 1 ? "s" : "") — all are tried when decrypting.", "\(entry.keyCount) clave\(entry.keyCount > 1 ? "s" : "") — al descifrar, se prueban todas."))
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
                 Text(entry.isActive
-                     ? "Prêt à chiffrer — clavier, Partager et Conversation."
-                     : "Ouvre Brocolis 🥦 pour l’activer.")
+                     ? loc("Prêt à chiffrer — clavier, Partager et Conversation.", "Ready to encrypt — keyboard, Share and Conversation.", "Listo para cifrar — teclado, Compartir y Conversación.")
+                     : loc("Ouvre Brocolis 🥦 pour l’activer.", "Open Brocolis 🥦 to activate it.", "Abre Brocolis 🥦 para activarlo."))
                     .font(.footnote).foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -184,18 +184,18 @@ struct BrocolisStatusWidgetView: View {
         if let name = entry.keyName {
             if let exp = entry.expiresAt {
                 if exp <= entry.date {
-                    Text("« \(name) » — expirée")
+                    Text(loc("« \(name) » — expirée", "« \(name) » — expired", "« \(name) » — caducada"))
                         .font(.caption).foregroundStyle(.orange)
                 } else {
-                    Text("« \(name) » — expire \(exp, style: .relative)")
+                    Text(loc("« \(name) » — expire \(exp, style: .relative)", "« \(name) » — expires \(exp, style: .relative)", "« \(name) » — caduca \(exp, style: .relative)"))
                         .font(.caption).foregroundStyle(.secondary)
                 }
             } else {
-                Text("Clé « \(name) »")
+                Text(loc("Clé « \(name) »", "Key « \(name) »", "Clave « \(name) »"))
                     .font(.caption).foregroundStyle(.secondary)
             }
         } else {
-            Text("Aucune clé")
+            Text(loc("Aucune clé", "No key", "Ninguna clave"))
                 .font(.caption).foregroundStyle(.secondary)
         }
     }
@@ -226,7 +226,7 @@ struct BrocolisStatusWidget: Widget {
             BrocolisStatusWidgetView(entry: entry)
         }
         .configurationDisplayName("Brocolis 🥦")
-        .description("État du chiffrement : actif ou non, clé sélectionnée, expiration.")
+        .description(loc("État du chiffrement : actif ou non, clé sélectionnée, expiration.", "Encryption status: active or not, selected key, expiration.", "Estado del cifrado: activo o no, clave seleccionada, caducidad."))
         .supportedFamilies([
             .systemSmall, .systemMedium, .systemLarge,
             .accessoryInline, .accessoryCircular, .accessoryRectangular,
