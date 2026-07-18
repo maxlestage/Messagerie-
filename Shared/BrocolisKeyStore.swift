@@ -84,7 +84,7 @@ enum BrocolisKeyStore {
         guard let d = defaults, d.data(forKey: keysName) == nil else { return }
         var initial: [NamedKey] = []
         if let legacy = d.string(forKey: legacyKeyName), !legacy.isEmpty {
-            let k = NamedKey(name: "Ma clé", base64: legacy)
+            let k = NamedKey(name: loc("Ma clé", "My key", "Mi clave"), base64: legacy)
             initial = [k]
             d.set(k.id, forKey: selectedIdName)
             d.removeObject(forKey: legacyKeyName)
@@ -134,7 +134,7 @@ enum BrocolisKeyStore {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let ttl = max(0, ttlSeconds)
         let key = NamedKey(
-            name: trimmedName.isEmpty ? "Clé \(ks.count + 1)" : trimmedName,
+            name: trimmedName.isEmpty ? loc("Clé \(ks.count + 1)", "Key \(ks.count + 1)", "Clave \(ks.count + 1)") : trimmedName,
             base64: base64.trimmingCharacters(in: .whitespacesAndNewlines),
             ttlSeconds: ttl,
             expiresAt: computeExpiry(ttlSeconds: ttl, from: Date())
@@ -268,7 +268,7 @@ enum BrocolisKeyStore {
                 saveKeys(ks)
             }
         } else {
-            addKey(name: "Ma clé", base64: trimmed)
+            addKey(name: loc("Ma clé", "My key", "Mi clave"), base64: trimmed)
         }
     }
 
@@ -443,5 +443,20 @@ enum BrocolisKeyStore {
         guard let expiresAt, let lead = notificationLead(ttlSeconds: ttlSeconds) else { return nil }
         let fire = expiresAt.addingTimeInterval(-lead)
         return fire > now ? fire : nil
+    }
+}
+
+/// Localisation par CODE, adaptée à la langue du téléphone, avec REPLI ANGLAIS.
+/// Français et espagnol sont traduits ; toute autre langue retombe sur l'anglais.
+/// Utilisé dans toute l'app et les extensions (défini dans un fichier partagé).
+///
+///   Text(loc("Bonjour", "Hello", "Hola"))
+///
+/// L'interpolation fonctionne dans chaque variante : loc("Salut \(n)", …).
+func loc(_ fr: String, _ en: String, _ es: String) -> String {
+    switch String((Locale.preferredLanguages.first ?? "en").prefix(2)).lowercased() {
+    case "fr": return fr
+    case "es": return es
+    default:   return en
     }
 }

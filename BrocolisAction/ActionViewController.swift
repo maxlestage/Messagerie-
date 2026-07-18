@@ -45,7 +45,7 @@ final class ActionViewController: UIViewController {
             barButtonSystemItem: .done, target: self, action: #selector(done)
         )
         item.rightBarButtonItem = UIBarButtonItem(
-            title: "Copier", style: .done, target: self, action: #selector(copyResult)
+            title: loc("Copier", "Copy", "Copiar"), style: .done, target: self, action: #selector(copyResult)
         )
         nav.items = [item]
         view.addSubview(nav)
@@ -137,14 +137,14 @@ final class ActionViewController: UIViewController {
 
     private func process(_ input: String) {
         guard !input.isEmpty else {
-            statusLabel.text = "Aucun texte ici."
-            textView.text = "Brocolis 🥦 travaille sur du texte. Sélectionne un ou plusieurs messages (ou du texte), puis Partager → Brocolis."
+            statusLabel.text = loc("Aucun texte ici.", "No text here.", "Ningún texto aquí.")
+            textView.text = loc("Brocolis 🥦 travaille sur du texte. Sélectionne un ou plusieurs messages (ou du texte), puis Partager → Brocolis.", "Brocolis 🥦 works on text. Select one or more messages (or some text), then Share → Brocolis.", "Brocolis 🥦 trabaja con texto. Selecciona uno o varios mensajes (o texto), luego Compartir → Brocolis.")
             resultText = ""
             return
         }
         guard BrocolisKeyStore.isActive else {
-            statusLabel.text = "⏸ Brocolis est désactivé."
-            textView.text = "Ouvre l’app Brocolis 🥦 et active-le pour chiffrer/déchiffrer."
+            statusLabel.text = loc("⏸ Brocolis est désactivé.", "⏸ Brocolis is disabled.", "⏸ Brocolis está desactivado.")
+            textView.text = loc("Ouvre l’app Brocolis 🥦 et active-le pour chiffrer/déchiffrer.", "Open the Brocolis 🥦 app and enable it to encrypt/decrypt.", "Abre la app Brocolis 🥦 y actívalo para cifrar/descifrar.")
             resultText = ""
             return
         }
@@ -153,8 +153,8 @@ final class ActionViewController: UIViewController {
         if BrocolisCrypto.containsToken(input) {
             let keys = BrocolisKeyStore.allSymmetricKeys()
             guard !keys.isEmpty else {
-                statusLabel.text = "🔑 Aucune clé configurée."
-                textView.text = "Ouvre l’app Brocolis 🥦 pour ajouter une clé, puis réessaie."
+                statusLabel.text = loc("🔑 Aucune clé configurée.", "🔑 No key configured.", "🔑 Ninguna clave configurada.")
+                textView.text = loc("Ouvre l’app Brocolis 🥦 pour ajouter une clé, puis réessaie.", "Open the Brocolis 🥦 app to add a key, then try again.", "Abre la app Brocolis 🥦 para añadir una clave, luego inténtalo de nuevo.")
                 resultText = ""
                 return
             }
@@ -163,8 +163,8 @@ final class ActionViewController: UIViewController {
             textView.text = text
             UIPasteboard.general.string = text
             statusLabel.text = n > 0
-                ? "🔓 \(n) message(s) en clair — lis ci-dessous. Aucune copie nécessaire."
-                : "Aucun message lisible avec tes clés (clé d’un autre ?)."
+                ? loc("🔓 \(n) message(s) en clair — lis ci-dessous. Aucune copie nécessaire.", "🔓 \(n) message(s) in cleartext — read below. No copy needed.", "🔓 \(n) mensaje(s) en claro — lee abajo. No hace falta copiar.")
+                : loc("Aucun message lisible avec tes clés (clé d’un autre ?).", "No readable message with your keys (someone else’s key?).", "Ningún mensaje legible con tus claves (¿clave de otra persona?).")
             return
         }
 
@@ -172,11 +172,11 @@ final class ActionViewController: UIViewController {
         let encKeys = BrocolisKeyStore.encryptionKeys()
         guard !encKeys.isEmpty else {
             if BrocolisKeyStore.hasKey {
-                statusLabel.text = "⌛️ Clé(s) destinataire(s) expirée(s)."
-                textView.text = "Prolonge une clé dans l’app Brocolis 🥦, puis réessaie."
+                statusLabel.text = loc("⌛️ Clé(s) destinataire(s) expirée(s).", "⌛️ Recipient key(s) expired.", "⌛️ Clave(s) de destinatario expirada(s).")
+                textView.text = loc("Prolonge une clé dans l’app Brocolis 🥦, puis réessaie.", "Extend a key in the Brocolis 🥦 app, then try again.", "Prolonga una clave en la app Brocolis 🥦, luego inténtalo de nuevo.")
             } else {
-                statusLabel.text = "🔑 Aucune clé configurée."
-                textView.text = "Ouvre l’app Brocolis 🥦 pour ajouter une clé, puis réessaie."
+                statusLabel.text = loc("🔑 Aucune clé configurée.", "🔑 No key configured.", "🔑 Ninguna clave configurada.")
+                textView.text = loc("Ouvre l’app Brocolis 🥦 pour ajouter une clé, puis réessaie.", "Open the Brocolis 🥦 app to add a key, then try again.", "Abre la app Brocolis 🥦 para añadir una clave, luego inténtalo de nuevo.")
             }
             resultText = ""
             return
@@ -188,7 +188,7 @@ final class ActionViewController: UIViewController {
         // Garde-fou : si rien n'a été chiffré, on NE copie PAS de clair et on
         // l'indique clairement — pour ne jamais faire croire que c'est protégé.
         guard result.isEncrypted else {
-            statusLabel.text = "⚠️ Rien n'a été chiffré — texte NON copié (vérifie ta clé)."
+            statusLabel.text = loc("⚠️ Rien n'a été chiffré — texte NON copié (vérifie ta clé).", "⚠️ Nothing was encrypted — text NOT copied (check your key).", "⚠️ No se cifró nada — texto NO copiado (verifica tu clave).")
             textView.text = result.text
             resultText = ""
             return
@@ -200,9 +200,9 @@ final class ActionViewController: UIViewController {
         // Brocolis étant actif, on copie directement le résultat : il n'y a plus
         // qu'à coller EN REMPLAÇANT le texte d'origine.
         UIPasteboard.general.string = result.text
-        let recipients = encKeys.count > 1 ? " · \(encKeys.count) destinataires" : ""
+        let recipients = encKeys.count > 1 ? loc(" · \(encKeys.count) destinataires", " · \(encKeys.count) recipients", " · \(encKeys.count) destinatarios") : ""
         statusLabel.text = result.label + recipients
-            + " — ✅ Copié. Colle en remplaçant ton texte (n'envoie pas le clair)."
+            + loc(" — ✅ Copié. Colle en remplaçant ton texte (n'envoie pas le clair).", " — ✅ Copied. Paste over your text (don’t send the cleartext).", " — ✅ Copiado. Pega reemplazando tu texto (no envíes el texto claro).")
     }
 
     // MARK: Actions
@@ -210,7 +210,7 @@ final class ActionViewController: UIViewController {
     @objc private func copyResult() {
         guard !resultText.isEmpty else { return }
         UIPasteboard.general.string = resultText
-        statusLabel.text = "✅ Copié. Colle en remplaçant ton texte d'origine (n'envoie pas le clair)."
+        statusLabel.text = loc("✅ Copié. Colle en remplaçant ton texte d'origine (n'envoie pas le clair).", "✅ Copied. Paste over your original text (don’t send the cleartext).", "✅ Copiado. Pega reemplazando tu texto original (no envíes el texto claro).")
     }
 
     @objc private func done() {
