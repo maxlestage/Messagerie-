@@ -357,9 +357,26 @@ final class BrocolisiMessageModel: ObservableObject {
 final class MessagesViewController: MSMessagesAppViewController {
 
     private let model = BrocolisiMessageModel()
+    /// Contrôleur SwiftUI hôte, gardé pour pouvoir le (ré)installer si iOS
+    /// relance l'extension — cause fréquente d'un panneau qui s'ouvre vide.
+    private var host: UIHostingController<BrocolisiMessageRootView>?
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        // Fond OPAQUE aux couleurs de Brocolis. Les extensions iMessage sont
+        // relancées très agressivement par iOS (budget mémoire minuscule) : si
+        // une frame arrive avant que SwiftUI ait fini de se dessiner, on voit
+        // alors le vert Brocolis — jamais l'écran noir « planté » signalé.
+        view.backgroundColor = UIColor(red: 232.0 / 255, green: 245.0 / 255,
+                                       blue: 219.0 / 255, alpha: 1)
+        installHostIfNeeded()
+    }
+
+    /// Installe la vue SwiftUI une seule fois. Rappelée à l'activation comme
+    /// filet de sécurité : si le panneau s'était ouvert vide (hôte perdu après
+    /// une relance de l'extension), il se reconstruit tout seul.
+    private func installHostIfNeeded() {
+        guard host == nil else { return }
         let root = BrocolisiMessageRootView(
             model: model,
             onSend: { [weak self] text in self?.sendEncrypted(text) },
@@ -369,6 +386,8 @@ final class MessagesViewController: MSMessagesAppViewController {
             onRequestExpand: { [weak self] in self?.requestPresentationStyle(.expanded) }
         )
         let host = UIHostingController(rootView: root)
+        // Transparent : c'est le fond vert du conteneur qui montre à travers.
+        host.view.backgroundColor = .clear
         addChild(host)
         host.view.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(host.view)
@@ -379,13 +398,18 @@ final class MessagesViewController: MSMessagesAppViewController {
             host.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
         ])
         host.didMove(toParent: self)
+        self.host = host
     }
 
     override func willBecomeActive(with conversation: MSConversation) {
         super.willBecomeActive(with: conversation)
+        installHostIfNeeded()          // filet : reconstruit le panneau s'il était vide
         model.refreshKeys()
         model.update(selected: conversation.selectedMessage)
         model.isExpanded = presentationStyle == .expanded
+        // Force une passe de layout : évite qu'une frame vide reste figée après
+        // une relance de l'extension.
+        view.setNeedsLayout()
         autoReadIfNoBubble()
     }
 
