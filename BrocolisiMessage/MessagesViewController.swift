@@ -601,7 +601,7 @@ struct BrocolisiMessageRootView: View {
                             lockedCard
                         }
                         clipboardSection
-                        composer.id("composer")
+                        composer
                     } else {
                         pausedCard
                     }
@@ -615,13 +615,13 @@ struct BrocolisiMessageRootView: View {
                 guard focused else { return }
                 if !model.isExpanded { onRequestExpand() }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                    withAnimation { proxy.scrollTo("composer", anchor: .bottom) }
+                    withAnimation { proxy.scrollTo("composerField", anchor: .center) }
                 }
             }
             // En tapant, on garde le champ visible (il grandit jusqu'à 4 lignes).
             .onChange(of: draft) { _ in
                 guard composerFocused else { return }
-                withAnimation { proxy.scrollTo("composer", anchor: .bottom) }
+                withAnimation { proxy.scrollTo("composerField", anchor: .center) }
             }
         }
     }
@@ -793,6 +793,7 @@ struct BrocolisiMessageRootView: View {
                     .padding(.vertical, 10)
                     .background(RoundedRectangle(cornerRadius: 12).fill(Color(.secondarySystemBackground)))
                     .overlay(RoundedRectangle(cornerRadius: 12).stroke(brocoliGreen.opacity(0.4), lineWidth: 1))
+                    .id("composerField") // cible du défilement : on centre CE champ
                     .focused($composerFocused)
                     .onTapGesture {
                         // En présentation compacte, le clavier n'est pas
