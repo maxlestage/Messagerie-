@@ -268,17 +268,22 @@ async fn get_messages(
         .map(|n| (n as u64).min(MAX_MESSAGES_PAGE))
         .unwrap_or(DEFAULT_MESSAGES_PAGE);
 
-    // On demande UNE ligne de plus que la page pour savoir s'il en reste, sans
-    // second aller-retour : si on en obtient page+1, il y a une page suivante.
-    let mut rows = messages::Entity::find()
+    // Les deux lectures sont INDÉPENDANTES : on les lance en parallèle (deux
+    // connexions du pool) → un seul aller-retour de latence au lieu de deux.
+    // On demande UNE ligne de plus que la page pour savoir s'il en reste sans
+    // requête supplémentaire : si on obtient page+1, il y a une page suivante.
+    let messages_fut = messages::Entity::find()
         .filter(messages::Column::ConversationId.eq(&q.conversation_id))
         .filter(messages::Column::Seq.gt(q.after))
         .order_by_asc(messages::Column::Seq)
         .limit(page + 1)
-        .all(db)
-        .await
-        .unwrap_or_default();
+        .all(db);
+    let readers_fut = read_cursors::Entity::find()
+        .filter(read_cursors::Column::ConversationId.eq(&q.conversation_id))
+        .all(db);
+    let (rows_res, readers_res) = tokio::join!(messages_fut, readers_fut);
 
+    let mut rows = rows_res.unwrap_or_default();
     let has_more = rows.len() as u64 > page;
     if has_more {
         rows.truncate(page as usize); // on ne renvoie que la page demandée
@@ -288,11 +293,7 @@ async fn get_messages(
     let out: Vec<MessageOut> = rows.into_iter().map(MessageOut::from).collect();
 
     // Accusés de lecture { userId: dernierSeqLu }.
-    let readers_rows = read_cursors::Entity::find()
-        .filter(read_cursors::Column::ConversationId.eq(&q.conversation_id))
-        .all(db)
-        .await
-        .unwrap_or_default();
+    let readers_rows = readers_res.unwrap_or_default();
     let mut readers = serde_json::Map::new();
     for r in readers_rows {
         readers.insert(r.user_id, serde_json::json!(r.up_to));
