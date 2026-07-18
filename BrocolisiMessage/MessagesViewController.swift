@@ -496,7 +496,7 @@ final class MessagesViewController: MSMessagesAppViewController {
 /// une image basse et large = une bulle courte, une vraie miniature.
 enum BrocolisBubbleImage {
     static func make() -> UIImage {
-        let size = CGSize(width: 360, height: 104)
+        let size = CGSize(width: 360, height: 72)
         let renderer = UIGraphicsImageRenderer(size: size)
         return renderer.image { ctx in
             let cg = ctx.cgContext
@@ -517,26 +517,25 @@ enum BrocolisBubbleImage {
             }
 
             let darkGreen = UIColor(red: 31.0 / 255, green: 109.0 / 255, blue: 44.0 / 255, alpha: 1)
-            let midGreen = UIColor(red: 47.0 / 255, green: 158.0 / 255, blue: 74.0 / 255, alpha: 1)
 
-            // Petit brocoli 🥦, calé à gauche et centré verticalement.
+            // Miniature sur UNE seule ligne : brocoli 🥦 + « Message chiffré »,
+            // le tout centré horizontalement.
             let broc = NSAttributedString(string: "🥦", attributes: [
-                .font: UIFont.systemFont(ofSize: 52),
+                .font: UIFont.systemFont(ofSize: 34),
+            ])
+            let label = NSAttributedString(string: "Message chiffré", attributes: [
+                .font: UIFont.systemFont(ofSize: 20, weight: .bold),
+                .foregroundColor: darkGreen,
             ])
             let brocSize = broc.size()
-            broc.draw(at: CGPoint(x: 26, y: (size.height - brocSize.height) / 2))
+            let labelSize = label.size()
+            let gap: CGFloat = 12
+            let totalWidth = brocSize.width + gap + labelSize.width
+            let startX = (size.width - totalWidth) / 2
 
-            // Libellé sur deux lignes courtes, à droite du brocoli.
-            let textX: CGFloat = 108
-            func draw(_ string: String, font: UIFont, color: UIColor, y: CGFloat) {
-                NSAttributedString(string: string, attributes: [
-                    .font: font, .foregroundColor: color,
-                ]).draw(at: CGPoint(x: textX, y: y))
-            }
-            draw("Message chiffré",
-                 font: .systemFont(ofSize: 20, weight: .bold), color: darkGreen, y: 28)
-            draw("Touche pour lire",
-                 font: .systemFont(ofSize: 14, weight: .medium), color: midGreen, y: 56)
+            broc.draw(at: CGPoint(x: startX, y: (size.height - brocSize.height) / 2))
+            label.draw(at: CGPoint(x: startX + brocSize.width + gap,
+                                   y: (size.height - labelSize.height) / 2))
         }
     }
 }
