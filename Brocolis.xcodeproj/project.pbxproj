@@ -727,6 +727,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "Brocolis 🥦 messageries";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSContactsUsageDescription = "Brocolis lit tes contacts pour choisir un correspondant par son nom et son numéro. Rien n'est envoyé : tout reste sur ton iPhone.";
+				INFOPLIST_KEY_NSFaceIDUsageDescription = "Brocolis utilise Face ID (ou ton code) pour verrouiller l'accès à tes messages.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Brocolis enregistre ta voix uniquement pour créer un message vocal chiffré. Rien ne part sans chiffrement.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_NSSupportsLiveActivitiesFrequentUpdates = YES;
@@ -761,6 +762,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "Brocolis 🥦 messageries";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSContactsUsageDescription = "Brocolis lit tes contacts pour choisir un correspondant par son nom et son numéro. Rien n'est envoyé : tout reste sur ton iPhone.";
+				INFOPLIST_KEY_NSFaceIDUsageDescription = "Brocolis utilise Face ID (ou ton code) pour verrouiller l'accès à tes messages.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Brocolis enregistre ta voix uniquement pour créer un message vocal chiffré. Rien ne part sans chiffrement.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_NSSupportsLiveActivitiesFrequentUpdates = YES;
