@@ -490,10 +490,10 @@ final class MessagesViewController: MSMessagesAppViewController {
 
 // MARK: - Image de bulle (fond vert du logo, plus de fond sombre)
 
-/// Dessine le contenu de la bulle iMessage en MINIATURE : format compact
-/// horizontal (petit brocoli 🥦 à gauche, libellé à droite) sur fond vert du
-/// logo. iMessage étire l'image à la largeur de la bulle en gardant son ratio :
-/// une image basse et large = une bulle courte, une vraie miniature.
+/// Dessine le contenu de la bulle iMessage en MINIATURE : le brocoli 🥦 SEUL,
+/// centré, sur fond vert du logo — aucun texte. iMessage étire l'image à la
+/// largeur de la bulle en gardant son ratio : une image basse et large = une
+/// bulle courte, une vraie miniature.
 enum BrocolisBubbleImage {
     static func make() -> UIImage {
         let size = CGSize(width: 360, height: 72)
@@ -516,26 +516,13 @@ enum BrocolisBubbleImage {
                 cg.fill(CGRect(origin: .zero, size: size))
             }
 
-            let darkGreen = UIColor(red: 31.0 / 255, green: 109.0 / 255, blue: 44.0 / 255, alpha: 1)
-
-            // Miniature sur UNE seule ligne : brocoli 🥦 + « Message chiffré »,
-            // le tout centré horizontalement.
+            // Le brocoli 🥦 SEUL, centré. Aucun texte.
             let broc = NSAttributedString(string: "🥦", attributes: [
-                .font: UIFont.systemFont(ofSize: 34),
-            ])
-            let label = NSAttributedString(string: "Message chiffré", attributes: [
-                .font: UIFont.systemFont(ofSize: 20, weight: .bold),
-                .foregroundColor: darkGreen,
+                .font: UIFont.systemFont(ofSize: 46),
             ])
             let brocSize = broc.size()
-            let labelSize = label.size()
-            let gap: CGFloat = 12
-            let totalWidth = brocSize.width + gap + labelSize.width
-            let startX = (size.width - totalWidth) / 2
-
-            broc.draw(at: CGPoint(x: startX, y: (size.height - brocSize.height) / 2))
-            label.draw(at: CGPoint(x: startX + brocSize.width + gap,
-                                   y: (size.height - labelSize.height) / 2))
+            broc.draw(at: CGPoint(x: (size.width - brocSize.width) / 2,
+                                  y: (size.height - brocSize.height) / 2))
         }
     }
 }
