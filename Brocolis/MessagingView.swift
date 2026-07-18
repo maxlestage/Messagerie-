@@ -20,6 +20,7 @@ import UIKit
 import AudioToolbox
 import AVFoundation
 import PhotosUI
+import LocalAuthentication
 
 // MARK: - Préférences messagerie (App Group)
 
@@ -54,6 +55,38 @@ enum MessagingPrefs {
     }
 
     static var isConfigured: Bool { URL(string: serverURL) != nil && !serverURL.isEmpty }
+
+    // MARK: Confidentialité
+
+    private static let eraseOnCloseName = "messaging_erase_on_close"
+    private static let lockEnabledName = "messaging_lock_enabled"
+    private static let floorPrefix = "messaging_floor_" // + conversationId
+
+    /// Efface les messages affichés à la fermeture de l'app : on ne recharge
+    /// plus l'historique déjà vu, seuls les NOUVEAUX messages réapparaissent.
+    /// Activé par défaut (confidentialité). Voir `floor(for:)`.
+    static var eraseOnClose: Bool {
+        get { defaults?.object(forKey: eraseOnCloseName) as? Bool ?? true }
+        set { defaults?.set(newValue, forKey: eraseOnCloseName) }
+    }
+
+    /// Exige Face ID / Touch ID / code de l'appareil pour VOIR les messages
+    /// (comme le verrouillage proposé par Apple). Activé par défaut.
+    static var lockEnabled: Bool {
+        get { defaults?.object(forKey: lockEnabledName) as? Bool ?? true }
+        set { defaults?.set(newValue, forKey: lockEnabledName) }
+    }
+
+    /// « Plancher » d'une conversation : le plus grand `seq` déjà effacé. Le
+    /// store ne recharge que les messages STRICTEMENT au-dessus. Effacer à la
+    /// fermeture = remonter ce plancher au dernier message vu.
+    static func floor(for conversationId: String) -> UInt64 {
+        UInt64(defaults?.integer(forKey: floorPrefix + conversationId) ?? 0)
+    }
+
+    static func setFloor(_ seq: UInt64, for conversationId: String) {
+        defaults?.set(Int(seq), forKey: floorPrefix + conversationId)
+    }
 }
 
 // MARK: - Style (avatars dégradés, vert Brocolis)
@@ -308,10 +341,14 @@ final class BrocolisChatStore: ObservableObject {
 
     func start() {
         guard task == nil else { return }
+        // Plancher de confidentialité : on ne recharge JAMAIS ce qui a été effacé
+        // à la fermeture — seulement les messages plus récents que le plancher.
+        cursor = max(cursor, MessagingPrefs.floor(for: conversationId))
+        let floor = cursor
         task = Task { @MainActor [weak self] in
             guard let self else { return }
-            // 1) Rattrapage de l'historique.
-            if let (msgs, cur, readers) = try? await self.client.fetch(conversationId: self.conversationId, after: 0) {
+            // 1) Rattrapage de l'historique (au-dessus du plancher uniquement).
+            if let (msgs, cur, readers) = try? await self.client.fetch(conversationId: self.conversationId, after: floor) {
                 self.applyReaders(readers)
                 self.ingest(msgs, cursor: cur)
             }
@@ -338,6 +375,21 @@ final class BrocolisChatStore: ObservableObject {
     }
 
     func stop() { task?.cancel(); task = nil }
+
+    /// Efface les messages affichés et remonte le plancher au dernier message vu :
+    /// à la réouverture, l'historique effacé ne réapparaît pas, seuls les
+    /// nouveaux messages (seq plus grand) s'afficheront. Appelé à la fermeture.
+    func eraseNow() {
+        stop()
+        MessagingPrefs.setFloor(cursor, for: conversationId)
+        raw.removeAll()
+        seenIds.removeAll()
+        lines = []
+        otherReadUpTo = 0
+        didInitialLoad = false
+        status = nil
+        // `cursor` reste au plancher : le prochain start() ne récupère que du neuf.
+    }
 
     private func ingest(_ msgs: [BrocolisMessagingClient.RawMessage], cursor cur: UInt64?) {
         status = nil
@@ -631,7 +683,9 @@ struct BrocolisChatView: View {
     }
 
     private func chat(_ store: BrocolisChatStore) -> some View {
-        ChatScreen(store: store)
+        // Verrou partagé : une conversation ouverte se re-verrouille aussi au
+        // retour d'arrière-plan (sans redemander Face ID si déjà déverrouillé).
+        LockGate { ChatScreen(store: store) }
     }
 }
 
@@ -648,6 +702,7 @@ final class StoreBox: ObservableObject {
 
 private struct ChatScreen: View {
     @ObservedObject var store: BrocolisChatStore
+    @Environment(\.scenePhase) private var scenePhase
     @State private var invite: InvitePayload?
     @StateObject private var recorder = VoiceRecorder()
     @StateObject private var player = VoicePlayer()
@@ -673,6 +728,20 @@ private struct ChatScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { store.start() }
         .onDisappear { store.stop() }
+        .onChange(of: scenePhase) { phase in
+            // Fermeture / passage en arrière-plan : on efface les messages
+            // affichés (si l'option est active), sinon on coupe juste le flux.
+            // `.inactive` (centre de notifications, aperçu multitâche) est
+            // transitoire : on n'efface PAS, seul `.background` compte.
+            switch phase {
+            case .background:
+                if MessagingPrefs.eraseOnClose { store.eraseNow() } else { store.stop() }
+            case .active:
+                store.start()
+            default:
+                break
+            }
+        }
         .sheet(item: $invite) { payload in
             MessageComposeView(recipients: payload.recipients, body: payload.body) {
                 invite = nil
@@ -967,4 +1036,113 @@ private struct ContentUnavailableCompat: View {
 
 #Preview {
     NavigationStack { MessagingHomeView() }
+}
+
+// MARK: - Verrouillage des messages (Face ID / code, « comme Apple »)
+
+enum BrocolisAppLock {
+    /// Authentifie via Face ID / Touch ID, avec repli automatique sur le code de
+    /// l'appareil (mécanisme standard Apple). `true` si déverrouillé.
+    static func authenticate(reason: String) async -> Bool {
+        let ctx = LAContext()
+        ctx.localizedCancelTitle = "Annuler"
+        var err: NSError?
+        // .deviceOwnerAuthentication : biométrie si disponible, sinon code appareil.
+        guard ctx.canEvaluatePolicy(.deviceOwnerAuthentication, error: &err) else {
+            // Aucun code d'appareil configuré : impossible de verrouiller, on laisse passer.
+            return true
+        }
+        return await withCheckedContinuation { cont in
+            ctx.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { ok, _ in
+                cont.resume(returning: ok)
+            }
+        }
+    }
+}
+
+/// État de verrou PARTAGÉ par toute la messagerie : déverrouiller une fois
+/// déverrouille l'ensemble (accueil + conversation ouverte), et un seul passage
+/// en arrière-plan re-verrouille tout. Évite les doubles demandes de Face ID.
+final class BrocolisLockManager: ObservableObject {
+    static let shared = BrocolisLockManager()
+    @Published var unlocked = false
+    @Published var failed = false
+    private var authenticating = false
+    private init() {}
+
+    func lock() {
+        unlocked = false
+        failed = false
+    }
+
+    /// Déclenche une authentification si nécessaire (idempotent : pas de double
+    /// prompt si une demande est déjà en cours ou si c'est déjà déverrouillé).
+    /// Appelé depuis le fil principal (SwiftUI).
+    func ensureUnlocked() {
+        guard MessagingPrefs.lockEnabled else { unlocked = true; return }
+        guard !unlocked, !authenticating else { return }
+        authenticating = true
+        failed = false
+        Task {
+            let ok = await BrocolisAppLock.authenticate(reason: "Voir vos messages Brocolis 🥦")
+            await MainActor.run {
+                self.authenticating = false
+                self.unlocked = ok
+                self.failed = !ok
+            }
+        }
+    }
+}
+
+/// Enveloppe une vue derrière le verrou partagé (si activé dans les réglages).
+struct LockGate<Content: View>: View {
+    @ViewBuilder var content: () -> Content
+    @Environment(\.scenePhase) private var scenePhase
+    @ObservedObject private var lock = BrocolisLockManager.shared
+
+    var body: some View {
+        Group {
+            if !MessagingPrefs.lockEnabled || lock.unlocked {
+                content()
+            } else {
+                lockScreen
+            }
+        }
+        .onAppear { lock.ensureUnlocked() }
+        .onChange(of: scenePhase) { phase in
+            switch phase {
+            case .background: lock.lock() // re-verrouille à la fermeture
+            case .active: lock.ensureUnlocked()
+            default: break
+            }
+        }
+    }
+
+    private var lockScreen: some View {
+        VStack(spacing: 18) {
+            Text("🥦").font(.system(size: 64))
+            Image(systemName: "lock.fill").font(.largeTitle).foregroundStyle(.green)
+            Text("Messages verrouillés").font(.title3).bold()
+            Text("Déverrouille avec Face ID ou ton code pour voir tes messages.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            Button {
+                lock.ensureUnlocked()
+            } label: {
+                Label("Déverrouiller", systemImage: "faceid")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.green)
+            if lock.failed {
+                Text("Déverrouillage annulé ou échoué. Réessaie.")
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+            }
+        }
+        .padding(32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemBackground))
+    }
 }
