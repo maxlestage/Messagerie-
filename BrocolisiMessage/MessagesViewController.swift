@@ -490,39 +490,19 @@ final class MessagesViewController: MSMessagesAppViewController {
 
 // MARK: - Image de bulle (fond vert du logo, plus de fond sombre)
 
-/// Dessine le contenu de la bulle iMessage en MINIATURE : le brocoli 🥦 SEUL,
-/// centré, sur fond vert du logo — aucun texte. iMessage étire l'image à la
-/// largeur de la bulle en gardant son ratio : une image basse et large = une
-/// bulle courte, une vraie miniature.
+/// Bulle iMessage VIDE : on ne montre RIEN (ni brocoli ni texte). iMessage
+/// impose toujours une bulle, alors on la réduit au strict minimum — un mince
+/// fond neutre. Le jeton chiffré voyage dans l'URL du message ; le
+/// `summaryText` sert seulement à la notification / à l'aperçu de la liste.
 enum BrocolisBubbleImage {
     static func make() -> UIImage {
-        let size = CGSize(width: 360, height: 72)
+        // Très basse et large → bulle la plus courte possible.
+        let size = CGSize(width: 360, height: 28)
         let renderer = UIGraphicsImageRenderer(size: size)
         return renderer.image { ctx in
-            let cg = ctx.cgContext
-
-            // Fond vert clair du logo, en léger dégradé pour un rendu plus doux.
-            let bgTop = UIColor(red: 238.0 / 255, green: 248.0 / 255, blue: 226.0 / 255, alpha: 1)
-            let bgBottom = UIColor(red: 224.0 / 255, green: 241.0 / 255, blue: 208.0 / 255, alpha: 1)
-            if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
-                                         colors: [bgTop.cgColor, bgBottom.cgColor] as CFArray,
-                                         locations: [0, 1]) {
-                cg.drawLinearGradient(gradient,
-                                      start: CGPoint(x: 0, y: 0),
-                                      end: CGPoint(x: 0, y: size.height),
-                                      options: [])
-            } else {
-                bgTop.setFill()
-                cg.fill(CGRect(origin: .zero, size: size))
-            }
-
-            // Le brocoli 🥦 SEUL, centré. Aucun texte.
-            let broc = NSAttributedString(string: "🥦", attributes: [
-                .font: UIFont.systemFont(ofSize: 46),
-            ])
-            let brocSize = broc.size()
-            broc.draw(at: CGPoint(x: (size.width - brocSize.width) / 2,
-                                  y: (size.height - brocSize.height) / 2))
+            // Fond vert clair du logo, uni et discret. Aucun contenu dessiné.
+            UIColor(red: 232.0 / 255, green: 245.0 / 255, blue: 219.0 / 255, alpha: 1).setFill()
+            ctx.fill(CGRect(origin: .zero, size: size))
         }
     }
 }
