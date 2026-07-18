@@ -469,7 +469,11 @@ final class MessagesViewController: MSMessagesAppViewController {
         let message = MSMessage(session: MSSession())
         message.url = comps.url
         message.layout = layout
-        message.summaryText = summary
+        // Pas de `summaryText` : c'est lui qu'iMessage affiche dans une zone
+        // SOMBRE sous l'image. En l'omettant, la bulle reste TOUTE VERTE.
+        // (Contrepartie : la notification/l'aperçu de liste ne portent plus
+        // « 🥦 Message chiffré ».) `summary` conservé pour un usage éventuel.
+        _ = summary
 
         conversation.insert(message) { _ in }
         requestPresentationStyle(.compact)
@@ -490,19 +494,30 @@ final class MessagesViewController: MSMessagesAppViewController {
 
 // MARK: - Image de bulle (fond vert du logo, plus de fond sombre)
 
-/// Bulle iMessage VIDE : on ne montre RIEN (ni brocoli ni texte). iMessage
-/// impose toujours une bulle, alors on la réduit au strict minimum — un mince
-/// fond neutre. Le jeton chiffré voyage dans l'URL du message ; le
-/// `summaryText` sert seulement à la notification / à l'aperçu de la liste.
+/// Bulle iMessage TOUTE VERTE et VIDE : rien d'affiché (ni brocoli ni texte),
+/// juste le fond vert du logo qui remplit toute la bulle. Combiné à l'absence
+/// de `summaryText` (voir `insertEncrypted`), la bulle n'a plus aucune zone
+/// sombre. Le jeton chiffré voyage dans l'URL du message.
 enum BrocolisBubbleImage {
     static func make() -> UIImage {
-        // Très basse et large → bulle la plus courte possible.
-        let size = CGSize(width: 360, height: 28)
+        let size = CGSize(width: 300, height: 120)
         let renderer = UIGraphicsImageRenderer(size: size)
         return renderer.image { ctx in
-            // Fond vert clair du logo, uni et discret. Aucun contenu dessiné.
-            UIColor(red: 232.0 / 255, green: 245.0 / 255, blue: 219.0 / 255, alpha: 1).setFill()
-            ctx.fill(CGRect(origin: .zero, size: size))
+            let cg = ctx.cgContext
+            // Fond vert clair du logo, léger dégradé pour un rendu doux. Rien d'autre.
+            let bgTop = UIColor(red: 238.0 / 255, green: 248.0 / 255, blue: 226.0 / 255, alpha: 1)
+            let bgBottom = UIColor(red: 224.0 / 255, green: 241.0 / 255, blue: 208.0 / 255, alpha: 1)
+            if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                                         colors: [bgTop.cgColor, bgBottom.cgColor] as CFArray,
+                                         locations: [0, 1]) {
+                cg.drawLinearGradient(gradient,
+                                      start: CGPoint(x: 0, y: 0),
+                                      end: CGPoint(x: 0, y: size.height),
+                                      options: [])
+            } else {
+                bgTop.setFill()
+                cg.fill(CGRect(origin: .zero, size: size))
+            }
         }
     }
 }
