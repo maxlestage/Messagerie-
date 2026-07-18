@@ -34,6 +34,9 @@ struct RootView: View {
     @State private var renameTarget: NamedKey?
     @State private var renameText = ""
 
+    @State private var lockEnabled = MessagingPrefs.lockEnabled
+    @State private var eraseOnClose = MessagingPrefs.eraseOnClose
+
     private let ttlOptions: [(label: String, seconds: Int)] = [
         ("Jamais", 0),
         ("1 heure", 3600),
@@ -51,6 +54,7 @@ struct RootView: View {
             Form {
                 quickStartSection
                 messagingSection
+                privacySection
                 conversationSection
                 keyboardSection
                 encryptionSection
@@ -188,7 +192,7 @@ struct RootView: View {
         if hasKey {
             Section {
                 NavigationLink {
-                    MessagingHomeView()
+                    LockGate { MessagingHomeView() }
                 } label: {
                     Label("Ouvrir la messagerie", systemImage: "bubble.left.and.bubble.right.fill")
                 }
@@ -198,6 +202,39 @@ struct RootView: View {
                 Text("Choisis un correspondant **parmi tes clés** et discute en clair dans l’app. Chaque message part chiffré avec sa clé : lisible ici, illisible partout ailleurs (serveur, iMessage…).")
             }
         }
+    }
+
+    // MARK: Confidentialité (verrou + effacement à la fermeture)
+
+    @ViewBuilder private var privacySection: some View {
+        if hasKey {
+            Section {
+                Toggle(isOn: lockBinding) {
+                    Label("Verrouiller par Face ID / code", systemImage: "faceid")
+                }
+                Toggle(isOn: eraseBinding) {
+                    Label("Effacer à la fermeture", systemImage: "eraser")
+                }
+            } header: {
+                Text("Confidentialité")
+            } footer: {
+                Text("**Verrouiller** : il faut Face ID (ou le code de l’appareil) pour voir tes messages, comme le propose Apple.\n\n**Effacer à la fermeture** : en quittant l’app, les messages affichés disparaissent ; à la réouverture, seuls les **nouveaux** messages réapparaissent.")
+            }
+        }
+    }
+
+    private var lockBinding: Binding<Bool> {
+        Binding(
+            get: { lockEnabled },
+            set: { MessagingPrefs.lockEnabled = $0; lockEnabled = $0 }
+        )
+    }
+
+    private var eraseBinding: Binding<Bool> {
+        Binding(
+            get: { eraseOnClose },
+            set: { MessagingPrefs.eraseOnClose = $0; eraseOnClose = $0 }
+        )
     }
 
     // MARK: Conversation (lecture/écriture à la volée)
