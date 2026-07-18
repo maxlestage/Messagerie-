@@ -61,9 +61,9 @@ final class KeyboardViewController: UIInputViewController {
 
         let globe = makeButton(title: "🌐", action: #selector(nextKeyboard))
         globe.titleLabel?.font = .systemFont(ofSize: 22)
-        let read = makeButton(title: "📋 Lire", action: #selector(readClipboardTapped))
-        let encrypt = makeButton(title: "🔒 Chiffrer", action: #selector(encryptTapped))
-        let decrypt = makeButton(title: "🔓 Déchiffrer", action: #selector(decryptTapped))
+        let read = makeButton(title: loc("📋 Lire", "📋 Read", "📋 Leer"), action: #selector(readClipboardTapped))
+        let encrypt = makeButton(title: loc("🔒 Chiffrer", "🔒 Encrypt", "🔒 Cifrar"), action: #selector(encryptTapped))
+        let decrypt = makeButton(title: loc("🔓 Déchiffrer", "🔓 Decrypt", "🔓 Descifrar"), action: #selector(decryptTapped))
         actionButtons = [read, encrypt, decrypt]
 
         let row = UIStackView(arrangedSubviews: [globe, read, encrypt, decrypt])
@@ -114,27 +114,27 @@ final class KeyboardViewController: UIInputViewController {
     private func refreshState() {
         guard hasFullAccess else {
             setEnabled(false)
-            statusLabel.text = "⚠️ Active « Accès complet » pour ce clavier\n(Réglages → Général → Clavier → Brocolis 🥦)"
+            statusLabel.text = loc("⚠️ Active « Accès complet » pour ce clavier\n(Réglages → Général → Clavier → Brocolis 🥦)", "⚠️ Enable « Full Access » for this keyboard\n(Settings → General → Keyboard → Brocolis 🥦)", "⚠️ Activa « Acceso completo » para este teclado\n(Ajustes → General → Teclado → Brocolis 🥦)")
             return
         }
         guard BrocolisKeyStore.isActive else {
             setEnabled(false)
-            statusLabel.text = "⏸ Brocolis est désactivé — ouvre l’app et active-le."
+            statusLabel.text = loc("⏸ Brocolis est désactivé — ouvre l’app et active-le.", "⏸ Brocolis is disabled — open the app and enable it.", "⏸ Brocolis está desactivado — abre la app y actívalo.")
             return
         }
         guard BrocolisKeyStore.hasKey else {
             setEnabled(false)
-            statusLabel.text = "🔑 Aucune clé — ajoute-en une dans l’app Brocolis 🥦."
+            statusLabel.text = loc("🔑 Aucune clé — ajoute-en une dans l’app Brocolis 🥦.", "🔑 No key — add one in the Brocolis 🥦 app.", "🔑 Ninguna clave — añade una en la app Brocolis 🥦.")
             return
         }
         setEnabled(true)
-        statusLabel.text = "Lire un reçu : copie-le, touche « Lire ». Envoyer : tape, puis « Chiffrer »."
+        statusLabel.text = loc("Lire un reçu : copie-le, touche « Lire ». Envoyer : tape, puis « Chiffrer ».", "Read a message you got: copy it, tap « Read ». Send: type, then « Encrypt ».", "Leer un mensaje recibido: cópialo, toca « Leer ». Enviar: escribe, luego « Cifrar ».")
     }
 
     /// Affiche du texte (ou un mode d'emploi) dans la zone de lecture.
     private func showReadout(_ text: String, placeholder: Bool) {
         if placeholder || text.isEmpty {
-            readout.text = "Pour lire un message reçu : appui long dessus → Copier, puis reviens ici et touche « 📋 Lire » — il s’affiche en clair, sans quitter l’app."
+            readout.text = loc("Pour lire un message reçu : appui long dessus → Copier, puis reviens ici et touche « 📋 Lire » — il s’affiche en clair, sans quitter l’app.", "To read a message you got: long-press it → Copy, then come back here and tap « 📋 Read » — it shows in clear text, without leaving the app.", "Para leer un mensaje recibido: mantén pulsado → Copiar, luego vuelve aquí y toca « 📋 Leer » — se muestra en claro, sin salir de la app.")
             readout.textColor = .secondaryLabel
         } else {
             readout.text = text
@@ -182,32 +182,32 @@ final class KeyboardViewController: UIInputViewController {
         guard guardReady() else { return }
         let clip = UIPasteboard.general.string ?? ""
         guard !clip.isEmpty else {
-            statusLabel.text = "Presse-papiers vide — copie d’abord le message reçu (appui long → Copier)."
+            statusLabel.text = loc("Presse-papiers vide — copie d’abord le message reçu (appui long → Copier).", "Clipboard empty — first copy the message you got (long-press → Copy).", "Portapapeles vacío — copia primero el mensaje recibido (mantén pulsado → Copiar).")
             showReadout("", placeholder: true)
             return
         }
         let keys = BrocolisKeyStore.allSymmetricKeys()
         guard !keys.isEmpty else {
-            statusLabel.text = "🔑 Aucune clé configurée."
+            statusLabel.text = loc("🔑 Aucune clé configurée.", "🔑 No key configured.", "🔑 Ninguna clave configurada.")
             return
         }
         guard BrocolisCrypto.containsToken(clip) else {
-            statusLabel.text = "Aucun message chiffré dans le presse-papiers."
+            statusLabel.text = loc("Aucun message chiffré dans le presse-papiers.", "No encrypted message in the clipboard.", "Ningún mensaje cifrado en el portapapeles.")
             showReadout(clip, placeholder: false)
             return
         }
         let (text, n) = BrocolisCrypto.decryptTokens(clip, keys: keys)
         showReadout(text, placeholder: false)
         statusLabel.text = n > 0
-            ? "🔓 \(n) message(s) lu(s) — tu n’as pas quitté l’app."
-            : "Message chiffré avec une clé que tu n’as pas."
+            ? loc("🔓 \(n) message(s) lu(s) — tu n’as pas quitté l’app.", "🔓 \(n) message(s) read — you didn’t leave the app.", "🔓 \(n) mensaje(s) leído(s) — no saliste de la app.")
+            : loc("Message chiffré avec une clé que tu n’as pas.", "Message encrypted with a key you don’t have.", "Mensaje cifrado con una clave que no tienes.")
     }
 
     @objc private func encryptTapped() {
         guard guardReady() else { return }
         let input = currentFieldText()
         guard !input.isEmpty else {
-            statusLabel.text = "Le champ est vide — écris d’abord ton message."
+            statusLabel.text = loc("Le champ est vide — écris d’abord ton message.", "The field is empty — type your message first.", "El campo está vacío — escribe primero tu mensaje.")
             return
         }
         // Si le champ contient déjà un jeton, on déchiffre plutôt (évite de
@@ -219,27 +219,27 @@ final class KeyboardViewController: UIInputViewController {
         let encKeys = BrocolisKeyStore.encryptionKeys()
         guard !encKeys.isEmpty else {
             statusLabel.text = BrocolisKeyStore.hasKey
-                ? "⌛️ Clé(s) destinataire(s) expirée(s) — prolonge-les dans l’app."
-                : "🔑 Aucune clé — ajoute-en une dans l’app."
+                ? loc("⌛️ Clé(s) destinataire(s) expirée(s) — prolonge-les dans l’app.", "⌛️ Recipient key(s) expired — extend them in the app.", "⌛️ Clave(s) de destinatario expirada(s) — renuévalas en la app.")
+                : loc("🔑 Aucune clé — ajoute-en une dans l’app.", "🔑 No key — add one in the app.", "🔑 Ninguna clave — añade una en la app.")
             return
         }
         let result = BrocolisTransform.auto(
             input, keys: encKeys, encryptWholeAlways: BrocolisKeyStore.encryptWholeAlways)
         // Garde-fou : on ne remplace le champ QUE si c'est vraiment chiffré.
         guard result.isEncrypted else {
-            statusLabel.text = "⚠️ Rien n'a été chiffré — le champ est laissé tel quel."
+            statusLabel.text = loc("⚠️ Rien n'a été chiffré — le champ est laissé tel quel.", "⚠️ Nothing was encrypted — the field is left as is.", "⚠️ No se cifró nada — el campo se deja tal cual.")
             return
         }
         replaceFieldText(with: result.text)
-        let recipients = encKeys.count > 1 ? " · \(encKeys.count) destinataires" : ""
-        statusLabel.text = result.label + recipients + " — prêt à envoyer."
+        let recipients = encKeys.count > 1 ? loc(" · \(encKeys.count) destinataires", " · \(encKeys.count) recipients", " · \(encKeys.count) destinatarios") : ""
+        statusLabel.text = result.label + recipients + loc(" — prêt à envoyer.", " — ready to send.", " — listo para enviar.")
     }
 
     @objc private func decryptTapped() {
         guard guardReady() else { return }
         let input = currentFieldText()
         guard !input.isEmpty else {
-            statusLabel.text = "Le champ est vide."
+            statusLabel.text = loc("Le champ est vide.", "The field is empty.", "El campo está vacío.")
             return
         }
         decrypt(input)
@@ -248,28 +248,28 @@ final class KeyboardViewController: UIInputViewController {
     private func decrypt(_ input: String) {
         let keys = BrocolisKeyStore.allSymmetricKeys()
         guard !keys.isEmpty else {
-            statusLabel.text = "🔑 Aucune clé configurée."
+            statusLabel.text = loc("🔑 Aucune clé configurée.", "🔑 No key configured.", "🔑 Ninguna clave configurada.")
             return
         }
         guard BrocolisCrypto.containsToken(input) else {
-            statusLabel.text = "Aucun message chiffré dans le champ."
+            statusLabel.text = loc("Aucun message chiffré dans le champ.", "No encrypted message in the field.", "Ningún mensaje cifrado en el campo.")
             return
         }
         let (text, n) = BrocolisCrypto.decryptTokens(input, keys: keys)
         replaceFieldText(with: text)
         statusLabel.text = n > 0
-            ? "🔓 \(n) message(s) déchiffré(s)."
-            : "Aucun message lisible avec tes clés (clé d’un autre)."
+            ? loc("🔓 \(n) message(s) déchiffré(s).", "🔓 \(n) message(s) decrypted.", "🔓 \(n) mensaje(s) descifrado(s).")
+            : loc("Aucun message lisible avec tes clés (clé d’un autre).", "No message readable with your keys (someone else’s key).", "Ningún mensaje legible con tus claves (clave de otra persona).")
     }
 
     /// Vérifie l'accès complet + l'état actif avant d'agir.
     private func guardReady() -> Bool {
         guard hasFullAccess else {
-            statusLabel.text = "⚠️ Active « Accès complet » pour ce clavier."
+            statusLabel.text = loc("⚠️ Active « Accès complet » pour ce clavier.", "⚠️ Enable « Full Access » for this keyboard.", "⚠️ Activa « Acceso completo » para este teclado.")
             return false
         }
         guard BrocolisKeyStore.isActive else {
-            statusLabel.text = "⏸ Brocolis est désactivé — ouvre l’app et active-le."
+            statusLabel.text = loc("⏸ Brocolis est désactivé — ouvre l’app et active-le.", "⏸ Brocolis is disabled — open the app and enable it.", "⏸ Brocolis está desactivado — abre la app y actívalo.")
             return false
         }
         return true

@@ -38,10 +38,10 @@ struct RootView: View {
     @State private var eraseOnClose = MessagingPrefs.eraseOnClose
 
     private let ttlOptions: [(label: String, seconds: Int)] = [
-        ("Jamais", 0),
-        ("1 heure", 3600),
-        ("24 heures", 86_400),
-        ("7 jours", 604_800),
+        (loc("Jamais", "Never", "Nunca"), 0),
+        (loc("1 heure", "1 hour", "1 hora"), 3600),
+        (loc("24 heures", "24 hours", "24 horas"), 86_400),
+        (loc("7 jours", "7 days", "7 días"), 604_800),
     ]
 
     private var hasKey: Bool { !keys.isEmpty }
@@ -89,33 +89,33 @@ struct RootView: View {
                 }
                 .ignoresSafeArea()
             }
-            .alert("Nouvelle clé", isPresented: $showGenerate) {
-                TextField("Nom (ex. Maman)", text: $newKeyName)
-                Button("Générer") {
+            .alert(loc("Nouvelle clé", "New key", "Nueva clave"), isPresented: $showGenerate) {
+                TextField(loc("Nom (ex. Maman)", "Name (e.g. Mom)", "Nombre (ej. Mamá)"), text: $newKeyName)
+                Button(loc("Générer", "Generate", "Generar")) {
                     BrocolisKeyStore.addKey(name: newKeyName, base64: BrocolisCrypto.generateKeyBase64())
                     BrocolisKeyStore.setActive(true) // activation auto : plus besoin de l'interrupteur
                     reload()
                 }
-                Button("Annuler", role: .cancel) {}
+                Button(loc("Annuler", "Cancel", "Cancelar"), role: .cancel) {}
             } message: {
-                Text("Crée une clé AES-256 aléatoire, nommée, et la sélectionne.")
+                Text(loc("Crée une clé AES-256 aléatoire, nommée, et la sélectionne.", "Creates a random named AES-256 key and selects it.", "Crea una clave AES-256 aleatoria con nombre y la selecciona."))
             }
-            .alert("Importer une clé", isPresented: $showImport) {
-                TextField("Nom", text: $importName)
-                TextField("Clé base64 (32 octets)", text: $importText)
-                Button("Importer") { importKey() }
-                Button("Annuler", role: .cancel) {}
+            .alert(loc("Importer une clé", "Import a key", "Importar una clave"), isPresented: $showImport) {
+                TextField(loc("Nom", "Name", "Nombre"), text: $importName)
+                TextField(loc("Clé base64 (32 octets)", "Base64 key (32 bytes)", "Clave base64 (32 bytes)"), text: $importText)
+                Button(loc("Importer", "Import", "Importar")) { importKey() }
+                Button(loc("Annuler", "Cancel", "Cancelar"), role: .cancel) {}
             } message: {
-                Text("Colle la clé reçue d’un correspondant.")
+                Text(loc("Colle la clé reçue d’un correspondant.", "Paste the key received from a contact.", "Pega la clave recibida de un contacto."))
             }
-            .alert("Renommer la clé", isPresented: renameBinding) {
-                TextField("Nom", text: $renameText)
+            .alert(loc("Renommer la clé", "Rename key", "Renombrar clave"), isPresented: renameBinding) {
+                TextField(loc("Nom", "Name", "Nombre"), text: $renameText)
                 Button("OK") {
                     if let t = renameTarget { BrocolisKeyStore.renameKey(id: t.id, name: renameText) }
                     renameTarget = nil
                     reload()
                 }
-                Button("Annuler", role: .cancel) { renameTarget = nil }
+                Button(loc("Annuler", "Cancel", "Cancelar"), role: .cancel) { renameTarget = nil }
             }
             .alert(
                 "Brocolis",
@@ -142,7 +142,7 @@ struct RootView: View {
                     newKeyName = ""
                     showGenerate = true
                 } label: {
-                    Label("Créer ma première clé", systemImage: "key.fill")
+                    Label(loc("Créer ma première clé", "Create my first key", "Crear mi primera clave"), systemImage: "key.fill")
                         .fontWeight(.semibold)
                         .frame(maxWidth: .infinity)
                 }
@@ -153,12 +153,12 @@ struct RootView: View {
                 Button {
                     showPairing = true
                 } label: {
-                    Label("M’appairer avec quelqu’un", systemImage: "person.2.fill")
+                    Label(loc("M’appairer avec quelqu’un", "Pair with someone", "Emparejar con alguien"), systemImage: "person.2.fill")
                 }
             } header: {
-                Text("Bienvenue 🥦")
+                Text(loc("Bienvenue 🥦", "Welcome 🥦", "Bienvenido 🥦"))
             } footer: {
-                Text("Une **clé** = une discussion privée avec une personne. Crée-en une et partage-la (ou appaire-toi en direct), et tu pourras chiffrer tes messages dans n’importe quelle app.")
+                Text(loc("Une **clé** = une discussion privée avec une personne. Crée-en une et partage-la (ou appaire-toi en direct), et tu pourras chiffrer tes messages dans n’importe quelle app.", "A **key** = a private conversation with one person. Create one and share it (or pair live), and you can encrypt your messages in any app.", "Una **clave** = una conversación privada con una persona. Crea una y compártela (o empareja en directo), y podrás cifrar tus mensajes en cualquier app."))
             }
         } else {
             // Contrôle d'état TOUJOURS présent, en tête de liste : un seul
@@ -170,18 +170,18 @@ struct RootView: View {
                             .font(.title2)
                             .foregroundStyle(isActive ? .green : .orange)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(isActive ? "Prêt à chiffrer" : "En pause")
+                            Text(isActive ? loc("Prêt à chiffrer", "Ready to encrypt", "Listo para cifrar") : loc("En pause", "Paused", "En pausa"))
                                 .font(.headline)
                             Text(isActive
-                                 ? "Utilise le clavier 🥦 ou « Partager » dans tes apps."
-                                 : "Active pour chiffrer dans tes apps.")
+                                 ? loc("Utilise le clavier 🥦 ou « Partager » dans tes apps.", "Use the 🥦 keyboard or “Share” in your apps.", "Usa el teclado 🥦 o «Compartir» en tus apps.")
+                                 : loc("Active pour chiffrer dans tes apps.", "Turn on to encrypt in your apps.", "Actívalo para cifrar en tus apps."))
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }
                 }
                 .padding(.vertical, 2)
             } header: {
-                Text("État")
+                Text(loc("État", "Status", "Estado"))
             }
         }
     }
@@ -194,12 +194,12 @@ struct RootView: View {
                 NavigationLink {
                     LockGate { MessagingHomeView() }
                 } label: {
-                    Label("Ouvrir la messagerie", systemImage: "bubble.left.and.bubble.right.fill")
+                    Label(loc("Ouvrir la messagerie", "Open messaging", "Abrir mensajería"), systemImage: "bubble.left.and.bubble.right.fill")
                 }
             } header: {
-                Text("Discuter en direct")
+                Text(loc("Discuter en direct", "Chat live", "Chatear en directo"))
             } footer: {
-                Text("Choisis un correspondant **parmi tes clés** et discute en clair dans l’app. Chaque message part chiffré avec sa clé : lisible ici, illisible partout ailleurs (serveur, iMessage…).")
+                Text(loc("Choisis un correspondant **parmi tes clés** et discute en clair dans l’app. Chaque message part chiffré avec sa clé : lisible ici, illisible partout ailleurs (serveur, iMessage…).", "Pick a contact **from your keys** and chat in the clear inside the app. Each message leaves encrypted with its key: readable here, unreadable everywhere else (server, iMessage…).", "Elige un contacto **entre tus claves** y chatea en claro dentro de la app. Cada mensaje sale cifrado con su clave: legible aquí, ilegible en cualquier otro lugar (servidor, iMessage…)."))
             }
         }
     }
@@ -210,15 +210,15 @@ struct RootView: View {
         if hasKey {
             Section {
                 Toggle(isOn: lockBinding) {
-                    Label("Verrouiller par Face ID / code", systemImage: "faceid")
+                    Label(loc("Verrouiller par Face ID / code", "Lock with Face ID / passcode", "Bloquear con Face ID / código"), systemImage: "faceid")
                 }
                 Toggle(isOn: eraseBinding) {
-                    Label("Effacer à la fermeture", systemImage: "eraser")
+                    Label(loc("Effacer à la fermeture", "Erase on close", "Borrar al cerrar"), systemImage: "eraser")
                 }
             } header: {
-                Text("Confidentialité")
+                Text(loc("Confidentialité", "Privacy", "Privacidad"))
             } footer: {
-                Text("**Verrouiller** : il faut Face ID (ou le code de l’appareil) pour voir tes messages, comme le propose Apple.\n\n**Effacer à la fermeture** : en quittant l’app, les messages affichés disparaissent ; à la réouverture, seuls les **nouveaux** messages réapparaissent.")
+                Text(loc("**Verrouiller** : il faut Face ID (ou le code de l’appareil) pour voir tes messages, comme le propose Apple.\n\n**Effacer à la fermeture** : en quittant l’app, les messages affichés disparaissent ; à la réouverture, seuls les **nouveaux** messages réapparaissent.", "**Lock** : Face ID (or the device passcode) is required to see your messages, just as Apple offers.\n\n**Erase on close** : when you leave the app, the displayed messages disappear; on reopening, only the **new** messages reappear.", "**Bloquear** : hace falta Face ID (o el código del dispositivo) para ver tus mensajes, como propone Apple.\n\n**Borrar al cerrar** : al salir de la app, los mensajes mostrados desaparecen; al reabrir, solo reaparecen los mensajes **nuevos**."))
             }
         }
     }
@@ -244,12 +244,12 @@ struct RootView: View {
             NavigationLink {
                 ConversationView()
             } label: {
-                Label("Ouvrir la conversation", systemImage: "text.bubble.fill")
+                Label(loc("Ouvrir la conversation", "Open conversation", "Abrir conversación"), systemImage: "text.bubble.fill")
             }
         } header: {
-            Text("Lire à la volée")
+            Text(loc("Lire à la volée", "Read on the fly", "Leer al vuelo"))
         } footer: {
-            Text("Colle toute une discussion : Brocolis déchiffre automatiquement les messages protégés par tes clés et laisse 🔒 ceux des autres. Plus besoin de « traduire » message par message.")
+            Text(loc("Colle toute une discussion : Brocolis déchiffre automatiquement les messages protégés par tes clés et laisse 🔒 ceux des autres. Plus besoin de « traduire » message par message.", "Paste a whole conversation: Brocolis automatically decrypts the messages protected by your keys and leaves 🔒 on the others. No more “translating” message by message.", "Pega una conversación entera: Brocolis descifra automáticamente los mensajes protegidos por tus claves y deja 🔒 en los demás. Ya no hay que «traducir» mensaje por mensaje."))
         }
     }
 
@@ -262,12 +262,12 @@ struct RootView: View {
                     UIApplication.shared.open(url)
                 }
             } label: {
-                Label("Activer le clavier Brocolis 🥦", systemImage: "keyboard")
+                Label(loc("Activer le clavier Brocolis 🥦", "Enable the Brocolis 🥦 keyboard", "Activar el teclado Brocolis 🥦"), systemImage: "keyboard")
             }
         } header: {
-            Text("Envoyer sans copier")
+            Text(loc("Envoyer sans copier", "Send without copying", "Enviar sin copiar"))
         } footer: {
-            Text("Active le **Clavier Brocolis 🥦** (Réglages → Général → Clavier → Claviers → Ajouter), puis autorise l’**Accès complet** (nécessaire pour lire tes clés et le presse-papiers). Ensuite, dans n’importe quelle app :\n\n• **Envoyer** : tape ton message, bascule sur Brocolis avec 🌐, touche **Chiffrer** — le texte est remplacé chiffré sur place, sans copier-coller.\n\n• **Lire un reçu** : appui long sur le message → Copier, bascule sur Brocolis avec 🌐, touche **📋 Lire** — il s’affiche en clair sur le clavier, sans quitter l’app.")
+            Text(loc("Active le **Clavier Brocolis 🥦** (Réglages → Général → Clavier → Claviers → Ajouter), puis autorise l’**Accès complet** (nécessaire pour lire tes clés et le presse-papiers). Ensuite, dans n’importe quelle app :\n\n• **Envoyer** : tape ton message, bascule sur Brocolis avec 🌐, touche **Chiffrer** — le texte est remplacé chiffré sur place, sans copier-coller.\n\n• **Lire un reçu** : appui long sur le message → Copier, bascule sur Brocolis avec 🌐, touche **📋 Lire** — il s’affiche en clair sur le clavier, sans quitter l’app.", "Enable the **Brocolis 🥦 Keyboard** (Settings → General → Keyboard → Keyboards → Add New Keyboard), then allow **Full Access** (needed to read your keys and the clipboard). Then, in any app:\n\n• **Send** : type your message, switch to Brocolis with 🌐, tap **Encrypt** — the text is replaced encrypted in place, no copy-paste.\n\n• **Read a received one** : long-press the message → Copy, switch to Brocolis with 🌐, tap **📋 Read** — it appears in the clear on the keyboard, without leaving the app.", "Activa el **Teclado Brocolis 🥦** (Ajustes → General → Teclado → Teclados → Añadir nuevo teclado), luego permite el **Acceso completo** (necesario para leer tus claves y el portapapeles). Después, en cualquier app:\n\n• **Enviar** : escribe tu mensaje, cambia a Brocolis con 🌐, toca **Cifrar** — el texto se reemplaza cifrado en el sitio, sin copiar y pegar.\n\n• **Leer uno recibido** : mantén pulsado el mensaje → Copiar, cambia a Brocolis con 🌐, toca **📋 Leer** — se muestra en claro en el teclado, sin salir de la app."))
         }
     }
 
@@ -276,14 +276,14 @@ struct RootView: View {
     private var encryptionSection: some View {
         Section {
             Toggle(isOn: encryptWholeBinding) {
-                Label("Tout chiffrer", systemImage: "lock.rectangle.on.rectangle.fill")
+                Label(loc("Tout chiffrer", "Encrypt everything", "Cifrar todo"), systemImage: "lock.rectangle.on.rectangle.fill")
             }
         } header: {
-            Text("Chiffrement")
+            Text(loc("Chiffrement", "Encryption", "Cifrado"))
         } footer: {
             Text(encryptWhole
-                 ? "Toute ta sélection est chiffrée d'un bloc, même quand tu es seul — pas besoin d'entourer le texte de ((…))."
-                 : "Seuls les passages entre ((…)) sont chiffrés ; le reste du texte reste en clair.")
+                 ? loc("Toute ta sélection est chiffrée d'un bloc, même quand tu es seul — pas besoin d'entourer le texte de ((…)).", "Your whole selection is encrypted as one block, even on your own — no need to wrap the text in ((…)).", "Toda tu selección se cifra en un bloque, incluso a solas — no hace falta rodear el texto con ((…)).")
+                 : loc("Seuls les passages entre ((…)) sont chiffrés ; le reste du texte reste en clair.", "Only the parts between ((…)) are encrypted; the rest of the text stays in the clear.", "Solo se cifran los fragmentos entre ((…)); el resto del texto queda en claro."))
         }
     }
 
@@ -319,10 +319,10 @@ struct RootView: View {
             Button {
                 showPairing = true
             } label: {
-                Label("Appairer automatiquement", systemImage: "person.2.badge.key.fill")
+                Label(loc("Appairer automatiquement", "Pair automatically", "Emparejar automáticamente"), systemImage: "person.2.badge.key.fill")
             }
             if let fp = fingerprint {
-                LabeledContent("Empreinte", value: fp)
+                LabeledContent(loc("Empreinte", "Fingerprint", "Huella"), value: fp)
                     .font(.system(.footnote, design: .monospaced))
             }
             if pairedPeerCount > 0 {
@@ -331,18 +331,18 @@ struct RootView: View {
                         let n = await BrocolisPush.notifyPeers()
                         await MainActor.run {
                             alertMessage = n > 0
-                                ? "Mise à jour envoyée à \(n) correspondant(s)."
-                                : "Aucune notification envoyée (correspondant hors ligne, ou push non configuré côté serveur)."
+                                ? loc("Mise à jour envoyée à \(n) correspondant(s).", "Update sent to \(n) contact(s).", "Actualización enviada a \(n) contacto(s).")
+                                : loc("Aucune notification envoyée (correspondant hors ligne, ou push non configuré côté serveur).", "No notification sent (contact offline, or push not configured on the server).", "No se envió ninguna notificación (contacto sin conexión, o push no configurado en el servidor).")
                         }
                     }
                 } label: {
-                    Label("Notifier mes correspondants", systemImage: "bell.badge")
+                    Label(loc("Notifier mes correspondants", "Notify my contacts", "Notificar a mis contactos"), systemImage: "bell.badge")
                 }
             }
         } header: {
-            Text("Correspondant")
+            Text(loc("Correspondant", "Contact", "Contacto"))
         } footer: {
-            Text("Échange la clé via un code court (X25519). La clé reçue est ajoutée à ta liste.\n\n« Notifier mes correspondants » met à jour leur Live Activity 🥦 à distance (push).")
+            Text(loc("Échange la clé via un code court (X25519). La clé reçue est ajoutée à ta liste.\n\n« Notifier mes correspondants » met à jour leur Live Activity 🥦 à distance (push).", "Exchange the key via a short code (X25519). The received key is added to your list.\n\n“Notify my contacts” updates their Live Activity 🥦 remotely (push).", "Intercambia la clave mediante un código corto (X25519). La clave recibida se añade a tu lista.\n\n«Notificar a mis contactos» actualiza su Live Activity 🥦 de forma remota (push)."))
         }
     }
 
@@ -372,13 +372,13 @@ struct RootView: View {
                         BrocolisKeyStore.deleteKey(id: key.id)
                         reload()
                     } label: {
-                        Label("Supprimer", systemImage: "trash")
+                        Label(loc("Supprimer", "Delete", "Eliminar"), systemImage: "trash")
                     }
                     Button {
                         renameTarget = key
                         renameText = key.name
                     } label: {
-                        Label("Renommer", systemImage: "pencil")
+                        Label(loc("Renommer", "Rename", "Renombrar"), systemImage: "pencil")
                     }
                     .tint(.blue)
                 }
@@ -387,28 +387,28 @@ struct RootView: View {
             Button {
                 showContacts = true
             } label: {
-                Label("Ajouter depuis mes contacts", systemImage: "person.crop.circle.badge.plus")
+                Label(loc("Ajouter depuis mes contacts", "Add from my contacts", "Añadir desde mis contactos"), systemImage: "person.crop.circle.badge.plus")
             }
             Button {
                 newKeyName = ""
                 showGenerate = true
             } label: {
-                Label("Générer une nouvelle clé", systemImage: "key.fill")
+                Label(loc("Générer une nouvelle clé", "Generate a new key", "Generar una nueva clave"), systemImage: "key.fill")
             }
             Button {
                 importName = ""
                 importText = ""
                 showImport = true
             } label: {
-                Label("Importer une clé", systemImage: "square.and.arrow.down")
+                Label(loc("Importer une clé", "Import a key", "Importar una clave"), systemImage: "square.and.arrow.down")
             }
         } header: {
-            Text("Clés")
+            Text(loc("Clés", "Keys", "Claves"))
         } footer: {
             if hasKey {
-                Text("La clé cochée sert à chiffrer. Au déchiffrement, toutes tes clés sont essayées. Glisse une clé pour la renommer ou la supprimer.")
+                Text(loc("La clé cochée sert à chiffrer. Au déchiffrement, toutes tes clés sont essayées. Glisse une clé pour la renommer ou la supprimer.", "The checked key is used to encrypt. When decrypting, all your keys are tried. Swipe a key to rename or delete it.", "La clave marcada se usa para cifrar. Al descifrar, se prueban todas tus claves. Desliza una clave para renombrarla o eliminarla."))
             } else {
-                Text("Aucune clé. Génère-en une, importe-en une, ou appaire-toi.")
+                Text(loc("Aucune clé. Génère-en une, importe-en une, ou appaire-toi.", "No key. Generate one, import one, or pair up.", "Ninguna clave. Genera una, importa una, o empareja."))
             }
         }
     }
@@ -430,21 +430,21 @@ struct RootView: View {
                     .onTapGesture { toggleRecipient(key.id) }
                 }
                 if !recipientIds.isEmpty {
-                    Button("Tout décocher (revenir à la clé sélectionnée)") {
+                    Button(loc("Tout décocher (revenir à la clé sélectionnée)", "Uncheck all (back to the selected key)", "Desmarcar todo (volver a la clave seleccionada)")) {
                         recipientIds = []
                         BrocolisKeyStore.setRecipientKeyIds([])
                     }
                     .font(.footnote)
                 }
             } header: {
-                Text("Chiffrer pour")
+                Text(loc("Chiffrer pour", "Encrypt for", "Cifrar para"))
             } footer: {
                 if recipientIds.count >= 2 {
-                    Text("Le message sera lisible par **\(recipientIds.count) clés** à la fois (un seul jeton `v2`). Pratique pour écrire à plusieurs correspondants d’un coup.\n\n⚠️ Le format `v2` n’est lisible que par une app Brocolis à jour (pas par l’ancien proxy brocolis).")
+                    Text(loc("Le message sera lisible par **\(recipientIds.count) clés** à la fois (un seul jeton `v2`). Pratique pour écrire à plusieurs correspondants d’un coup.\n\n⚠️ Le format `v2` n’est lisible que par une app Brocolis à jour (pas par l’ancien proxy brocolis).", "The message will be readable by **\(recipientIds.count) keys** at once (a single `v2` token). Handy for writing to several contacts at a time.\n\n⚠️ The `v2` format is only readable by an up-to-date Brocolis app (not by the old brocolis proxy).", "El mensaje será legible por **\(recipientIds.count) claves** a la vez (un solo token `v2`). Práctico para escribir a varios contactos de una vez.\n\n⚠️ El formato `v2` solo lo puede leer una app Brocolis actualizada (no el antiguo proxy brocolis)."))
                 } else if recipientIds.count == 1 {
-                    Text("Une seule clé cochée : message classique `v1`, lisible par les détenteurs de cette clé.")
+                    Text(loc("Une seule clé cochée : message classique `v1`, lisible par les détenteurs de cette clé.", "A single key checked: classic `v1` message, readable by the holders of that key.", "Una sola clave marcada: mensaje clásico `v1`, legible por los poseedores de esa clave."))
                 } else {
-                    Text("Coche plusieurs clés pour qu’**un même message soit lisible par plusieurs correspondants à la fois**. Si tu ne coches rien, Brocolis chiffre pour la clé sélectionnée (point vert ci-dessus).")
+                    Text(loc("Coche plusieurs clés pour qu’**un même message soit lisible par plusieurs correspondants à la fois**. Si tu ne coches rien, Brocolis chiffre pour la clé sélectionnée (point vert ci-dessus).", "Check several keys so that **the same message is readable by several contacts at once**. If you check nothing, Brocolis encrypts for the selected key (green dot above).", "Marca varias claves para que **un mismo mensaje sea legible por varios contactos a la vez**. Si no marcas nada, Brocolis cifra para la clave seleccionada (punto verde arriba)."))
                 }
             }
         }
@@ -461,19 +461,19 @@ struct RootView: View {
 
     @ViewBuilder private var selectedKeySection: some View {
         if let sel = selected {
-            Section("Clé sélectionnée") {
+            Section(loc("Clé sélectionnée", "Selected key", "Clave seleccionada")) {
                 Text(sel.name).font(.headline)
                 Text(sel.base64)
                     .font(.system(.footnote, design: .monospaced))
                     .textSelection(.enabled)
                 Button {
                     UIPasteboard.general.string = sel.base64
-                    alertMessage = "Clé copiée dans le presse-papiers."
+                    alertMessage = loc("Clé copiée dans le presse-papiers.", "Key copied to the clipboard.", "Clave copiada en el portapapeles.")
                 } label: {
-                    Label("Copier la clé", systemImage: "doc.on.doc")
+                    Label(loc("Copier la clé", "Copy key", "Copiar clave"), systemImage: "doc.on.doc")
                 }
                 ShareLink(item: sel.base64) {
-                    Label("Partager la clé", systemImage: "square.and.arrow.up")
+                    Label(loc("Partager la clé", "Share key", "Compartir clave"), systemImage: "square.and.arrow.up")
                 }
                 if let phone = BrocolisKeyStore.keyPhone(sel.id), canSendMessages() {
                     Button {
@@ -482,22 +482,22 @@ struct RootView: View {
                             body: brocolisInviteBody(contactName: sel.name, keyBase64: sel.base64)
                         )
                     } label: {
-                        Label("Inviter \(sel.name) par iMessage", systemImage: "paperplane.fill")
+                        Label(loc("Inviter \(sel.name) par iMessage", "Invite \(sel.name) by iMessage", "Invitar a \(sel.name) por iMessage"), systemImage: "paperplane.fill")
                     }
                 }
             }
 
             Section {
-                Picker("Validité", selection: ttlBinding(for: sel.id)) {
+                Picker(loc("Validité", "Validity", "Validez"), selection: ttlBinding(for: sel.id)) {
                     ForEach(ttlOptions, id: \.seconds) { opt in
                         Text(opt.label).tag(opt.seconds)
                     }
                 }
                 expiryStatus(for: sel)
             } header: {
-                Text("Expiration de « \(sel.name) »")
+                Text(loc("Expiration de « \(sel.name) »", "Expiration of “\(sel.name)”", "Caducidad de «\(sel.name)»"))
             } footer: {
-                Text("Au-delà de la validité, l’extension refuse de chiffrer avec cette clé. Le déchiffrement reste possible jusqu’à ce qu’elle soit purgée à l’ouverture de l’app.")
+                Text(loc("Au-delà de la validité, l’extension refuse de chiffrer avec cette clé. Le déchiffrement reste possible jusqu’à ce qu’elle soit purgée à l’ouverture de l’app.", "Beyond the validity period, the extension refuses to encrypt with this key. Decryption stays possible until it is purged when the app opens.", "Pasado el periodo de validez, la extensión se niega a cifrar con esta clave. El descifrado sigue siendo posible hasta que se purgue al abrir la app."))
             }
         }
     }
@@ -515,30 +515,30 @@ struct RootView: View {
     @ViewBuilder private func expiryStatus(for key: NamedKey) -> some View {
         if let expires = key.expiresAt {
             if BrocolisKeyStore.isExpired(expiresAt: expires, now: Date()) {
-                Label("Expirée — renouvelle-la", systemImage: "exclamationmark.triangle.fill")
+                Label(loc("Expirée — renouvelle-la", "Expired — renew it", "Caducada — renuévala"), systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
             } else {
                 let lead = BrocolisKeyStore.notificationLead(ttlSeconds: key.ttlSeconds) ?? 0
                 let soon = expires.timeIntervalSinceNow <= lead
                 Label {
-                    Text("Expire \(expires.formatted(.relative(presentation: .named)))")
+                    Text(loc("Expire \(expires.formatted(.relative(presentation: .named)))", "Expires \(expires.formatted(.relative(presentation: .named)))", "Caduca \(expires.formatted(.relative(presentation: .named)))"))
                 } icon: {
                     Image(systemName: soon ? "exclamationmark.triangle.fill" : "clock")
                 }
                 .foregroundStyle(soon ? .orange : .secondary)
             }
         } else {
-            Text("Pas d’expiration").foregroundStyle(.secondary)
+            Text(loc("Pas d’expiration", "No expiration", "Sin caducidad")).foregroundStyle(.secondary)
         }
     }
 
     // MARK: Mode d'emploi
 
     private var howToSection: some View {
-        Section("Comment ça marche") {
-            Text("Sélectionne du texte dans n’importe quelle app de messagerie, ouvre le menu **Partager**, puis choisis **Brocolis 🥦** pour chiffrer tes ((secrets)) ou déchiffrer les jetons reçus.")
+        Section(loc("Comment ça marche", "How it works", "Cómo funciona")) {
+            Text(loc("Sélectionne du texte dans n’importe quelle app de messagerie, ouvre le menu **Partager**, puis choisis **Brocolis 🥦** pour chiffrer tes ((secrets)) ou déchiffrer les jetons reçus.", "Select text in any messaging app, open the **Share** menu, then choose **Brocolis 🥦** to encrypt your ((secrets)) or decrypt the tokens you receive.", "Selecciona texto en cualquier app de mensajería, abre el menú **Compartir**, luego elige **Brocolis 🥦** para cifrar tus ((secretos)) o descifrar los tokens recibidos."))
                 .font(.subheadline)
-            Text("⚠️ Le résultat chiffré est copié : **colle‑le en remplaçant ton texte d’origine**. Ne laisse pas la version en clair dans le message, sinon elle reste visible.")
+            Text(loc("⚠️ Le résultat chiffré est copié : **colle‑le en remplaçant ton texte d’origine**. Ne laisse pas la version en clair dans le message, sinon elle reste visible.", "⚠️ The encrypted result is copied: **paste it over your original text**. Do not leave the clear version in the message, or it stays visible.", "⚠️ El resultado cifrado se copia: **pégalo reemplazando tu texto original**. No dejes la versión en claro en el mensaje, o seguirá visible."))
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
@@ -561,7 +561,7 @@ struct RootView: View {
 
     private func purgeIfNeeded() {
         if BrocolisKeyStore.purgeExpiredKey() {
-            alertMessage = "Une clé avait expiré : elle a été supprimée automatiquement."
+            alertMessage = loc("Une clé avait expiré : elle a été supprimée automatiquement.", "A key had expired: it was deleted automatically.", "Una clave había caducado: se eliminó automáticamente.")
         }
         reload()
     }
@@ -576,8 +576,7 @@ struct RootView: View {
         BrocolisKeyStore.setKeyPhone(contact.phoneNumber, forKeyId: id)
         BrocolisKeyStore.setActive(true)
         reload()
-        alertMessage = "Clé créée pour « \(contact.name) » (\(contact.phoneNumber)). "
-            + "Partage-la avec ce contact (ou appaire-toi) pour qu’il puisse lire tes messages."
+        alertMessage = loc("Clé créée pour « \(contact.name) » (\(contact.phoneNumber)). Partage-la avec ce contact (ou appaire-toi) pour qu’il puisse lire tes messages.", "Key created for “\(contact.name)” (\(contact.phoneNumber)). Share it with this contact (or pair up) so they can read your messages.", "Clave creada para «\(contact.name)» (\(contact.phoneNumber)). Compártela con este contacto (o empareja) para que pueda leer tus mensajes.")
     }
 
     private func importKey() {
@@ -589,7 +588,7 @@ struct RootView: View {
             importText = ""
             importName = ""
             reload()
-            alertMessage = "Clé importée — Brocolis est prêt."
+            alertMessage = loc("Clé importée — Brocolis est prêt.", "Key imported — Brocolis is ready.", "Clave importada — Brocolis está listo.")
         } catch {
             alertMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }

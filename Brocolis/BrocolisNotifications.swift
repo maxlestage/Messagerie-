@@ -21,12 +21,12 @@ enum BrocolisNotifications {
     static func registerCategories() {
         let renew = UNNotificationAction(
             identifier: renewActionID,
-            title: "Prolonger la clé",
+            title: loc("Prolonger la clé", "Extend the key", "Ampliar la clave"),
             options: []
         )
         let openRenew = UNNotificationAction(
             identifier: openRenewActionID,
-            title: "Ouvrir pour renouveler",
+            title: loc("Ouvrir pour renouveler", "Open to renew", "Abrir para renovar"),
             options: [.foreground]
         )
         let category = UNNotificationCategory(
@@ -54,11 +54,11 @@ enum BrocolisNotifications {
                 if let fire = BrocolisKeyStore.noticeFireDate(
                     expiresAt: exp, ttlSeconds: k.ttlSeconds, now: now) {
                     add(center: center, id: "brocolis.notice.\(k.id)", keyId: k.id, fireDate: fire,
-                        body: "Ta clé « \(k.name) » expire bientôt. Pense à la renouveler.")
+                        body: loc("Ta clé « \(k.name) » expire bientôt. Pense à la renouveler.", "Your key “\(k.name)” is expiring soon. Remember to renew it.", "Tu clave «\(k.name)» caduca pronto. Recuerda renovarla."))
                 }
                 if exp > now {
                     add(center: center, id: "brocolis.expired.\(k.id)", keyId: k.id, fireDate: exp,
-                        body: "Ta clé « \(k.name) » a expiré. Renouvelle-la pour continuer.")
+                        body: loc("Ta clé « \(k.name) » a expiré. Renouvelle-la pour continuer.", "Your key “\(k.name)” has expired. Renew it to continue.", "Tu clave «\(k.name)» ha caducado. Renuévala para continuar."))
                 }
             }
         }
