@@ -24,7 +24,7 @@ struct PairingView: View {
     var body: some View {
         Form {
             Section {
-                Text(loc("Saisissez **le même code** sur tous les téléphones.", "Enter **the same code** on every phone.", "Escribe **el mismo código** en todos los teléfonos."))
+                locText("Saisissez **le même code** sur tous les téléphones.", "Enter **the same code** on every phone.", "Escribe **el mismo código** en todos los teléfonos.")
                     .font(.subheadline)
             }
 

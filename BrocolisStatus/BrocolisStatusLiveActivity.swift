@@ -27,7 +27,9 @@ struct BrocolisStatusLiveActivity: Widget {
                 Text("🥦").font(.title2)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(loc("Brocolis est actif", "Brocolis is active", "Brocolis está activo")).font(.headline)
-                    Text(loc("Chiffrement prêt depuis \(context.state.since, style: .relative)", "Encryption ready for \(context.state.since, style: .relative)", "Cifrado listo desde hace \(context.state.since, style: .relative)"))
+                    // Date relative auto-actualisée : Text séparé (n'existe pas
+                    // dans une String via loc()).
+                    (Text(loc("Chiffrement prêt depuis ", "Encryption ready for ", "Cifrado listo desde hace ")) + Text(context.state.since, style: .relative))
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
