@@ -580,31 +580,50 @@ struct BrocolisiMessageRootView: View {
     @State private var pendingPhoto: Data?
     @StateObject private var recorder = PanelVoiceRecorder()
     @StateObject private var player = PanelVoicePlayer()
+    /// Suivi du focus du champ de saisie : quand on écrit, on passe en plein
+    /// écran ET on remonte le champ au-dessus du clavier (sinon il est masqué).
+    @FocusState private var composerFocused: Bool
 
     private let brocoliGreen = Color(red: 47.0 / 255, green: 158.0 / 255, blue: 74.0 / 255)
     private let brocoliBg = Color(red: 232.0 / 255, green: 245.0 / 255, blue: 219.0 / 255)
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                activeToggleRow
-                if model.isActive {
-                    if model.selectedImage != nil || model.selectedAudio != nil {
-                        mediaReadCard
-                    } else if let clear = model.selectedClear {
-                        readCard(clear)
-                    } else if model.selectedLocked {
-                        lockedCard
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    activeToggleRow
+                    if model.isActive {
+                        if model.selectedImage != nil || model.selectedAudio != nil {
+                            mediaReadCard
+                        } else if let clear = model.selectedClear {
+                            readCard(clear)
+                        } else if model.selectedLocked {
+                            lockedCard
+                        }
+                        clipboardSection
+                        composer.id("composer")
+                    } else {
+                        pausedCard
                     }
-                    clipboardSection
-                    composer
-                } else {
-                    pausedCard
+                }
+                .padding(14)
+            }
+            .background(brocoliBg.opacity(0.35))
+            // Dès qu'on prend le focus du champ : plein écran + on remonte le
+            // champ au-dessus du clavier pour toujours voir ce qu'on écrit.
+            .onChange(of: composerFocused) { focused in
+                guard focused else { return }
+                if !model.isExpanded { onRequestExpand() }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                    withAnimation { proxy.scrollTo("composer", anchor: .bottom) }
                 }
             }
-            .padding(14)
+            // En tapant, on garde le champ visible (il grandit jusqu'à 4 lignes).
+            .onChange(of: draft) { _ in
+                guard composerFocused else { return }
+                withAnimation { proxy.scrollTo("composer", anchor: .bottom) }
+            }
         }
-        .background(brocoliBg.opacity(0.35))
     }
 
     // Interrupteur Actif / Pause — même état que l'app et les widgets.
@@ -774,10 +793,19 @@ struct BrocolisiMessageRootView: View {
                     .padding(.vertical, 10)
                     .background(RoundedRectangle(cornerRadius: 12).fill(Color(.secondarySystemBackground)))
                     .overlay(RoundedRectangle(cornerRadius: 12).stroke(brocoliGreen.opacity(0.4), lineWidth: 1))
+                    .focused($composerFocused)
                     .onTapGesture {
                         // En présentation compacte, le clavier n'est pas
-                        // autorisé : on demande le plein écran d'abord.
-                        if !model.isExpanded { onRequestExpand() }
+                        // autorisé : on demande le plein écran d'abord, puis on
+                        // prend le focus (ce qui déclenche le scroll ci-dessus).
+                        if !model.isExpanded {
+                            onRequestExpand()
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                composerFocused = true
+                            }
+                        } else {
+                            composerFocused = true
+                        }
                     }
 
                 mediaRow
