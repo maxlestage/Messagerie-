@@ -26,8 +26,8 @@ struct BrocolisStatusLiveActivity: Widget {
             HStack(spacing: 12) {
                 Text("🥦").font(.title2)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Brocolis est actif").font(.headline)
-                    Text("Chiffrement prêt depuis \(context.state.since, style: .relative)")
+                    Text(loc("Brocolis est actif", "Brocolis is active", "Brocolis está activo")).font(.headline)
+                    Text(loc("Chiffrement prêt depuis \(context.state.since, style: .relative)", "Encryption ready for \(context.state.since, style: .relative)", "Cifrado listo desde hace \(context.state.since, style: .relative)"))
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -48,10 +48,10 @@ struct BrocolisStatusLiveActivity: Widget {
                         .foregroundStyle(.green)
                 }
                 DynamicIslandExpandedRegion(.center) {
-                    Text("Brocolis est actif").font(.headline)
+                    Text(loc("Brocolis est actif", "Brocolis is active", "Brocolis está activo")).font(.headline)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    Text("Le chiffrement est prêt dans le menu Partager.")
+                    Text(loc("Le chiffrement est prêt dans le menu Partager.", "Encryption is ready in the Share menu.", "El cifrado está listo en el menú Compartir."))
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }

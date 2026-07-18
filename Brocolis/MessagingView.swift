@@ -363,7 +363,7 @@ final class BrocolisChatStore: ObservableObject {
                     )
                 } catch {
                     if Task.isCancelled { break }
-                    self.status = "Reconnexion…"
+                    self.status = loc("Reconnexion…", "Reconnecting…", "Reconectando…")
                     if let (msgs, cur, readers) = try? await self.client.fetch(conversationId: self.conversationId, after: self.cursor) {
                         self.applyReaders(readers)
                         self.ingest(msgs, cursor: cur)
@@ -478,7 +478,7 @@ final class BrocolisChatStore: ObservableObject {
             } catch {
                 await MainActor.run {
                     if let draft = restoreDraftOnFailure { self.draft = draft }
-                    self.status = "Envoi impossible"
+                    self.status = loc("Envoi impossible", "Couldn’t send", "No se pudo enviar")
                 }
             }
         }
@@ -580,16 +580,16 @@ struct MessagingHomeView: View {
                         serverURL = MessagingPrefs.serverURL
                         showServerEdit = true
                     } label: {
-                        Label("Configurer le serveur", systemImage: "network")
+                        Label(loc("Configurer le serveur", "Configure the server", "Configurar el servidor"), systemImage: "network")
                     }
                 } footer: {
-                    Text("Renseigne l'URL de ton API `messagerie-api` (ex. `https://…`). Sans elle, impossible d'échanger des messages en direct.")
+                    Text(loc("Renseigne l'URL de ton API `messagerie-api` (ex. `https://…`). Sans elle, impossible d'échanger des messages en direct.", "Enter the URL of your `messagerie-api` API (e.g. `https://…`). Without it, exchanging live messages is impossible.", "Introduce la URL de tu API `messagerie-api` (p. ej. `https://…`). Sin ella, es imposible intercambiar mensajes en directo."))
                 }
             }
 
             Section {
                 if keys.isEmpty {
-                    Text("Aucune clé. Crée-en une ou appaire-toi : chaque clé devient un correspondant ici.")
+                    Text(loc("Aucune clé. Crée-en une ou appaire-toi : chaque clé devient un correspondant ici.", "No key. Create one or pair up: each key becomes a contact here.", "Ninguna clave. Crea una o vincúlate: cada clave se convierte en un contacto aquí."))
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(keys) { key in
@@ -602,12 +602,12 @@ struct MessagingHomeView: View {
                     }
                 }
             } header: {
-                Text("Correspondants")
+                Text(loc("Correspondants", "Contacts", "Contactos"))
             } footer: {
-                Text("Une **clé = une personne**. Choisis qui : les messages sont chiffrés avec sa clé, lisibles en clair ici et illisibles partout ailleurs.")
+                Text(loc("Une **clé = une personne**. Choisis qui : les messages sont chiffrés avec sa clé, lisibles en clair ici et illisibles partout ailleurs.", "One **key = one person**. Choose who: messages are encrypted with their key, readable in the clear here and unreadable everywhere else.", "Una **clave = una persona**. Elige a quién: los mensajes se cifran con su clave, legibles en claro aquí e ilegibles en cualquier otro lugar."))
             }
         }
-        .navigationTitle("Messagerie")
+        .navigationTitle(loc("Messagerie", "Messaging", "Mensajería"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
@@ -618,14 +618,14 @@ struct MessagingHomeView: View {
             }
         }
         .onAppear { keys = BrocolisKeyStore.keys }
-        .alert("Serveur de messagerie", isPresented: $showServerEdit) {
+        .alert(loc("Serveur de messagerie", "Messaging server", "Servidor de mensajería"), isPresented: $showServerEdit) {
             TextField("https://…", text: $serverURL)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
-            Button("Enregistrer") { MessagingPrefs.serverURL = serverURL }
-            Button("Annuler", role: .cancel) {}
+            Button(loc("Enregistrer", "Save", "Guardar")) { MessagingPrefs.serverURL = serverURL }
+            Button(loc("Annuler", "Cancel", "Cancelar"), role: .cancel) {}
         } message: {
-            Text("URL de l'API messagerie-api (Rust/Actix).")
+            Text(loc("URL de l'API messagerie-api (Rust/Actix).", "URL of the messagerie-api API (Rust/Actix).", "URL de la API messagerie-api (Rust/Actix)."))
         }
     }
 
@@ -642,7 +642,7 @@ struct MessagingHomeView: View {
                 if let phone = BrocolisKeyStore.keyPhone(key.id) {
                     Text(phone).font(.caption).foregroundStyle(.secondary)
                 } else {
-                    Label("Chiffré avec sa clé", systemImage: "lock.fill")
+                    Label(loc("Chiffré avec sa clé", "Encrypted with their key", "Cifrado con su clave"), systemImage: "lock.fill")
                         .font(.caption).foregroundStyle(.secondary).labelStyle(.titleAndIcon)
                 }
             }
@@ -673,8 +673,8 @@ struct BrocolisChatView: View {
             } else {
                 ContentUnavailableCompat(
                     systemImage: "network.slash",
-                    title: "Serveur non configuré",
-                    message: "Renseigne l'URL du serveur de messagerie pour discuter en direct."
+                    title: loc("Serveur non configuré", "Server not configured", "Servidor no configurado"),
+                    message: loc("Renseigne l'URL du serveur de messagerie pour discuter en direct.", "Enter the messaging server URL to chat live.", "Introduce la URL del servidor de mensajería para chatear en directo.")
                 )
                 .navigationTitle(store.name)
                 .navigationBarTitleDisplayMode(.inline)
@@ -757,16 +757,16 @@ private struct ChatScreen: View {
             EmptyView()
         case .waiting:
             bannerBox(color: .orange, icon: "hourglass") {
-                Text("En attente de \(store.correspondent.name)").font(.subheadline).bold()
-                Text("Pour qu'il reçoive tes messages, il doit avoir Brocolis 🥦 **et TA clé**. Envoie-la-lui :")
+                Text(loc("En attente de \(store.correspondent.name)", "Waiting for \(store.correspondent.name)", "Esperando a \(store.correspondent.name)")).font(.subheadline).bold()
+                Text(loc("Pour qu'il reçoive tes messages, il doit avoir Brocolis 🥦 **et TA clé**. Envoie-la-lui :", "For them to receive your messages, they must have Brocolis 🥦 **and YOUR key**. Send it to them:", "Para que reciba tus mensajes, debe tener Brocolis 🥦 **y TU clave**. Envíasela:"))
                     .font(.caption).foregroundStyle(.secondary)
                 inviteButton
             }
         case .keyMismatch:
             bannerBox(color: .red, icon: "key.slash") {
-                Text("\(store.correspondent.name) écrit, mais vos clés ne correspondent pas")
+                Text(loc("\(store.correspondent.name) écrit, mais vos clés ne correspondent pas", "\(store.correspondent.name) is writing, but your keys don’t match", "\(store.correspondent.name) escribe, pero vuestras claves no coinciden"))
                     .font(.subheadline).bold()
-                Text("Ses messages restent 🔒 car sa clé n'est pas exactement la tienne. La solution sûre : refaites l'**appairage** (le même code à deux), ou renvoie-lui ta clé.")
+                Text(loc("Ses messages restent 🔒 car sa clé n'est pas exactement la tienne. La solution sûre : refaites l'**appairage** (le même code à deux), ou renvoie-lui ta clé.", "Their messages stay 🔒 because their key isn’t exactly yours. The safe fix: redo the **pairing** (the same code together), or send them your key again.", "Sus mensajes siguen 🔒 porque su clave no es exactamente la tuya. La solución segura: rehaced el **emparejamiento** (el mismo código entre los dos), o vuélvele a enviar tu clave."))
                     .font(.caption).foregroundStyle(.secondary)
                 inviteButton
             }
@@ -782,7 +782,7 @@ private struct ChatScreen: View {
                                              keyBase64: store.correspondent.base64)
                 )
             } label: {
-                Label("Inviter par iMessage", systemImage: "paperplane.fill")
+                Label(loc("Inviter par iMessage", "Invite via iMessage", "Invitar por iMessage"), systemImage: "paperplane.fill")
                     .font(.caption).bold()
             }
             .buttonStyle(.borderedProminent)
@@ -807,7 +807,7 @@ private struct ChatScreen: View {
     // sous ton dernier message envoyé — comme iMessage.
     @ViewBuilder private var deliveryStatus: some View {
         if let last = store.lines.last, last.isMine {
-            Text(store.otherReadUpTo >= last.seq ? "Lu" : "Distribué")
+            Text(store.otherReadUpTo >= last.seq ? loc("Lu", "Read", "Leído") : loc("Distribué", "Delivered", "Entregado"))
                 .font(.caption2).foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .padding(.trailing, 6)
@@ -856,9 +856,9 @@ private struct ChatScreen: View {
             .frame(width: 76, height: 76)
             .shadow(color: .black.opacity(0.15), radius: 6, y: 3)
             Text(store.correspondent.name).font(.title3).bold()
-            Label("Chiffré de bout en bout", systemImage: "lock.fill")
+            Label(loc("Chiffré de bout en bout", "End-to-end encrypted", "Cifrado de extremo a extremo"), systemImage: "lock.fill")
                 .font(.caption).foregroundStyle(.secondary)
-            Text("Dis bonjour 👋")
+            Text(loc("Dis bonjour 👋", "Say hello 👋", "Di hola 👋"))
                 .font(.subheadline).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
@@ -879,11 +879,11 @@ private struct ChatScreen: View {
                     .contextMenu {
                         Button {
                             UIPasteboard.general.string = text
-                        } label: { Label("Copier", systemImage: "doc.on.doc") }
+                        } label: { Label(loc("Copier", "Copy", "Copiar"), systemImage: "doc.on.doc") }
                     }
 
             case .locked:
-                Label("Message chiffré", systemImage: "lock.fill")
+                Label(loc("Message chiffré", "Encrypted message", "Mensaje cifrado"), systemImage: "lock.fill")
                     .font(.subheadline)
                     .padding(.horizontal, 13).padding(.vertical, 9)
                     .background { shape.fill(Color(.secondarySystemBackground)) }
@@ -898,7 +898,7 @@ private struct ChatScreen: View {
                         .clipShape(shape)
                         .overlay(shape.stroke(Color.black.opacity(0.08)))
                 } else {
-                    Label("Photo illisible", systemImage: "photo")
+                    Label(loc("Photo illisible", "Unreadable photo", "Foto ilegible"), systemImage: "photo")
                         .font(.subheadline).foregroundStyle(.secondary)
                         .padding(10)
                         .background { shape.fill(Color(.secondarySystemBackground)) }
@@ -912,7 +912,7 @@ private struct ChatScreen: View {
                         Image(systemName: player.playingId == m.id ? "stop.circle.fill" : "play.circle.fill")
                             .font(.title2)
                         Image(systemName: "waveform")
-                        Text("Vocal").font(.subheadline).bold()
+                        Text(loc("Vocal", "Voice message", "Mensaje de voz")).font(.subheadline).bold()
                     }
                     .padding(.horizontal, 13).padding(.vertical, 9)
                     .background { bubbleFill(shape, isMine: m.isMine) }
@@ -947,7 +947,7 @@ private struct ChatScreen: View {
                 // Enregistrement en cours : point rouge + stop = envoi chiffré.
                 HStack(spacing: 8) {
                     Circle().fill(.red).frame(width: 10, height: 10)
-                    Text("Enregistrement…").font(.subheadline).foregroundStyle(.secondary)
+                    Text(loc("Enregistrement…", "Recording…", "Grabando…")).font(.subheadline).foregroundStyle(.secondary)
                     Spacer()
                     Button {
                         if let data = recorder.stop() { store.sendVoice(data) }
@@ -978,7 +978,7 @@ private struct ChatScreen: View {
                         .foregroundStyle(Color(red: 0.18, green: 0.62, blue: 0.29))
                         .frame(width: 32, height: 32)
                 }
-                TextField("Message chiffré…", text: $store.draft, axis: .vertical)
+                TextField(loc("Message chiffré…", "Encrypted message…", "Mensaje cifrado…"), text: $store.draft, axis: .vertical)
                     .padding(.horizontal, 14).padding(.vertical, 9)
                     .background(Capsule().fill(Color(.secondarySystemBackground)))
                     .lineLimit(1...4)
@@ -1045,7 +1045,7 @@ enum BrocolisAppLock {
     /// l'appareil (mécanisme standard Apple). `true` si déverrouillé.
     static func authenticate(reason: String) async -> Bool {
         let ctx = LAContext()
-        ctx.localizedCancelTitle = "Annuler"
+        ctx.localizedCancelTitle = loc("Annuler", "Cancel", "Cancelar")
         var err: NSError?
         // .deviceOwnerAuthentication : biométrie si disponible, sinon code appareil.
         guard ctx.canEvaluatePolicy(.deviceOwnerAuthentication, error: &err) else {
@@ -1084,7 +1084,7 @@ final class BrocolisLockManager: ObservableObject {
         authenticating = true
         failed = false
         Task {
-            let ok = await BrocolisAppLock.authenticate(reason: "Voir vos messages Brocolis 🥦")
+            let ok = await BrocolisAppLock.authenticate(reason: loc("Voir vos messages Brocolis 🥦", "See your Brocolis 🥦 messages", "Ver tus mensajes de Brocolis 🥦"))
             await MainActor.run {
                 self.authenticating = false
                 self.unlocked = ok
@@ -1122,21 +1122,21 @@ struct LockGate<Content: View>: View {
         VStack(spacing: 18) {
             Text("🥦").font(.system(size: 64))
             Image(systemName: "lock.fill").font(.largeTitle).foregroundStyle(.green)
-            Text("Messages verrouillés").font(.title3).bold()
-            Text("Déverrouille avec Face ID ou ton code pour voir tes messages.")
+            Text(loc("Messages verrouillés", "Messages locked", "Mensajes bloqueados")).font(.title3).bold()
+            Text(loc("Déverrouille avec Face ID ou ton code pour voir tes messages.", "Unlock with Face ID or your passcode to see your messages.", "Desbloquea con Face ID o tu código para ver tus mensajes."))
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
             Button {
                 lock.ensureUnlocked()
             } label: {
-                Label("Déverrouiller", systemImage: "faceid")
+                Label(loc("Déverrouiller", "Unlock", "Desbloquear"), systemImage: "faceid")
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
             .tint(.green)
             if lock.failed {
-                Text("Déverrouillage annulé ou échoué. Réessaie.")
+                Text(loc("Déverrouillage annulé ou échoué. Réessaie.", "Unlock canceled or failed. Try again.", "Desbloqueo cancelado o fallido. Inténtalo de nuevo."))
                     .font(.footnote)
                     .foregroundStyle(.red)
             }

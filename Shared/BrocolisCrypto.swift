@@ -46,10 +46,12 @@ enum BrocolisCrypto {
         var errorDescription: String? {
             switch self {
             case .badKeyLength(let n):
-                return "La clé doit faire \(BrocolisCrypto.keyLength) octets, reçu \(n)."
-            case .badKeyBase64: return "Clé base64 invalide."
-            case .badToken: return "Jeton chiffré corrompu."
-            case .aead: return "Échec du (dé)chiffrement AES-256-GCM."
+                return loc("La clé doit faire \(BrocolisCrypto.keyLength) octets, reçu \(n).",
+                           "The key must be \(BrocolisCrypto.keyLength) bytes, received \(n).",
+                           "La clave debe ser de \(BrocolisCrypto.keyLength) bytes, recibido \(n).")
+            case .badKeyBase64: return loc("Clé base64 invalide.", "Invalid base64 key.", "Clave base64 no válida.")
+            case .badToken: return loc("Jeton chiffré corrompu.", "Corrupted encrypted token.", "Token cifrado dañado.")
+            case .aead: return loc("Échec du (dé)chiffrement AES-256-GCM.", "AES-256-GCM (de)encryption failed.", "Fallo del (des)cifrado AES-256-GCM.")
             }
         }
     }

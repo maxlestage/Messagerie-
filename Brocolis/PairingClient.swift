@@ -35,9 +35,9 @@ enum PairingError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .badURL: return "URL de serveur invalide."
-        case .server(let code): return "Le serveur a répondu \(code)."
-        case .network(let m): return "Erreur réseau : \(m)"
+        case .badURL: return loc("URL de serveur invalide.", "Invalid server URL.", "URL de servidor no válida.")
+        case .server(let code): return loc("Le serveur a répondu \(code).", "The server responded \(code).", "El servidor respondió \(code).")
+        case .network(let m): return loc("Erreur réseau : \(m)", "Network error: \(m)", "Error de red: \(m)")
         }
     }
 }
@@ -115,7 +115,7 @@ struct PairingClient {
         do {
             let (data, resp) = try await URLSession.shared.data(for: req)
             guard let http = resp as? HTTPURLResponse else {
-                throw PairingError.network("réponse inattendue")
+                throw PairingError.network(loc("réponse inattendue", "unexpected response", "respuesta inesperada"))
             }
             guard (200..<300).contains(http.statusCode) else {
                 throw PairingError.server(http.statusCode)

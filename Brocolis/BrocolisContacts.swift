@@ -96,7 +96,7 @@ enum BrocolisContacts {
         let full = "\(c.givenName) \(c.familyName)".trimmingCharacters(in: .whitespaces)
         if !full.isEmpty { return full }
         if !c.organizationName.isEmpty { return c.organizationName }
-        return c.phoneNumbers.first?.value.stringValue ?? "Sans nom"
+        return c.phoneNumbers.first?.value.stringValue ?? loc("Sans nom", "No name", "Sin nombre")
     }
 
     /// Normalise un numéro : conserve un « + » de tête puis les chiffres.
@@ -139,18 +139,18 @@ struct ContactPickerView: View {
             Group {
                 switch state {
                 case .loading:
-                    ProgressView("Lecture de tes contacts…")
+                    ProgressView(loc("Lecture de tes contacts…", "Reading your contacts…", "Leyendo tus contactos…"))
                 case .denied:
                     deniedView
                 case .ready:
                     listView
                 }
             }
-            .navigationTitle("Mes contacts")
+            .navigationTitle(loc("Mes contacts", "My contacts", "Mis contactos"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Fermer") { dismiss() }
+                    Button(loc("Fermer", "Close", "Cerrar")) { dismiss() }
                 }
             }
             .task { await load() }
@@ -160,7 +160,7 @@ struct ContactPickerView: View {
     private var listView: some View {
         List {
             if contacts.isEmpty {
-                Text("Aucun contact avec un numéro de téléphone.")
+                Text(loc("Aucun contact avec un numéro de téléphone.", "No contact with a phone number.", "Ningún contacto con número de teléfono."))
                     .foregroundStyle(.secondary)
             }
             ForEach(filtered) { c in
@@ -184,18 +184,18 @@ struct ContactPickerView: View {
             }
         }
         .listStyle(.plain)
-        .searchable(text: $query, prompt: "Nom ou numéro")
+        .searchable(text: $query, prompt: loc("Nom ou numéro", "Name or number", "Nombre o número"))
     }
 
     private var deniedView: some View {
         VStack(spacing: 12) {
             Image(systemName: "person.crop.circle.badge.exclamationmark")
                 .font(.system(size: 44)).foregroundStyle(.secondary)
-            Text("Accès aux contacts refusé").font(.headline)
-            Text("Autorise Brocolis à lire tes contacts dans Réglages → Brocolis → Contacts.")
+            Text(loc("Accès aux contacts refusé", "Contacts access denied", "Acceso a contactos denegado")).font(.headline)
+            Text(loc("Autorise Brocolis à lire tes contacts dans Réglages → Brocolis → Contacts.", "Allow Brocolis to read your contacts in Settings → Brocolis → Contacts.", "Permite a Brocolis leer tus contactos en Ajustes → Brocolis → Contactos."))
                 .font(.subheadline).foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-            Button("Ouvrir les Réglages") {
+            Button(loc("Ouvrir les Réglages", "Open Settings", "Abrir Ajustes")) {
                 if let url = URL(string: UIApplication.openSettingsURLString) {
                     UIApplication.shared.open(url)
                 }
@@ -260,7 +260,7 @@ struct MessageComposeView: UIViewControllerRepresentable {
 
 /// Texte d'invitation envoyé par iMessage : explique quoi faire + contient la clé.
 func brocolisInviteBody(contactName: String, keyBase64: String) -> String {
-    """
+    loc("""
     Rejoins-moi sur Brocolis 🥦 pour qu'on discute chiffré (illisible pour tout le monde d'autre).
 
     1) Installe l'app Brocolis
@@ -270,5 +270,25 @@ func brocolisInviteBody(contactName: String, keyBase64: String) -> String {
     \(keyBase64)
 
     (C'est notre clé commune : garde-la pour toi.)
-    """
+    """, """
+    Join me on Brocolis 🥦 so we can chat encrypted (unreadable to everyone else).
+
+    1) Install the Brocolis app
+    2) Open it → “Import a key”
+    3) Paste THIS key:
+
+    \(keyBase64)
+
+    (This is our shared key: keep it to yourself.)
+    """, """
+    Únete a mí en Brocolis 🥦 para que hablemos cifrado (ilegible para todos los demás).
+
+    1) Instala la app Brocolis
+    2) Ábrela → «Importar una clave»
+    3) Pega ESTA clave:
+
+    \(keyBase64)
+
+    (Esta es nuestra clave común: guárdala para ti.)
+    """)
 }
