@@ -494,17 +494,34 @@ final class MessagesViewController: MSMessagesAppViewController {
 
 // MARK: - Image de bulle (fond vert du logo, plus de fond sombre)
 
-/// Bulle iMessage TOUTE VERTE et VIDE : rien d'affiché (ni brocoli ni texte),
-/// juste le fond vert du logo qui remplit toute la bulle. Combiné à l'absence
-/// de `summaryText` (voir `insertEncrypted`), la bulle n'a plus aucune zone
-/// sombre. Le jeton chiffré voyage dans l'URL du message.
+/// Libellé de la bulle, ADAPTÉ à la langue du téléphone, avec repli anglais.
+/// (Le texte est dessiné dans une image → pas de Localizable.strings, on choisit
+/// la chaîne selon le code langue de l'appareil.)
+enum BrocolisBubbleText {
+    static var label: String {
+        let code = (Locale.preferredLanguages.first ?? "en").prefix(2).lowercased()
+        switch code {
+        case "fr": return "Message chiffré"
+        case "es": return "Mensaje cifrado"
+        case "de": return "Verschlüsselte Nachricht"
+        case "it": return "Messaggio cifrato"
+        case "pt": return "Mensagem cifrada"
+        default: return "Encrypted message" // repli anglais
+        }
+    }
+}
+
+/// Bulle iMessage TOUTE VERTE : fond vert du logo qui remplit toute la bulle,
+/// avec le libellé (localisé) écrit en NOIR. Combiné à l'absence de
+/// `summaryText` (voir `insertEncrypted`), la bulle n'a aucune zone sombre.
+/// Le jeton chiffré voyage dans l'URL du message.
 enum BrocolisBubbleImage {
     static func make() -> UIImage {
-        let size = CGSize(width: 300, height: 120)
+        let size = CGSize(width: 360, height: 88)
         let renderer = UIGraphicsImageRenderer(size: size)
         return renderer.image { ctx in
             let cg = ctx.cgContext
-            // Fond vert clair du logo, léger dégradé pour un rendu doux. Rien d'autre.
+            // Fond vert clair du logo, léger dégradé pour un rendu doux.
             let bgTop = UIColor(red: 238.0 / 255, green: 248.0 / 255, blue: 226.0 / 255, alpha: 1)
             let bgBottom = UIColor(red: 224.0 / 255, green: 241.0 / 255, blue: 208.0 / 255, alpha: 1)
             if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
@@ -518,6 +535,19 @@ enum BrocolisBubbleImage {
                 bgTop.setFill()
                 cg.fill(CGRect(origin: .zero, size: size))
             }
+
+            // 🥦 + libellé localisé sur une même ligne (même ligne de base),
+            // centrée. Écriture en NOIR.
+            let line = NSMutableAttributedString(string: "🥦 ", attributes: [
+                .font: UIFont.systemFont(ofSize: 22),
+            ])
+            line.append(NSAttributedString(string: BrocolisBubbleText.label, attributes: [
+                .font: UIFont.systemFont(ofSize: 22, weight: .semibold),
+                .foregroundColor: UIColor.black,
+            ]))
+            let lineSize = line.size()
+            line.draw(at: CGPoint(x: (size.width - lineSize.width) / 2,
+                                  y: (size.height - lineSize.height) / 2))
         }
     }
 }
