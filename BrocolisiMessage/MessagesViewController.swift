@@ -490,12 +490,13 @@ final class MessagesViewController: MSMessagesAppViewController {
 
 // MARK: - Image de bulle (fond vert du logo, plus de fond sombre)
 
-/// Dessine le contenu de la bulle iMessage : fond `#E8F5DB` (le vert du logo,
-/// comme les widgets), brocoli 🥦 et textes en verts foncés. Tout est dans
-/// l'image pour que la bulle soit verte de bout en bout, clair ou sombre.
+/// Dessine le contenu de la bulle iMessage en MINIATURE : format compact
+/// horizontal (petit brocoli 🥦 à gauche, libellé à droite) sur fond vert du
+/// logo. iMessage étire l'image à la largeur de la bulle en gardant son ratio :
+/// une image basse et large = une bulle courte, une vraie miniature.
 enum BrocolisBubbleImage {
     static func make() -> UIImage {
-        let size = CGSize(width: 360, height: 232)
+        let size = CGSize(width: 360, height: 104)
         let renderer = UIGraphicsImageRenderer(size: size)
         return renderer.image { ctx in
             let cg = ctx.cgContext
@@ -518,23 +519,24 @@ enum BrocolisBubbleImage {
             let darkGreen = UIColor(red: 31.0 / 255, green: 109.0 / 255, blue: 44.0 / 255, alpha: 1)
             let midGreen = UIColor(red: 47.0 / 255, green: 158.0 / 255, blue: 74.0 / 255, alpha: 1)
 
-            func drawCentered(_ string: String, font: UIFont, color: UIColor, y: CGFloat) {
-                let attributed = NSAttributedString(string: string, attributes: [
-                    .font: font,
-                    .foregroundColor: color,
-                ])
-                let textSize = attributed.size()
-                attributed.draw(at: CGPoint(x: (size.width - textSize.width) / 2, y: y))
-            }
+            // Petit brocoli 🥦, calé à gauche et centré verticalement.
+            let broc = NSAttributedString(string: "🥦", attributes: [
+                .font: UIFont.systemFont(ofSize: 52),
+            ])
+            let brocSize = broc.size()
+            broc.draw(at: CGPoint(x: 26, y: (size.height - brocSize.height) / 2))
 
-            // L'emoji 🥦 (couleur système) plutôt qu'un brocoli dessiné.
-            drawCentered("🥦", font: .systemFont(ofSize: 78), color: .black, y: 22)
-            drawCentered("Message chiffré",
-                         font: .systemFont(ofSize: 23, weight: .bold),
-                         color: darkGreen, y: 132)
-            drawCentered("Touche pour lire avec Brocolis",
-                         font: .systemFont(ofSize: 15, weight: .medium),
-                         color: midGreen, y: 168)
+            // Libellé sur deux lignes courtes, à droite du brocoli.
+            let textX: CGFloat = 108
+            func draw(_ string: String, font: UIFont, color: UIColor, y: CGFloat) {
+                NSAttributedString(string: string, attributes: [
+                    .font: font, .foregroundColor: color,
+                ]).draw(at: CGPoint(x: textX, y: y))
+            }
+            draw("Message chiffré",
+                 font: .systemFont(ofSize: 20, weight: .bold), color: darkGreen, y: 28)
+            draw("Touche pour lire",
+                 font: .systemFont(ofSize: 14, weight: .medium), color: midGreen, y: 56)
         }
     }
 }
