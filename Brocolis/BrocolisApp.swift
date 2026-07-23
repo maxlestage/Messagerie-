@@ -99,10 +99,28 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 struct BrocolisApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
+    /// Vrai tant qu'on affiche la page de garde/chargement au démarrage.
+    @State private var showSplash = true
+
     var body: some Scene {
         WindowGroup {
-            RootView()
-                .tint(.green)
+            ZStack {
+                RootView()
+                    .tint(.green)
+
+                if showSplash {
+                    // Page de garde + chargement : couvre l'app le temps d'un
+                    // court instant, puis s'efface en fondu.
+                    BrocolisSplashView()
+                        .transition(.opacity)
+                        .zIndex(1)
+                }
+            }
+            .task {
+                // Laisse la page de garde s'afficher, puis révèle l'app.
+                try? await Task.sleep(nanoseconds: 1_600_000_000)
+                withAnimation(.easeInOut(duration: 0.45)) { showSplash = false }
+            }
         }
     }
 }
