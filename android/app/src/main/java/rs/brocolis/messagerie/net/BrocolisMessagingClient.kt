@@ -24,7 +24,8 @@ import java.util.concurrent.TimeUnit
     val id: String,
     val senderId: String,
     val ciphertext: String,
-    val seq: Long
+    val seq: Long,
+    val sentAt: String? = null   // RFC3339 UTC (millis), ex. "2026-07-25T12:34:56.789Z"
 )
 
 @Serializable private data class Page(
