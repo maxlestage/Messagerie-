@@ -43,7 +43,7 @@ import java.util.concurrent.TimeUnit
 @Serializable private data class ReadBody(val conversationId: String, val upTo: Long)
 
 /**
- * Parle à l'API de messagerie Rust (`/v1/*`). Chiffre/déchiffre avec une clé
+ * Parle à l'API de messagerie Rust (`/v1`). Chiffre/déchiffre avec une clé
  * Brocolis ; le serveur ne voit que des jetons `[[BROCOLIS:v1:…]]`. Port de
  * `BrocolisMessagingClient` (MessagingView.swift). En-tête `X-User-Id = deviceId`.
  */
