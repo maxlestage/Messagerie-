@@ -71,7 +71,19 @@ sealed class ChatBody {
     object Locked : ChatBody()
 }
 
-data class ChatLineUi(val id: String, val body: ChatBody, val isMine: Boolean, val seq: Long)
+data class ChatLineUi(
+    val id: String, val body: ChatBody, val isMine: Boolean, val seq: Long, val timeLabel: String = ""
+)
+
+/** RFC3339 UTC → heure locale « HH:mm » (API 26+). Vide si absent/illisible. */
+private fun formatTime(sentAt: String?): String {
+    if (sentAt.isNullOrBlank()) return ""
+    return try {
+        java.time.Instant.parse(sentAt)
+            .atZone(java.time.ZoneId.systemDefault())
+            .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
+    } catch (_: Exception) { "" }
+}
 
 private fun bodyFrom(clear: String): ChatBody {
     if (clear.startsWith(MediaPayload.IMG))
@@ -149,7 +161,7 @@ class ChatController(val correspondent: NamedKey) {
             val isMine = m.senderId == deviceId
             val (text, opened) = BrocolisCrypto.decryptTokens(m.ciphertext, listOf(key))
             val body = if (opened > 0) bodyFrom(text) else ChatBody.Locked
-            ChatLineUi(m.id, body, isMine, m.seq)
+            ChatLineUi(m.id, body, isMine, m.seq, formatTime(m.sentAt))
         }
         lines.clear(); lines.addAll(ui)
     }
@@ -163,6 +175,12 @@ class ChatController(val correspondent: NamedKey) {
             try { client.send(clear, conversationId, key) }
             catch (e: Exception) { status = loc("Envoi échoué", "Send failed", "Envío fallido") }
         }
+    }
+
+    /** App passée en arrière-plan : on remonte le plancher (parité « effacer à la
+     *  fermeture » d'iOS) sans couper le flux. */
+    fun onBackground() {
+        if (MessagingPrefs.eraseOnClose) MessagingPrefs.setFloor(cursor, conversationId)
     }
 
     fun stop() {
@@ -245,6 +263,17 @@ fun ChatScreen(keyId: String, onBack: () -> Unit) {
     DisposableEffect(keyId) {
         controller.start()
         onDispose { controller.stop() }
+    }
+
+    // Effacer à la fermeture : quand l'app passe en arrière-plan, on remonte le
+    // plancher de confidentialité (comme iOS efface les messages à la fermeture).
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val obs = androidx.lifecycle.LifecycleEventObserver { _, e ->
+            if (e == androidx.lifecycle.Lifecycle.Event.ON_STOP) controller.onBackground()
+        }
+        lifecycleOwner.lifecycle.addObserver(obs)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
     }
 
     var draft by remember { mutableStateOf("") }
@@ -361,8 +390,12 @@ private fun MessageBubble(line: ChatLineUi, isRead: Boolean, context: Context) {
                         Text(loc("Message chiffré", "Encrypted message", "Mensaje cifrado"), color = textColor)
                     }
                 }
-                if (isRead) {
-                    Text(loc("Lu", "Read", "Leído"), style = MaterialTheme.typography.labelSmall,
+                val meta = buildString {
+                    if (line.timeLabel.isNotEmpty()) append(line.timeLabel)
+                    if (isRead) { if (isNotEmpty()) append(" · "); append(loc("Lu", "Read", "Leído")) }
+                }
+                if (meta.isNotEmpty()) {
+                    Text(meta, style = MaterialTheme.typography.labelSmall,
                         color = textColor.copy(alpha = 0.7f), modifier = Modifier.align(Alignment.End))
                 }
             }
