@@ -51,10 +51,14 @@ synchroniser Gradle, puis Run. En ligne de commande : `./gradlew assembleDebug`
 Certaines fonctions iOS n'ont pas d'équivalent 1:1 sur Android et sont adaptées
 ou hors périmètre de cette première version :
 
-- **Clavier Brocolis (IME)**, **extension iMessage**, **widgets / Live Activity**,
-  **raccourcis Siri** : propres à iOS. Sur Android, le chiffrement « dans les
-  autres apps » passe par l'écran **Partager** (`ShareActivity`, ACTION_SEND et
-  « Traiter le texte »).
+- **Widget d'écran d'accueil** : présent (`widget/BrocolisWidgetProvider.kt`,
+  RemoteViews) — état Actif/En pause + nombre de clés, tap pour ouvrir l'app.
+  La **Live Activity** iOS n'a pas d'équivalent Android.
+- **Contacts** : « Ajouter depuis mes contacts » présent (sélecteur de numéro,
+  sans permission) — comme `BrocolisContacts` sur iOS.
+- **Clavier Brocolis (IME)**, **extension iMessage**, **raccourcis Siri** :
+  propres à iOS. Sur Android, le chiffrement « dans les autres apps » passe par
+  l'écran **Partager** (`ShareActivity`, ACTION_SEND et « Traiter le texte »).
 - **Notifications push / APNs** : non incluses ici (FCM à ajouter plus tard).
 - Le stockage des clés utilise `SharedPreferences` (comme iOS utilise
   `UserDefaults` pour la démo) — à durcir (Keystore Android) pour la production.
