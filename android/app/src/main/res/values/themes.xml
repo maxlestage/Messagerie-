@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Thème hôte de l'Activity Compose. Material3 fait le reste côté Compose. -->
+    <style name="Theme.Brocolis" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">#E8F5DB</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowBackground">#E8F5DB</item>
+    </style>
+</resources>
