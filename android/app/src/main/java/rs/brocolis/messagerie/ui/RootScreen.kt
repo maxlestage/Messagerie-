@@ -65,6 +65,7 @@ fun RootScreen(
 
     var lockEnabled by remember { mutableStateOf(MessagingPrefs.lockEnabled) }
     var eraseOnClose by remember { mutableStateOf(MessagingPrefs.eraseOnClose) }
+    var serverUrl by remember { mutableStateOf(MessagingPrefs.serverURL) }
 
     // Dialogs
     var showGenerate by remember { mutableStateOf(false) }
@@ -294,6 +295,25 @@ fun RootScreen(
                         context.startActivity(Intent.createChooser(send, null))
                     },
                     onTTL = { seconds -> BrocolisKeyStore.setKeyTTL(seconds, selected.id); reload() }
+                )
+            }
+
+            // MARK: Avancé (serveur)
+            SectionCard(loc("Avancé", "Advanced", "Avanzado")) {
+                OutlinedTextField(
+                    value = serverUrl,
+                    onValueChange = { serverUrl = it; MessagingPrefs.serverURL = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text(loc("Serveur (messagerie & appairage)", "Server (messaging & pairing)", "Servidor (mensajería y emparejamiento)")) }
+                )
+                Text(
+                    loc(
+                        "Laisse par défaut sauf si tu héberges ton propre serveur.",
+                        "Leave the default unless you host your own server.",
+                        "Deja el valor por defecto salvo que alojes tu propio servidor."
+                    ),
+                    style = MaterialTheme.typography.bodySmall
                 )
             }
 
