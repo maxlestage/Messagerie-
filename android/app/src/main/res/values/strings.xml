@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Le nom est volontairement neutre ; toute l'UI est localisée en Kotlin
+         via loc() (fr/en/es) selon la langue du téléphone, comme sur iOS. -->
+    <string name="app_name">Brocolis</string>
+</resources>
