@@ -2,7 +2,12 @@
 
 package rs.brocolis.messagerie.ui
 
+import android.app.Activity
 import android.content.Intent
+import android.net.Uri
+import android.provider.ContactsContract
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -39,6 +44,7 @@ import rs.brocolis.messagerie.i18n.loc
 import rs.brocolis.messagerie.store.BrocolisKeyStore
 import rs.brocolis.messagerie.store.MessagingPrefs
 import rs.brocolis.messagerie.store.NamedKey
+import rs.brocolis.messagerie.widget.BrocolisWidgetProvider
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -70,6 +76,30 @@ fun RootScreen(
     var snackbar by remember { mutableStateOf<String?>(null) }
     val snackbarHost = remember { SnackbarHostState() }
     LaunchedEffect(snackbar) { snackbar?.let { snackbarHost.showSnackbar(it); snackbar = null } }
+
+    // Maintient le widget d'écran d'accueil à jour à chaque changement d'état.
+    LaunchedEffect(version) { BrocolisWidgetProvider.refresh(context) }
+
+    // Ajouter une clé depuis un contact : on choisit un numéro (sans permission,
+    // l'URI choisi est lisible), on crée une clé neuve nommée d'après le contact.
+    val pickContact = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            result.data?.data?.let { uri ->
+                val (name, number) = readPickedContact(context, uri)
+                if (number != null) {
+                    val id = BrocolisKeyStore.addKey(name ?: number, BrocolisCrypto.generateKeyBase64())
+                    BrocolisKeyStore.setKeyPhone(number, id)
+                    BrocolisKeyStore.setActive(true)
+                    reload()
+                    snackbar = loc(
+                        "Clé créée pour ${name ?: number}. Partage-la (ou appaire-toi).",
+                        "Key created for ${name ?: number}. Share it (or pair up).",
+                        "Clave creada para ${name ?: number}. Compártela (o empareja)."
+                    )
+                }
+            }
+        }
+    }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("Brocolis 🥦") }) },
@@ -192,6 +222,14 @@ fun RootScreen(
                         onDelete = { BrocolisKeyStore.deleteKey(key.id); reload() }
                     )
                     Divider()
+                }
+                OutlinedButton(
+                    onClick = {
+                        pickContact.launch(Intent(Intent.ACTION_PICK, ContactsContract.CommonDataKinds.Phone.CONTENT_URI))
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(loc("Ajouter depuis mes contacts", "Add from my contacts", "Añadir desde mis contactos"))
                 }
                 OutlinedButton(onClick = { showGenerate = true }, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Default.Add, null); Spacer(Modifier.size(6.dp))
@@ -413,4 +451,20 @@ private fun NameDialog(
         confirmButton = { TextButton(onClick = { onConfirm(listOf(first, second)) }) { Text(confirmLabel) } },
         dismissButton = { TextButton(onClick = onCancel) { Text(loc("Annuler", "Cancel", "Cancelar")) } }
     )
+}
+
+/** Lit le nom + numéro du contact choisi (URI issu du sélecteur, sans permission). */
+private fun readPickedContact(context: android.content.Context, uri: Uri): Pair<String?, String?> {
+    val projection = arrayOf(
+        ContactsContract.CommonDataKinds.Phone.NUMBER,
+        ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME
+    )
+    context.contentResolver.query(uri, projection, null, null, null)?.use { c ->
+        if (c.moveToFirst()) {
+            val number = c.getString(0)?.trim()
+            val name = c.getString(1)?.trim()
+            return name to number
+        }
+    }
+    return null to null
 }
