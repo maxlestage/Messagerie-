@@ -203,7 +203,8 @@ fun MessagingHomeScreen(onOpenChat: (String) -> Unit, onBack: () -> Unit) {
                     title = { Text(loc("Messagerie", "Messaging", "Mensajería")) },
                     navigationIcon = {
                         IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) }
-                    }
+                    },
+                    colors = rs.brocolis.messagerie.ui.theme.brocolisTopBarColors()
                 )
             }
         ) { padding ->
@@ -251,7 +252,7 @@ fun ChatScreen(keyId: String, onBack: () -> Unit) {
     if (correspondent == null || !BrocolisCrypto.isValidKey(correspondent.base64)) {
         Scaffold(topBar = { TopAppBar(title = { Text("Brocolis") }, navigationIcon = {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) }
-        }) }) { p ->
+        }, colors = rs.brocolis.messagerie.ui.theme.brocolisTopBarColors()) }) { p ->
             Box(Modifier.padding(p).fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(loc("Clé introuvable.", "Key not found.", "Clave no encontrada."))
             }
@@ -302,7 +303,8 @@ fun ChatScreen(keyId: String, onBack: () -> Unit) {
         topBar = {
             TopAppBar(
                 title = { Text(correspondent.name) },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } },
+                colors = rs.brocolis.messagerie.ui.theme.brocolisTopBarColors()
             )
         }
     ) { padding ->

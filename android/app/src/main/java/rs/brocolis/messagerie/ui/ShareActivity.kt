@@ -61,7 +61,8 @@ private fun ShareScreen(incoming: String, onClose: () -> Unit) {
         topBar = {
             TopAppBar(
                 title = { Text("Brocolis 🥦") },
-                navigationIcon = { IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }
+                navigationIcon = { IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } },
+                colors = rs.brocolis.messagerie.ui.theme.brocolisTopBarColors()
             )
         }
     ) { padding ->

@@ -621,6 +621,7 @@ struct MessagingHomeView: View {
                 locText("Une **clé = une personne**. Choisis qui : les messages sont chiffrés avec sa clé, lisibles en clair ici et illisibles partout ailleurs.", "One **key = one person**. Choose who: messages are encrypted with their key, readable in the clear here and unreadable everywhere else.", "Una **clave = una persona**. Elige a quién: los mensajes se cifran con su clave, legibles en claro aquí e ilegibles en cualquier otro lugar.")
             }
         }
+        .brocolisBackground()
         .navigationTitle(loc("Messagerie", "Messaging", "Mensajería"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -738,6 +739,7 @@ private struct ChatScreen: View {
             Divider()
             composer
         }
+        .brocolisBackground()
         .navigationTitle(store.correspondent.name)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { store.start() }
@@ -842,8 +844,8 @@ private struct ChatScreen: View {
                 .animation(.spring(response: 0.35, dampingFraction: 0.8), value: store.lines)
             }
             .background(
-                LinearGradient(colors: [Color(.systemBackground),
-                                        Color.green.opacity(0.06)],
+                LinearGradient(colors: [Color(red: 238.0 / 255, green: 248.0 / 255, blue: 226.0 / 255),
+                                        Color(red: 224.0 / 255, green: 241.0 / 255, blue: 208.0 / 255)],
                                startPoint: .top, endPoint: .bottom)
             )
             .overlay(alignment: .top) {

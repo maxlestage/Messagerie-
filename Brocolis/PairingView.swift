@@ -111,6 +111,7 @@ struct PairingView: View {
                 }
             }
         }
+        .brocolisBackground()
         .navigationTitle(loc("Appairage", "Pairing", "Emparejamiento"))
         .navigationBarTitleDisplayMode(.inline)
         .onDisappear { cancel() }

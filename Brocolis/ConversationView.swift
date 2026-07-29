@@ -42,6 +42,7 @@ struct ConversationView: View {
             Divider()
             composer
         }
+        .brocolisBackground()
         .navigationTitle(loc("Conversation", "Conversation", "Conversación"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
