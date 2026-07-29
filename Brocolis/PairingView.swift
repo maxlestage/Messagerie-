@@ -27,6 +27,7 @@ struct PairingView: View {
                 locText("Saisissez **le même code** sur tous les téléphones.", "Enter **the same code** on every phone.", "Escribe **el mismo código** en todos los teléfonos.")
                     .font(.subheadline)
             }
+            .listRowBackground(Color.brocoliCard)
 
             // LED d'état : vert = tout bon (appairés), orange = en cours,
             // rouge = échec, gris = en attente.
@@ -51,6 +52,7 @@ struct PairingView: View {
                 }
                 .animation(.easeInOut, value: pairState)
             }
+            .listRowBackground(Color.brocoliCard)
 
             Section(loc("Code de jumelage", "Pairing code", "Código de emparejamiento")) {
                 HStack {
@@ -63,6 +65,7 @@ struct PairingView: View {
                         .disabled(isWorking)
                 }
             }
+            .listRowBackground(Color.brocoliCard)
 
             Section {
                 actionButton(title: loc("Appairer à deux", "Pair one-to-one", "Emparejar entre dos"), systemImage: "person.2.fill") {
@@ -71,6 +74,7 @@ struct PairingView: View {
             } footer: {
                 Text(loc("Pour 2 personnes : chacune dérive la clé directement.", "For 2 people: each one derives the key directly.", "Para 2 personas: cada una deriva la clave directamente."))
             }
+            .listRowBackground(Color.brocoliCard)
 
             Section {
                 actionButton(title: loc("Créer le groupe (je distribue la clé)", "Create the group (I distribute the key)", "Crear el grupo (yo distribuyo la clave)"), systemImage: "person.3.fill") {
@@ -84,15 +88,18 @@ struct PairingView: View {
             } footer: {
                 Text(loc("Ordre : les membres touchent d’abord « Rejoindre le groupe », puis le fondateur touche « Créer le groupe ». Le fondateur génère la clé et la distribue chiffrée à chacun.", "Order: members first tap “Join the group”, then the founder taps “Create the group”. The founder generates the key and distributes it encrypted to each member.", "Orden: los miembros tocan primero «Unirse al grupo», luego el fundador toca «Crear el grupo». El fundador genera la clave y la distribuye cifrada a cada uno."))
             }
+            .listRowBackground(Color.brocoliCard)
 
             if isWorking {
                 Section {
                     Button(loc("Annuler", "Cancel", "Cancelar"), role: .cancel) { cancel() }
                 }
+                .listRowBackground(Color.brocoliCard)
             }
 
             if !status.isEmpty {
                 Section { Text(status).font(.subheadline) }
+                    .listRowBackground(Color.brocoliCard)
             }
 
             if let fp = fingerprint {
@@ -109,9 +116,9 @@ struct PairingView: View {
                 } footer: {
                     Text(loc("Comparez cette empreinte de vive voix avec les autres. Si elle est identique pour tous, la clé n’a pas été interceptée.", "Compare this fingerprint out loud with the others. If it is identical for everyone, the key has not been intercepted.", "Compara esta huella en voz alta con los demás. Si es idéntica para todos, la clave no ha sido interceptada."))
                 }
+                .listRowBackground(Color.brocoliCard)
             }
         }
-        .listRowBackground(Color.brocoliCard)
         .brocolisBackground()
         .navigationTitle(loc("Appairage", "Pairing", "Emparejamiento"))
         .navigationBarTitleDisplayMode(.inline)
