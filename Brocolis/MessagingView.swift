@@ -623,7 +623,6 @@ struct MessagingHomeView: View {
             }
             .listRowBackground(Color.brocoliCard)
         }
-        .listRowBackground(Color.brocoliCard)
         .brocolisBackground()
         .navigationTitle(loc("Messagerie", "Messaging", "Mensajería"))
         .navigationBarTitleDisplayMode(.inline)

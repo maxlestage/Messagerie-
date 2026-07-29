@@ -119,7 +119,6 @@ struct PairingView: View {
                 .listRowBackground(Color.brocoliCard)
             }
         }
-        .listRowBackground(Color.brocoliCard)
         .brocolisBackground()
         .navigationTitle(loc("Appairage", "Pairing", "Emparejamiento"))
         .navigationBarTitleDisplayMode(.inline)
