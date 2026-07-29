@@ -87,6 +87,7 @@ struct RootView: View {
                 selectedKeySection.listRowBackground(Color.brocoliCard)
                 howToSection.listRowBackground(Color.brocoliCard)
             }
+            .listRowBackground(Color.brocoliCard)
             .brocolisBackground()
             .navigationTitle("Brocolis 🥦")
             .onAppear {
