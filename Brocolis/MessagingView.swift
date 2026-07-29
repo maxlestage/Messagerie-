@@ -621,6 +621,7 @@ struct MessagingHomeView: View {
                 locText("Une **clé = une personne**. Choisis qui : les messages sont chiffrés avec sa clé, lisibles en clair ici et illisibles partout ailleurs.", "One **key = one person**. Choose who: messages are encrypted with their key, readable in the clear here and unreadable everywhere else.", "Una **clave = una persona**. Elige a quién: los mensajes se cifran con su clave, legibles en claro aquí e ilegibles en cualquier otro lugar.")
             }
         }
+        .listRowBackground(Color.brocoliCard)
         .brocolisBackground()
         .navigationTitle(loc("Messagerie", "Messaging", "Mensajería"))
         .navigationBarTitleDisplayMode(.inline)
