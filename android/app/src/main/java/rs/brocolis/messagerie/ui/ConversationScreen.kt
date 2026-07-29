@@ -43,7 +43,8 @@ fun ConversationScreen(onBack: () -> Unit) {
                 title = { Text(loc("Conversation", "Conversation", "Conversación")) },
                 navigationIcon = {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, loc("Retour", "Back", "Atrás")) }
-                }
+                },
+                colors = rs.brocolis.messagerie.ui.theme.brocolisTopBarColors()
             )
         }
     ) { padding ->

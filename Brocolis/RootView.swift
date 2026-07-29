@@ -9,6 +9,25 @@
 import SwiftUI
 import UIKit
 
+// Fond de la marque + application « plein écran » (contenu + barre de navigation).
+// Défini une fois ici, réutilisé par tous les écrans de l'app.
+extension Color {
+    static let brocoliBg = Color(red: 232.0 / 255, green: 245.0 / 255, blue: 219.0 / 255)
+}
+
+extension View {
+    /// Pose le fond vert Brocolis derrière l'écran ET la barre de navigation.
+    /// `scrollContentBackground(.hidden)` masque le fond gris des Form/List pour
+    /// que le vert apparaisse ; sans effet sur les vues non défilantes.
+    func brocolisBackground() -> some View {
+        self
+            .scrollContentBackground(.hidden)
+            .background(Color.brocoliBg.ignoresSafeArea())
+            .toolbarBackground(Color.brocoliBg, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+    }
+}
+
 struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @ObservedObject private var router = AppRouter.shared
@@ -64,6 +83,7 @@ struct RootView: View {
                 selectedKeySection
                 howToSection
             }
+            .brocolisBackground()
             .navigationTitle("Brocolis 🥦")
             .onAppear {
                 purgeIfNeeded()

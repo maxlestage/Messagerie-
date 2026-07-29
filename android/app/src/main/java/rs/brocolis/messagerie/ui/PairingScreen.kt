@@ -89,7 +89,8 @@ fun PairingScreen(onBack: () -> Unit) {
         topBar = {
             TopAppBar(
                 title = { Text(loc("Appairage", "Pairing", "Emparejamiento")) },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } }
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } },
+                colors = rs.brocolis.messagerie.ui.theme.brocolisTopBarColors()
             )
         }
     ) { padding ->
