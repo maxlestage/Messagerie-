@@ -13,6 +13,8 @@ import UIKit
 // Défini une fois ici, réutilisé par tous les écrans de l'app.
 extension Color {
     static let brocoliBg = Color(red: 232.0 / 255, green: 245.0 / 255, blue: 219.0 / 255)
+    /// Fond des cartes : un cran PLUS FONCÉ que le fond (vert doux, plus de blanc pur).
+    static let brocoliCard = Color(red: 220.0 / 255, green: 239.0 / 255, blue: 208.0 / 255)
 }
 
 extension View {
@@ -83,6 +85,7 @@ struct RootView: View {
                 selectedKeySection
                 howToSection
             }
+            .listRowBackground(Color.brocoliCard)
             .brocolisBackground()
             .navigationTitle("Brocolis 🥦")
             .onAppear {
