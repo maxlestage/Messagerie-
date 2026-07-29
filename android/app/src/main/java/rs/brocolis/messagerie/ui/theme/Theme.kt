@@ -30,9 +30,10 @@ private val LightColors = lightColorScheme(
     secondary = BrocoliGreenDark,
     background = BrocoliBg,
     onBackground = BrocoliDeepGreen,
-    surface = Color.White,
+    // Cartes un cran PLUS FONCÉES que le fond (vert doux au lieu de blanc pur).
+    surface = Color(0xFFDCEFD0),
     onSurface = Color(0xFF16241C),
-    surfaceVariant = Color(0xFFDCEFD0),   // bulles reçues, légèrement vertes
+    surfaceVariant = Color(0xFFCFE7BE),   // bulles reçues, encore un peu plus vertes
     onSurfaceVariant = Color(0xFF3B5443),
 )
 
