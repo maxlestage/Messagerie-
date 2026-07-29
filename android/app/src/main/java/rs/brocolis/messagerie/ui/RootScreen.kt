@@ -104,7 +104,7 @@ fun RootScreen(
     }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Brocolis 🥦") }) },
+        topBar = { TopAppBar(title = { Text("Brocolis 🥦") }, colors = rs.brocolis.messagerie.ui.theme.brocolisTopBarColors()) },
         snackbarHost = { SnackbarHost(snackbarHost) }
     ) { padding ->
         Column(
