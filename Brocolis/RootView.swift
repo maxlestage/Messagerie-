@@ -73,19 +73,20 @@ struct RootView: View {
     var body: some View {
         NavigationStack {
             Form {
-                quickStartSection
-                messagingSection
-                privacySection
-                conversationSection
-                keyboardSection
-                encryptionSection
-                pairingSection
-                keysSection
-                recipientsSection
-                selectedKeySection
-                howToSection
+                // `.listRowBackground` par SECTION (fiable) : sur le Form global
+                // il n'a aucun effet — d'où les cartes restées blanches.
+                quickStartSection.listRowBackground(Color.brocoliCard)
+                messagingSection.listRowBackground(Color.brocoliCard)
+                privacySection.listRowBackground(Color.brocoliCard)
+                conversationSection.listRowBackground(Color.brocoliCard)
+                keyboardSection.listRowBackground(Color.brocoliCard)
+                encryptionSection.listRowBackground(Color.brocoliCard)
+                pairingSection.listRowBackground(Color.brocoliCard)
+                keysSection.listRowBackground(Color.brocoliCard)
+                recipientsSection.listRowBackground(Color.brocoliCard)
+                selectedKeySection.listRowBackground(Color.brocoliCard)
+                howToSection.listRowBackground(Color.brocoliCard)
             }
-            .listRowBackground(Color.brocoliCard)
             .brocolisBackground()
             .navigationTitle("Brocolis 🥦")
             .onAppear {
