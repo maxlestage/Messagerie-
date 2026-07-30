@@ -969,6 +969,45 @@ fn configure_api(cfg: &mut web::ServiceConfig) {
         .route("/v1/stream", web::get().to(stream));
 }
 
+/// Connexion Postgres avec réessais + backoff. Ne panique qu'après plusieurs
+/// échecs consécutifs (vraie panne), pas au premier hoquet transitoire.
+async fn connect_db_with_retry(opt: ConnectOptions) -> DatabaseConnection {
+    let mut delay = 1u64;
+    for attempt in 1..=6 {
+        match Database::connect(opt.clone()).await {
+            Ok(db) => return db,
+            Err(e) => {
+                eprintln!("[boot] connexion Postgres échouée (essai {attempt}/6) : {e}");
+                if attempt == 6 {
+                    panic!("connexion Postgres impossible après réessais : {e}");
+                }
+                tokio::time::sleep(Duration::from_secs(delay)).await;
+                delay = (delay * 2).min(15);
+            }
+        }
+    }
+    unreachable!()
+}
+
+/// Application du schéma avec réessais (Postgres peut être momentanément
+/// indisponible au démarrage).
+async fn ensure_schema_with_retry(db: &DatabaseConnection) {
+    let mut delay = 1u64;
+    for attempt in 1..=6 {
+        match ensure_schema(db).await {
+            Ok(()) => return,
+            Err(e) => {
+                eprintln!("[boot] ensure_schema échoué (essai {attempt}/6) : {e}");
+                if attempt == 6 {
+                    panic!("création du schéma impossible après réessais : {e}");
+                }
+                tokio::time::sleep(Duration::from_secs(delay)).await;
+                delay = (delay * 2).min(15);
+            }
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
     let port: u16 = std::env::var("PORT")
@@ -995,10 +1034,11 @@ async fn main() -> std::io::Result<()> {
         .idle_timeout(Duration::from_secs(300))
         .max_lifetime(Duration::from_secs(30 * 60))
         .sqlx_logging(false);
-    let db = Database::connect(opt)
-        .await
-        .expect("connexion Postgres impossible");
-    ensure_schema(&db).await.expect("création du schéma impossible");
+    // Connexion + schéma avec RÉESSAIS. Heroku coupe brièvement Postgres
+    // (maintenance, rotation d'identifiants, redémarrage de dyno) : sans réessai,
+    // `Database::connect(...).expect(...)` paniquait au boot → « H10 App crashed ».
+    let db = connect_db_with_retry(opt).await;
+    ensure_schema_with_retry(&db).await;
     // Partitions temporelles du jour prêtes avant de servir (utile au redémarrage
     // d'une base déjà migrée, si l'entretien n'a pas tourné depuis un moment).
     ensure_time_partitions(&db).await;
