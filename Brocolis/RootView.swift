@@ -86,6 +86,7 @@ struct RootView: View {
                 recipientsSection.listRowBackground(Color.brocoliCard)
                 selectedKeySection.listRowBackground(Color.brocoliCard)
                 howToSection.listRowBackground(Color.brocoliCard)
+                creditsSection.listRowBackground(Color.brocoliCard)
             }
             .brocolisBackground()
             .navigationTitle("Brocolis 🥦")
@@ -565,6 +566,21 @@ struct RootView: View {
             locText("⚠️ Le résultat chiffré est copié : **colle‑le en remplaçant ton texte d’origine**. Ne laisse pas la version en clair dans le message, sinon elle reste visible.", "⚠️ The encrypted result is copied: **paste it over your original text**. Do not leave the clear version in the message, or it stays visible.", "⚠️ El resultado cifrado se copia: **pégalo reemplazando tu texto original**. No dejes la versión en claro en el mensaje, o seguirá visible.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    // MARK: Crédits
+
+    private var creditsSection: some View {
+        Section {
+            VStack(spacing: 4) {
+                Text("Brocolis 🥦")
+                    .font(.subheadline).bold()
+                Text(loc("par Maxime Nathan Lestage", "by Maxime Nathan Lestage", "por Maxime Nathan Lestage"))
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.vertical, 4)
         }
     }
 
