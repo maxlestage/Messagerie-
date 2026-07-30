@@ -318,6 +318,19 @@ fun RootScreen(
                 )
             }
 
+            // MARK: Crédits
+            Column(
+                Modifier.fillMaxWidth().padding(top = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text("Brocolis 🥦", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    loc("par Maxime Nathan Lestage", "by Maxime Nathan Lestage", "por Maxime Nathan Lestage"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
             Spacer(Modifier.size(24.dp))
         }
     }
