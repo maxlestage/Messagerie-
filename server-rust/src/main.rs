@@ -764,6 +764,7 @@ async fn ensure_schema(db: &DatabaseConnection) -> Result<(), sea_orm::DbErr> {
           is_composite bool;
           i            int;
           d            date;
+          r            record;
         BEGIN
           SELECT EXISTS(SELECT 1 FROM pg_class WHERE relname='messages' AND relkind IN ('r','p'))
             INTO tbl_exists;
@@ -774,6 +775,17 @@ async fn ensure_schema(db: &DatabaseConnection) -> Result<(), sea_orm::DbErr> {
           IF NOT is_composite THEN
             IF tbl_exists THEN
               ALTER TABLE messages RENAME TO messages_legacy;
+              -- Ancien schéma hash-only (étape précédente) : les partitions
+              -- messages_pN gardent leur nom en suivant le parent renommé et
+              -- entreraient en COLLISION avec les nouvelles (« relation
+              -- messages_p0 already exists »). On libère ces noms en les
+              -- préfixant ; les données restent lisibles via messages_legacy.
+              FOR r IN
+                SELECT c.relname AS n FROM pg_class c
+                WHERE c.relname ~ '^messages_p[0-9]' AND c.relkind IN ('r','p')
+              LOOP
+                EXECUTE format('ALTER TABLE %I RENAME TO %I', r.n, 'legacy_' || r.n);
+              END LOOP;
             END IF;
 
             CREATE TABLE messages (
