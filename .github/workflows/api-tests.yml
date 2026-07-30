@@ -3,8 +3,11 @@ name: API tests
 # Compile et teste l'API de messagerie chiffrée (Rust + Actix-web). Tourne quand
 # server-rust/ change.
 on:
+  # Économie de minutes Actions (dépôt privé) : on ne lance QU'UNE fois par
+  # changement — sur les PR, et sur master après merge. Plus de double run
+  # (push + pull_request) sur chaque push de branche.
   push:
-    branches: ['**']
+    branches: [master]
     paths:
       - 'server-rust/**'
       - '.github/workflows/api-tests.yml'
