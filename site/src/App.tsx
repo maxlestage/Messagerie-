@@ -143,6 +143,7 @@ export default function App() {
             <a href={BROCOLIS_URL} target="_blank" rel="noopener noreferrer">brocolis</a>
           </nav>
           <p className="footer-tagline">{t("footer.tagline")}</p>
+          <p className="footer-credit">{t("footer.credit")}</p>
         </footer>
       </div>
     </>

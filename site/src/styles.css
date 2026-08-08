@@ -309,6 +309,7 @@ a { color: var(--link); }
 }
 .footer-links a:hover { text-decoration: underline; }
 .footer-tagline { margin: 0 auto; max-width: 640px; }
+.footer-credit { margin: 8px auto 0; font-weight: 600; opacity: 0.85; }
 
 /* ---------- Responsive ---------- */
 @media (max-width: 640px) {

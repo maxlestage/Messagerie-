@@ -103,6 +103,7 @@ POURRA ÊTRE TENU RESPONSABLE D'UN QUELCONQUE DOMMAGE, DIRECT OU INDIRECT,
 DÉCOULANT DE L'UTILISATION OU DE L'IMPOSSIBILITÉ D'UTILISER CE LOGICIEL.
 UTILISATION À VOS PROPRES RISQUES.`,
     "footer.tagline": "Brocolis messageries 🥦 — chiffrement sélectif pour tes messageries. Le contenu de cette page reflète le README du dépôt.",
+    "footer.credit": "Conçu par Maxime Nathan Lestage",
   },
   en: {
     "meta.title": "Brocolis 🥦 messaging — selective encryption",
@@ -201,6 +202,7 @@ AND FITNESS FOR A PARTICULAR PURPOSE. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
 ANY DAMAGE, DIRECT OR INDIRECT, ARISING FROM THE USE OF OR INABILITY TO USE THIS
 SOFTWARE. USE AT YOUR OWN RISK.`,
     "footer.tagline": "Brocolis messaging 🥦 — selective encryption for your messaging apps. This page mirrors the repository README.",
+    "footer.credit": "Designed by Maxime Nathan Lestage",
   },
   es: {
     "meta.title": "Brocolis 🥦 mensajería — cifrado selectivo",
@@ -299,6 +301,7 @@ ADECUACIÓN A UN FIN DETERMINADO. EN NINGÚN CASO EL AUTOR SERÁ RESPONSABLE DE
 NINGÚN DAÑO, DIRECTO O INDIRECTO, DERIVADO DEL USO O LA IMPOSIBILIDAD DE USAR
 ESTE SOFTWARE. ÚSALO BAJO TU PROPIA RESPONSABILIDAD.`,
     "footer.tagline": "Brocolis mensajería 🥦 — cifrado selectivo para tus mensajerías. Esta página refleja el README del repositorio.",
+    "footer.credit": "Diseñado por Maxime Nathan Lestage",
   },
 } as const;
 
