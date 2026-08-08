@@ -54,6 +54,7 @@ struct RootView: View {
     @State private var invite: InvitePayload?
     @State private var renameTarget: NamedKey?
     @State private var renameText = ""
+    @State private var deleteTarget: NamedKey?
 
     @State private var lockEnabled = MessagingPrefs.lockEnabled
     @State private var eraseOnClose = MessagingPrefs.eraseOnClose
@@ -141,6 +142,23 @@ struct RootView: View {
                     reload()
                 }
                 Button(loc("Annuler", "Cancel", "Cancelar"), role: .cancel) { renameTarget = nil }
+            }
+            .alert(
+                loc("Supprimer la clé ?", "Delete key?", "¿Eliminar la clave?"),
+                isPresented: Binding(get: { deleteTarget != nil },
+                                     set: { if !$0 { deleteTarget = nil } })
+            ) {
+                Button(loc("Supprimer", "Delete", "Eliminar"), role: .destructive) {
+                    if let t = deleteTarget { BrocolisKeyStore.deleteKey(id: t.id) }
+                    deleteTarget = nil
+                    reload()
+                }
+                Button(loc("Annuler", "Cancel", "Cancelar"), role: .cancel) { deleteTarget = nil }
+            } message: {
+                Text(loc(
+                    "Cette clé sera supprimée. Tu ne pourras plus déchiffrer les messages qui l'utilisent.",
+                    "This key will be deleted. You will no longer be able to decrypt messages that use it.",
+                    "Esta clave se eliminará. Ya no podrás descifrar los mensajes que la usan."))
             }
             .alert(
                 "Brocolis",
@@ -386,6 +404,24 @@ struct RootView: View {
                         }
                     }
                     Spacer()
+                    // Menu VISIBLE (⋯) : renommer / supprimer, en plus du balayage.
+                    Menu {
+                        Button {
+                            renameTarget = key
+                            renameText = key.name
+                        } label: {
+                            Label(loc("Renommer", "Rename", "Renombrar"), systemImage: "pencil")
+                        }
+                        Button(role: .destructive) {
+                            deleteTarget = key
+                        } label: {
+                            Label(loc("Supprimer", "Delete", "Eliminar"), systemImage: "trash")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                            .foregroundStyle(.secondary)
+                            .imageScale(.large)
+                    }
                 }
                 .contentShape(Rectangle())
                 .onTapGesture {
@@ -394,8 +430,7 @@ struct RootView: View {
                 }
                 .swipeActions(edge: .trailing) {
                     Button(role: .destructive) {
-                        BrocolisKeyStore.deleteKey(id: key.id)
-                        reload()
+                        deleteTarget = key
                     } label: {
                         Label(loc("Supprimer", "Delete", "Eliminar"), systemImage: "trash")
                     }
