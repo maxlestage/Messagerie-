@@ -72,6 +72,7 @@ fun RootScreen(
     var showGenerate by remember { mutableStateOf(false) }
     var showImport by remember { mutableStateOf(false) }
     var renameTarget by remember { mutableStateOf<NamedKey?>(null) }
+    var deleteTarget by remember { mutableStateOf<NamedKey?>(null) }
 
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
@@ -221,7 +222,7 @@ fun RootScreen(
                         selected = key.id == selectedId,
                         onSelect = { BrocolisKeyStore.selectKey(key.id); reload() },
                         onRename = { renameTarget = key },
-                        onDelete = { BrocolisKeyStore.deleteKey(key.id); reload() }
+                        onDelete = { deleteTarget = key }
                     )
                     Divider()
                 }
@@ -377,6 +378,28 @@ fun RootScreen(
                 BrocolisKeyStore.renameKey(target.id, values[0]); renameTarget = null; reload()
             },
             onCancel = { renameTarget = null }
+        )
+    }
+
+    // Confirmation avant suppression : perdre une clé = perdre le déchiffrement.
+    deleteTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text(loc("Supprimer la clé ?", "Delete key?", "¿Eliminar la clave?")) },
+            text = {
+                Text(loc(
+                    "« ${target.name} » sera supprimée. Tu ne pourras plus déchiffrer les messages qui l'utilisent.",
+                    "“${target.name}” will be deleted. You will no longer be able to decrypt messages that use it.",
+                    "«${target.name}» se eliminará. Ya no podrás descifrar los mensajes que la usan."))
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    BrocolisKeyStore.deleteKey(target.id); deleteTarget = null; reload()
+                }) { Text(loc("Supprimer", "Delete", "Eliminar")) }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteTarget = null }) { Text(loc("Annuler", "Cancel", "Cancelar")) }
+            }
         )
     }
 }
