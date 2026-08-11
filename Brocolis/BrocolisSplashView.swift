@@ -15,6 +15,8 @@ struct BrocolisSplashView: View {
     @State private var appeared = false
     /// L'indicateur de chargement n'apparaît qu'après la page de garde.
     @State private var showLoader = false
+    /// Remplissage de la barre de progression (0 → 1).
+    @State private var progress: CGFloat = 0
 
     // Couleurs de la marque (explicites, donc identiques en thème clair/sombre).
     private let bgTop = Color(red: 238.0 / 255, green: 248.0 / 255, blue: 226.0 / 255)   // #EEF8E2
@@ -63,11 +65,17 @@ struct BrocolisSplashView: View {
 
                 Spacer()
 
-                // Page de chargement : indicateur discret, en bas.
-                VStack(spacing: 10) {
-                    ProgressView()
-                        .progressViewStyle(.circular)
-                        .tint(brocoliGreen)
+                // Page de chargement : BARRE de progression qui se remplit.
+                VStack(spacing: 12) {
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(brocoliGreen.opacity(0.18))
+                            .frame(width: 220, height: 8)
+                        Capsule()
+                            .fill(LinearGradient(colors: [brocoliGreen, deepGreen],
+                                                 startPoint: .leading, endPoint: .trailing))
+                            .frame(width: 220 * progress, height: 8)
+                    }
                     Text(loc("Chargement…", "Loading…", "Cargando…"))
                         .font(.footnote)
                         .foregroundStyle(deepGreen.opacity(0.6))
@@ -82,6 +90,10 @@ struct BrocolisSplashView: View {
             }
             withAnimation(.easeIn(duration: 0.4).delay(0.5)) {
                 showLoader = true
+            }
+            // La barre se remplit pendant l'affichage de la page de garde.
+            withAnimation(.easeInOut(duration: 1.2).delay(0.5)) {
+                progress = 1
             }
         }
     }
