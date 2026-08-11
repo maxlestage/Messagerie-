@@ -11,6 +11,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
@@ -50,6 +53,7 @@ fun SplashScreen() {
     val scale by animateFloatAsState(if (appeared) 1f else 0.82f, tween(550), label = "scale")
     val contentAlpha by animateFloatAsState(if (appeared) 1f else 0f, tween(450), label = "alpha")
     val loaderAlpha by animateFloatAsState(if (showLoader) 1f else 0f, tween(400), label = "loader")
+    val barFill by animateFloatAsState(if (showLoader) 1f else 0f, tween(1200), label = "bar")
 
     LaunchedEffect(Unit) {
         appeared = true
@@ -110,7 +114,21 @@ fun SplashScreen() {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.alpha(loaderAlpha).padding(bottom = 44.dp)
             ) {
-                CircularProgressIndicator(color = BrocoliGreen, modifier = Modifier.size(28.dp))
+                // Barre de progression qui se remplit pendant la page de garde.
+                Box(
+                    Modifier
+                        .width(220.dp).height(8.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(BrocoliGreen.copy(alpha = 0.18f))
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(barFill)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(Brush.horizontalGradient(listOf(BrocoliGreen, BrocoliDeepGreen)))
+                    )
+                }
                 Spacer(Modifier.size(10.dp))
                 Text(
                     text = loc("Chargement…", "Loading…", "Cargando…"),
