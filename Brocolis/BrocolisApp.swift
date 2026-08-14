@@ -121,6 +121,11 @@ struct BrocolisApp: App {
                 try? await Task.sleep(nanoseconds: 1_600_000_000)
                 withAnimation(.easeInOut(duration: 0.45)) { showSplash = false }
             }
+            // Le fond vert de la marque est clair et fixe : on force le thème clair
+            // pour que les textes restent lisibles (sombre sur clair) même quand
+            // le système est en mode sombre. Sinon les textes passaient en clair
+            // et devenaient invisibles sur le fond vert clair.
+            .preferredColorScheme(.light)
         }
     }
 }
