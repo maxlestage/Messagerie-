@@ -216,6 +216,10 @@ final class MessagesViewController: MSMessagesAppViewController {
         let host = UIHostingController(rootView: root)
         // Transparent : c'est le fond vert du conteneur qui montre à travers.
         host.view.backgroundColor = .clear
+        // Le fond vert de la marque est clair et fixe : on force le thème clair
+        // pour que les textes restent lisibles même en mode sombre.
+        host.overrideUserInterfaceStyle = .light
+        overrideUserInterfaceStyle = .light
         addChild(host)
         host.view.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(host.view)
