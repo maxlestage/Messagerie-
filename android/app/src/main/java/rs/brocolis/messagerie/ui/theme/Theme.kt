@@ -2,7 +2,6 @@
 
 package rs.brocolis.messagerie.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.TopAppBarColors
 import androidx.compose.material3.TopAppBarDefaults
@@ -50,7 +49,11 @@ private val DarkColors = darkColorScheme(
 
 @Composable
 fun BrocolisTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    // Le fond vert de la marque est clair et fixe (comme sur iOS où l'on force
+    // `.preferredColorScheme(.light)`). On garde toujours le thème clair pour
+    // que les textes restent lisibles ; en mode sombre système, le fond clair
+    // + textes clairs devenait illisible.
+    darkTheme: Boolean = false,
     content: @Composable () -> Unit
 ) {
     MaterialTheme(
