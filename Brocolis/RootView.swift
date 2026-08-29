@@ -611,7 +611,7 @@ struct RootView: View {
             VStack(spacing: 4) {
                 Text("Brocolis 🥦")
                     .font(.subheadline).bold()
-                Text(loc("par Maxime Nathan Lestage", "by Maxime Nathan Lestage", "por Maxime Nathan Lestage"))
+                Text(loc("Conçu et développé par Maxime Nathan Lestage", "Designed and developed by Maxime Nathan Lestage", "Diseñado y desarrollado por Maxime Nathan Lestage"))
                     .font(.footnote).foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .center)
