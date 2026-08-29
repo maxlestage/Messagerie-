@@ -326,7 +326,7 @@ fun RootScreen(
             ) {
                 Text("Brocolis 🥦", style = MaterialTheme.typography.titleSmall)
                 Text(
-                    loc("par Maxime Nathan Lestage", "by Maxime Nathan Lestage", "por Maxime Nathan Lestage"),
+                    loc("Conçu et développé par Maxime Nathan Lestage", "Designed and developed by Maxime Nathan Lestage", "Diseñado y desarrollado por Maxime Nathan Lestage"),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
