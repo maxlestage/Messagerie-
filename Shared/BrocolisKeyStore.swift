@@ -423,6 +423,24 @@ enum BrocolisKeyStore {
         return true
     }
 
+    // MARK: Synchronisation montre (WatchConnectivity)
+
+    /// Exporte les clés telles quelles (JSON brut du stockage) pour les envoyer
+    /// à l'app montre via WatchConnectivity. La montre les importe à l'identique.
+    static func exportKeysJSON() -> String? {
+        migrateIfNeeded()
+        return defaults?.string(forKey: keysName)
+    }
+
+    /// Importe (côté montre) le JSON de clés reçu de l'iPhone, en remplaçant le
+    /// trousseau local. La sélection suit celle de l'iPhone si fournie.
+    static func importKeysJSON(_ json: String, selectedId: String?) {
+        defaults?.set(json, forKey: keysName)
+        if let selectedId, !selectedId.isEmpty {
+            defaults?.set(selectedId, forKey: selectedIdName)
+        }
+    }
+
     // MARK: Helpers purs (testables, sans App Group)
 
     static func computeExpiry(ttlSeconds: Int, from now: Date) -> Date? {
