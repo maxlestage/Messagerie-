@@ -36,6 +36,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         // Push : s'enregistre auprès d'APNs (mises à jour push, y compris Live
         // Activity à distance). Le device token est rangé dans l'App Group.
         application.registerForRemoteNotifications()
+        // Montre : synchronise clés + réglages vers l'app Apple Watch.
+        #if canImport(WatchConnectivity)
+        BrocolisWatchSync.shared.start()
+        #endif
         return true
     }
 

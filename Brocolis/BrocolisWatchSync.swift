@@ -1,0 +1,76 @@
+//
+//  BrocolisWatchSync.swift
+//  Brocolis 🥦 (app iPhone uniquement)
+//
+//  Synchronisation iPhone → Apple Watch via WatchConnectivity : l'iPhone pousse
+//  ses clés 🔑, son identité d'appareil et l'URL du serveur dans le
+//  `applicationContext` (transport chiffré par Apple, livré même montre
+//  éteinte). La montre range tout dans SON App Group local et peut alors
+//  discuter directement avec le serveur — mêmes clés, mêmes conversations.
+//
+
+import Foundation
+import UIKit
+#if canImport(WatchConnectivity)
+import WatchConnectivity
+
+final class BrocolisWatchSync: NSObject, WCSessionDelegate {
+    static let shared = BrocolisWatchSync()
+    private override init() { super.init() }
+
+    /// Active la session et pousse l'état à chaque retour/départ de l'app :
+    /// couvre le lancement, la fin d'un appairage, l'ajout/suppression de clé…
+    func start() {
+        guard WCSession.isSupported() else { return } // pas de montre (iPad…)
+        let session = WCSession.default
+        session.delegate = self
+        session.activate()
+        let center = NotificationCenter.default
+        center.addObserver(self, selector: #selector(pushNow),
+                           name: UIApplication.didBecomeActiveNotification, object: nil)
+        center.addObserver(self, selector: #selector(pushNow),
+                           name: UIApplication.willResignActiveNotification, object: nil)
+    }
+
+    /// Pousse l'état courant vers la montre. Sans danger d'appeler trop souvent :
+    /// seul le DERNIER contexte est conservé/livré par le système.
+    @objc func pushNow() {
+        guard WCSession.isSupported() else { return }
+        let session = WCSession.default
+        guard session.activationState == .activated, session.isPaired,
+              session.isWatchAppInstalled else { return }
+
+        var context: [String: Any] = [
+            "deviceId": MessagingPrefs.deviceId,
+            "serverURL": MessagingPrefs.serverURL,
+            "active": BrocolisKeyStore.isActive,
+            // Horodatage : rend chaque contexte distinct, sinon un contenu
+            // identique ne serait pas relivré après réinstallation côté montre.
+            "sentAt": Date().timeIntervalSince1970,
+        ]
+        if let keysJSON = BrocolisKeyStore.exportKeysJSON() { context["keysJSON"] = keysJSON }
+        if let selected = BrocolisKeyStore.selectedKeyId { context["selectedKeyId"] = selected }
+        try? session.updateApplicationContext(context)
+    }
+
+    // MARK: WCSessionDelegate
+
+    func session(_ session: WCSession,
+                 activationDidCompleteWith activationState: WCSessionActivationState,
+                 error: Error?) {
+        if activationState == .activated { pushNow() }
+    }
+
+    func sessionDidBecomeInactive(_ session: WCSession) {}
+
+    func sessionDidDeactivate(_ session: WCSession) {
+        // L'utilisateur a changé de montre : on réactive pour la nouvelle.
+        session.activate()
+    }
+
+    func sessionWatchStateDidChange(_ session: WCSession) {
+        // L'app montre vient d'être installée : on pousse tout de suite.
+        pushNow()
+    }
+}
+#endif
