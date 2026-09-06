@@ -20,22 +20,62 @@ struct BrocolisStatusBundle: WidgetBundle {
 }
 
 struct BrocolisStatusLiveActivity: Widget {
+
+    /// Nombre de non-lus (0 si absent) — pilote toute la mise en page.
+    private func unread(_ context: ActivityViewContext<BrocolisActivityAttributes>) -> Int {
+        context.state.unread ?? 0
+    }
+
+    /// Pastille verte « N » (compteur de messages non lus).
+    @ViewBuilder
+    private func badge(_ n: Int) -> some View {
+        Text("\(min(n, 99))")
+            .font(.caption2.bold())
+            .foregroundStyle(.white)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Capsule().fill(.green))
+    }
+
+    /// Sous-titre « de X · il y a … » du dernier message reçu (jamais le
+    /// contenu : il reste chiffré, la Live Activity n'en sait rien).
+    @ViewBuilder
+    private func lastLine(_ context: ActivityViewContext<BrocolisActivityAttributes>) -> some View {
+        if let from = context.state.lastFrom, let at = context.state.lastAt {
+            (Text(loc("De \(from) · il y a ", "From \(from) · ", "De \(from) · hace "))
+                + Text(at, style: .relative))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        } else {
+            (Text(loc("Chiffrement prêt depuis ", "Encryption ready for ", "Cifrado listo desde hace "))
+                + Text(context.state.since, style: .relative))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+    }
+
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: BrocolisActivityAttributes.self) { context in
             // Écran verrouillé / bannière
+            let n = unread(context)
             HStack(spacing: 12) {
                 Text("🥦").font(.title2)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(loc("Brocolis est actif", "Brocolis is active", "Brocolis está activo")).font(.headline)
-                    // Date relative auto-actualisée : Text séparé (n'existe pas
-                    // dans une String via loc()).
-                    (Text(loc("Chiffrement prêt depuis ", "Encryption ready for ", "Cifrado listo desde hace ")) + Text(context.state.since, style: .relative))
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                    Text(n > 0
+                         ? loc(n == 1 ? "1 nouveau message" : "\(n) nouveaux messages",
+                               n == 1 ? "1 new message" : "\(n) new messages",
+                               n == 1 ? "1 mensaje nuevo" : "\(n) mensajes nuevos")
+                         : loc("Brocolis est actif", "Brocolis is active", "Brocolis está activo"))
+                        .font(.headline)
+                    lastLine(context)
                 }
                 Spacer()
-                Image(systemName: "lock.shield.fill")
-                    .foregroundStyle(.green)
+                if n > 0 {
+                    badge(n)
+                } else {
+                    Image(systemName: "lock.shield.fill")
+                        .foregroundStyle(.green)
+                }
             }
             .padding()
             .activityBackgroundTint(Color.green.opacity(0.15))
@@ -46,24 +86,46 @@ struct BrocolisStatusLiveActivity: Widget {
                     Text("🥦").font(.title2)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    Image(systemName: "lock.shield.fill")
-                        .foregroundStyle(.green)
+                    if unread(context) > 0 {
+                        badge(unread(context))
+                    } else {
+                        Image(systemName: "lock.shield.fill")
+                            .foregroundStyle(.green)
+                    }
                 }
                 DynamicIslandExpandedRegion(.center) {
-                    Text(loc("Brocolis est actif", "Brocolis is active", "Brocolis está activo")).font(.headline)
+                    let n = unread(context)
+                    Text(n > 0
+                         ? loc(n == 1 ? "1 nouveau message" : "\(n) nouveaux messages",
+                               n == 1 ? "1 new message" : "\(n) new messages",
+                               n == 1 ? "1 mensaje nuevo" : "\(n) mensajes nuevos")
+                         : loc("Brocolis est actif", "Brocolis is active", "Brocolis está activo"))
+                        .font(.headline)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    Text(loc("Le chiffrement est prêt dans le menu Partager.", "Encryption is ready in the Share menu.", "El cifrado está listo en el menú Compartir."))
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                    if unread(context) > 0 {
+                        lastLine(context)
+                    } else {
+                        Text(loc("Le chiffrement est prêt dans le menu Partager.", "Encryption is ready in the Share menu.", "El cifrado está listo en el menú Compartir."))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             } compactLeading: {
                 Text("🥦")
             } compactTrailing: {
-                Image(systemName: "lock.fill")
-                    .foregroundStyle(.green)
+                if unread(context) > 0 {
+                    badge(unread(context))
+                } else {
+                    Image(systemName: "lock.fill")
+                        .foregroundStyle(.green)
+                }
             } minimal: {
-                Text("🥦")
+                if unread(context) > 0 {
+                    badge(unread(context))
+                } else {
+                    Text("🥦")
+                }
             }
         }
     }
