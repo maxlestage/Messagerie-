@@ -83,6 +83,44 @@ enum BrocolisLiveActivity {
         }
     }
     #endif
+
+    /// Un (ou plusieurs) message(s) viennent d'arriver : le 🥦 devient un vrai
+    /// indicateur de messagerie — compteur de non-lus + « de X · il y a … ».
+    /// Seul le NOM du correspondant est transmis, jamais le contenu (chiffré).
+    /// `isReading` : la conversation est ouverte sous les yeux de l'utilisateur,
+    /// donc pas de compteur — juste « dernier message de X ».
+    static func noteIncoming(from name: String, count: Int, isReading: Bool = false) {
+        #if canImport(ActivityKit)
+        guard #available(iOS 16.1, *), count > 0 else { return }
+        Task {
+            for activity in Activity<BrocolisActivityAttributes>.activities {
+                var state = activity.contentState
+                state.unread = isReading ? 0 : (state.unread ?? 0) + count
+                state.lastFrom = name
+                state.lastAt = Date()
+                await activity.update(using: state)
+            }
+        }
+        #endif
+    }
+
+    /// La conversation est ouverte : plus rien de « non lu », la Live Activity
+    /// redevient le simple indicateur « Brocolis est actif ».
+    static func clearUnread() {
+        #if canImport(ActivityKit)
+        guard #available(iOS 16.1, *) else { return }
+        Task {
+            for activity in Activity<BrocolisActivityAttributes>.activities {
+                var state = activity.contentState
+                guard (state.unread ?? 0) > 0 || state.lastFrom != nil else { continue }
+                state.unread = 0
+                state.lastFrom = nil
+                state.lastAt = nil
+                await activity.update(using: state)
+            }
+        }
+        #endif
+    }
 }
 
 /// Enregistrement du push token de la Live Activity auprès du serveur de
@@ -115,7 +153,11 @@ enum BrocolisPush {
         guard !peerIds.isEmpty else { return 0 }
 
         let client = PairingClient(baseURL: BrocolisKeyStore.serverURL)
-        let contentState: [String: Any] = ["since": Int(Date().timeIntervalSince1970)]
+        // `unread`/`lastAt` : la Live Activity du correspondant affiche
+        // « 1 nouveau message » même app fermée. On ne transmet ni contenu ni
+        // nom — l'expéditeur ignore comment le destinataire l'a nommé.
+        let now = Int(Date().timeIntervalSince1970)
+        let contentState: [String: Any] = ["since": now, "unread": 1, "lastAt": now]
         var sent = 0
         for peerId in peerIds {
             do {
