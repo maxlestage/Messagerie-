@@ -55,6 +55,35 @@ un *year-end self-classification report* auprès de la BIS. Cette étape se règ
 
 ## 6. En cas d'échec de la signature « cloud »
 
+### Cas rencontré : « No profiles for …watchkitapp were found »
+
+```
+error: Authentication failed: Make sure a bearer token was provided, it is
+properly configured and signed, and it has not expired.
+error: No profiles for 'rs.brocolis.messagerie.watchkitapp' were found
+(in target 'BrocolisWatch' from project 'Brocolis')
+```
+
+L'archive échoue sur la cible **montre**. Les deux messages vont ensemble : la
+signature automatique n'a pas pu s'authentifier auprès d'App Store Connect,
+elle n'a donc pas pu créer le profil manquant. À vérifier, dans cet ordre :
+
+1. **L'App ID de la montre existe-t-il ?** `rs.brocolis.messagerie.watchkitapp`
+   sur developer.apple.com → Certificates, IDs & Profiles → Identifiers, avec
+   la capacité **App Groups** activée pour `group.rs.brocolis.messagerie` —
+   c'est ce que réclame `BrocolisWatch/BrocolisWatch.entitlements`. L'app montre
+   est arrivée après les autres cibles : son identifiant a pu ne jamais être
+   enregistré.
+2. **La clé API App Store Connect est-elle encore valide ?** Le message
+   « Authentication failed / bearer token » pointe vers `ASC_KEY_ID`,
+   `ASC_ISSUER_ID` et `ASC_KEY_P8` (secrets GitHub) — une clé révoquée ou un
+   `.p8` tronqué au copier-coller donnent exactement cette erreur.
+
+Tant que l'un des deux bloque, l'archive s'arrête avant l'export : rien ne part
+sur TestFlight, il n'y a donc pas de build fantôme à retirer.
+
+### Cas général
+
 `-allowProvisioningUpdates` crée normalement le certificat de distribution et le
 profil automatiquement. Si le runner CI n'y parvient pas (message de signature),
 la parade robuste est [`fastlane match`](https://docs.fastlane.tools/actions/match/) :
