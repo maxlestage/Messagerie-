@@ -22,6 +22,7 @@ final class BrocolisWatchSyncTests: XCTestCase {
             deviceId: "DEVICE-1",
             serverURL: "https://exemple.test",
             active: true,
+            floors: ["conv-a": 42, "conv-b": 7],
             sentAt: Date(timeIntervalSince1970: 1_700_000_000)
         )
 
@@ -49,6 +50,7 @@ final class BrocolisWatchSyncTests: XCTestCase {
         XCTAssertNil(received.keysJSON)
         XCTAssertNil(received.selectedKeyId)
         XCTAssertNil(received.serverURL)
+        XCTAssertNil(received.floors)
     }
 
     /// Un contexte vide = rien n'est encore arrivé de l'iPhone.
@@ -61,7 +63,8 @@ final class BrocolisWatchSyncTests: XCTestCase {
     func testContextOnlyContainsPropertyListTypes() {
         let context = WatchSyncPayload(
             keysJSON: "[]", selectedKeyId: "A", deviceId: "D",
-            serverURL: "https://exemple.test", active: true
+            serverURL: "https://exemple.test", active: true,
+            floors: ["conv-a": 42]
         ).context
 
         XCTAssertTrue(PropertyListSerialization.propertyList(context, isValidFor: .binary))
@@ -77,5 +80,38 @@ final class BrocolisWatchSyncTests: XCTestCase {
 
         XCTAssertNotEqual(a.context["sentAt"] as? TimeInterval,
                           b.context["sentAt"] as? TimeInterval)
+    }
+
+    // MARK: Planchers de confidentialité
+
+    /// Ce que l'iPhone efface doit cesser d'être lisible au poignet.
+    func testFloorsCrossTheWire() throws {
+        let context = WatchSyncPayload(floors: ["conv-a": 42]).context
+        let received = try XCTUnwrap(WatchSyncPayload(context: context))
+
+        XCTAssertEqual(received.floors, ["conv-a": 42])
+    }
+
+    /// Des planchers vides ne partent pas : inutile d'alourdir le contexte.
+    func testEmptyFloorsAreOmitted() {
+        XCTAssertNil(WatchSyncPayload(deviceId: "D", floors: [:]).context["floors"])
+    }
+
+    /// Un plancher local n'est JAMAIS abaissé : la montre peut avoir vu des
+    /// messages plus récents que le téléphone, et un plancher qui redescend
+    /// ferait réapparaître de l'historique effacé.
+    func testMergeNeverLowersAFloor() {
+        let merged = MessagingPrefs.mergedFloors(local: ["a": 100, "b": 5],
+                                                 incoming: ["a": 40, "b": 60])
+
+        XCTAssertEqual(merged["a"], 100)   // local plus haut : conservé
+        XCTAssertEqual(merged["b"], 60)    // reçu plus haut : adopté
+    }
+
+    /// Une conversation inconnue localement prend le plancher reçu.
+    func testMergeAddsUnknownConversations() {
+        let merged = MessagingPrefs.mergedFloors(local: [:], incoming: ["neuve": 12])
+
+        XCTAssertEqual(merged, ["neuve": 12])
     }
 }
