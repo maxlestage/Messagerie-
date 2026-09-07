@@ -37,13 +37,31 @@ struct BrocolisStatusLiveActivity: Widget {
             .background(Capsule().fill(.green))
     }
 
-    /// Sous-titre « de X · il y a … » du dernier message reçu (jamais le
-    /// contenu : il reste chiffré, la Live Activity n'en sait rien).
+    /// Préfixe de l'horodatage : « De X · il y a » quand on sait de qui vient
+    /// le message, « Reçu il y a » quand on ne le sait pas.
+    private func lastPrefix(_ name: String?) -> String {
+        guard let name, !name.isEmpty else {
+            return loc("Reçu il y a ", "Received ", "Recibido hace ")
+        }
+        return loc("De \(name) · il y a ", "From \(name) · ", "De \(name) · hace ")
+    }
+
+    /// Sous-titre du dernier message reçu (jamais le contenu : il reste
+    /// chiffré, la Live Activity n'en sait rien).
+    ///
+    /// Le NOM peut manquer sans que l'heure manque : une mise à jour poussée
+    /// par APNs vient de l'expéditeur, qui ignore comment tu l'as nommé — il
+    /// n'envoie donc que l'horodatage. C'est le cas app fermée, celui-là même
+    /// pour lequel la Live Activity existe : l'heure doit s'afficher quand
+    /// même, au lieu de retomber sur « Chiffrement prêt depuis… ».
     @ViewBuilder
     private func lastLine(_ context: ActivityViewContext<BrocolisActivityAttributes>) -> some View {
-        if let from = context.state.lastFrom, let at = context.state.lastAt {
-            (Text(loc("De \(from) · il y a ", "From \(from) · ", "De \(from) · hace "))
-                + Text(at, style: .relative))
+        if let at = context.state.lastAt {
+            (Text(lastPrefix(context.state.lastFrom)) + Text(at, style: .relative))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        } else if let from = context.state.lastFrom, !from.isEmpty {
+            Text(loc("De \(from)", "From \(from)", "De \(from)"))
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         } else {
