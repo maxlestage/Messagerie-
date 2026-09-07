@@ -1,0 +1,97 @@
+name: iOS build & tests
+
+# Compile l'app (app montre embarquée comprise) et lance les tests XCTest sur
+# simulateur, à chaque PR touchant du code iOS.
+#
+# Pourquoi : jusqu'ici AUCUN workflow ne compilait iOS — `ios-testflight.yml` ne
+# part que sur un tag `v*`, `api-tests.yml` que sur `server-rust/**`. Du Swift
+# pouvait donc être mergé sans avoir jamais été compilé.
+#
+# Coût : une minute de runner macOS est facturée 10× une minute Linux. D'où les
+# garde-fous — filtres de chemins (rien ne part si la PR ne touche pas iOS),
+# annulation des runs superposés, et le contrôle project.yml renvoyé sur Linux.
+#
+# Note : les ancres YAML (`&`/`*`) ne sont pas supportées par GitHub Actions,
+# la liste de chemins est donc répétée telle quelle.
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'Brocolis/**'
+      - 'BrocolisAction/**'
+      - 'BrocolisKeyboard/**'
+      - 'BrocolisStatus/**'
+      - 'BrocolisWatch/**'
+      - 'BrocolisiMessage/**'
+      - 'BrocolisTests/**'
+      - 'Shared/**'
+      - 'project.yml'
+      - 'Brocolis.xcodeproj/**'
+      - '.github/workflows/ios-tests.yml'
+      - '.github/scripts/**'
+  pull_request:
+    paths:
+      - 'Brocolis/**'
+      - 'BrocolisAction/**'
+      - 'BrocolisKeyboard/**'
+      - 'BrocolisStatus/**'
+      - 'BrocolisWatch/**'
+      - 'BrocolisiMessage/**'
+      - 'BrocolisTests/**'
+      - 'Shared/**'
+      - 'project.yml'
+      - 'Brocolis.xcodeproj/**'
+      - '.github/workflows/ios-tests.yml'
+      - '.github/scripts/**'
+  workflow_dispatch:
+
+concurrency:
+  group: ios-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  # ── project.yml ↔ Brocolis.xcodeproj (runner Linux, coût 1×) ────────
+  spec:
+    name: Spec XcodeGen à jour
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pyyaml
+      - name: project.yml décrit-il bien toutes les cibles ?
+        run: python3 .github/scripts/check_project_spec.py
+
+  # ── Build + tests sur simulateur (runner macOS, coût 10×) ───────────
+  test:
+    name: Build + tests (simulateur iOS)
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sélectionner Xcode (dernier stable)
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Choisir un simulateur iPhone disponible
+        id: sim
+        run: echo "udid=$(python3 .github/scripts/pick_simulator.py)" >> "$GITHUB_OUTPUT"
+
+      - name: Build + tests
+        # Pas de signature : inutile sur simulateur, et l'exiger imposerait des
+        # secrets à une simple PR. Le build couvre aussi les extensions et
+        # l'app montre, embarquées par la cible Brocolis.
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project Brocolis.xcodeproj \
+            -scheme Brocolis \
+            -configuration Debug \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO

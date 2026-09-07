@@ -40,17 +40,16 @@ final class BrocolisWatchSync: NSObject, WCSessionDelegate {
         guard session.activationState == .activated, session.isPaired,
               session.isWatchAppInstalled else { return }
 
-        var context: [String: Any] = [
-            "deviceId": MessagingPrefs.deviceId,
-            "serverURL": MessagingPrefs.serverURL,
-            "active": BrocolisKeyStore.isActive,
-            // Horodatage : rend chaque contexte distinct, sinon un contenu
-            // identique ne serait pas relivré après réinstallation côté montre.
-            "sentAt": Date().timeIntervalSince1970,
-        ]
-        if let keysJSON = BrocolisKeyStore.exportKeysJSON() { context["keysJSON"] = keysJSON }
-        if let selected = BrocolisKeyStore.selectedKeyId { context["selectedKeyId"] = selected }
-        try? session.updateApplicationContext(context)
+        // `WatchSyncPayload` (partagé avec la montre) décrit le contenu du
+        // contexte : ce qu'on écrit ici est exactement ce que la montre relit.
+        let payload = WatchSyncPayload(
+            keysJSON: BrocolisKeyStore.exportKeysJSON(),
+            selectedKeyId: BrocolisKeyStore.selectedKeyId,
+            deviceId: MessagingPrefs.deviceId,
+            serverURL: MessagingPrefs.serverURL,
+            active: BrocolisKeyStore.isActive
+        )
+        try? session.updateApplicationContext(payload.context)
     }
 
     // MARK: WCSessionDelegate
