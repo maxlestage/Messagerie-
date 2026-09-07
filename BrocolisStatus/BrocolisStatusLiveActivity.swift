@@ -37,39 +37,33 @@ struct BrocolisStatusLiveActivity: Widget {
             .background(Capsule().fill(.green))
     }
 
-    /// Préfixe de l'horodatage : « De X · il y a » quand on sait de qui vient
-    /// le message, « Reçu il y a » quand on ne le sait pas.
-    private func lastPrefix(_ name: String?) -> String {
-        guard let name, !name.isEmpty else {
-            return loc("Reçu il y a ", "Received ", "Recibido hace ")
-        }
-        return loc("De \(name) · il y a ", "From \(name) · ", "De \(name) · hace ")
-    }
-
     /// Sous-titre du dernier message reçu (jamais le contenu : il reste
     /// chiffré, la Live Activity n'en sait rien).
     ///
-    /// Le NOM peut manquer sans que l'heure manque : une mise à jour poussée
-    /// par APNs vient de l'expéditeur, qui ignore comment tu l'as nommé — il
-    /// n'envoie donc que l'horodatage. C'est le cas app fermée, celui-là même
-    /// pour lequel la Live Activity existe : l'heure doit s'afficher quand
-    /// même, au lieu de retomber sur « Chiffrement prêt depuis… ».
+    /// Le choix de la ligne vit dans `BrocolisLastLine` — logique pure et
+    /// testée ; ici on ne fait que l'habiller.
     @ViewBuilder
     private func lastLine(_ context: ActivityViewContext<BrocolisActivityAttributes>) -> some View {
-        if let at = context.state.lastAt {
-            (Text(lastPrefix(context.state.lastFrom)) + Text(at, style: .relative))
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-        } else if let from = context.state.lastFrom, !from.isEmpty {
-            Text(loc("De \(from)", "From \(from)", "De \(from)"))
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-        } else {
-            (Text(loc("Chiffrement prêt depuis ", "Encryption ready for ", "Cifrado listo desde hace "))
-                + Text(context.state.since, style: .relative))
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+        let line = BrocolisLastLine.choose(lastFrom: context.state.lastFrom,
+                                           lastAt: context.state.lastAt,
+                                           since: context.state.since)
+        Group {
+            switch line {
+            case let .from(name, at):
+                Text(loc("De \(name) · il y a ", "From \(name) · ", "De \(name) · hace "))
+                    + Text(at, style: .relative)
+            case let .receivedAt(at):
+                Text(loc("Reçu il y a ", "Received ", "Recibido hace "))
+                    + Text(at, style: .relative)
+            case let .fromOnly(name):
+                Text(loc("De \(name)", "From \(name)", "De \(name)"))
+            case let .activeSince(since):
+                Text(loc("Chiffrement prêt depuis ", "Encryption ready for ", "Cifrado listo desde hace "))
+                    + Text(since, style: .relative)
+            }
         }
+        .font(.footnote)
+        .foregroundStyle(.secondary)
     }
 
     var body: some WidgetConfiguration {
