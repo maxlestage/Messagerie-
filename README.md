@@ -275,6 +275,14 @@ BrocolisStatus/               # extension widget : Dynamic Island + écran d'acc
   BrocolisStatusLiveActivity.swift # Live Activity (🥦 quand actif)
   BrocolisStatusWidget.swift  # widget accueil/verrouillage (état, clé, expiration)
   Info.plist, BrocolisStatus.entitlements
+BrocolisiMessage/             # mini-app iMessage (envoyer chiffré depuis Messages)
+  MessagesViewController.swift, Info.plist, BrocolisiMessage.entitlements
+BrocolisWatch/                # app Apple Watch (watchOS 9+, embarquée dans l'app iOS)
+  BrocolisWatchApp.swift      # point d'entrée SwiftUI de la montre
+  WatchRootView.swift         # liste des clés synchronisées depuis l'iPhone
+  WatchConversationView.swift # lire / répondre au poignet (déchiffré sur la montre)
+  WatchSyncReceiver.swift     # réception WatchConnectivity (clés + état actif)
+  BrocolisWatch.entitlements
 BrocolisTests/                # tests XCTest (crypto, transform, accord de clé)
 server-rust/                  # serveur de messagerie chiffrée (Rust · Actix + SeaORM)
 ```
@@ -318,6 +326,21 @@ open Brocolis.xcodeproj
 > — **Activer**, **Désactiver**, **Basculer** Brocolis — permettent de changer
 > l'état sans ouvrir l'app (« Dis Siri, active Brocolis »). Ils mettent aussi à
 > jour la Live Activity et les widgets. Voir `Brocolis/BrocolisShortcuts.swift`.
+>
+> 💬 **Live Activity de messagerie** : la même Live Activity sert de fil de
+> messagerie. Elle affiche le **nombre de messages non lus**, le **nom** de
+> l'expéditeur du dernier message et **l'heure** de réception — jamais le
+> texte : le contenu reste chiffré de bout en bout et la Live Activity n'y a
+> pas accès. Le compteur retombe à zéro dès que tu ouvres la conversation.
+> Voir `Shared/BrocolisActivityAttributes.swift`.
+>
+> ⌚️ **Apple Watch** : `BrocolisWatch` est une **vraie app watchOS 9+**
+> (single-target, embarquée dans le bundle iOS — installée automatiquement avec
+> l'app sur l'iPhone appairé). Tes clés et l'état actif sont poussés depuis
+> l'iPhone via **WatchConnectivity** (`Brocolis/BrocolisWatchSync.swift` →
+> `BrocolisWatch/WatchSyncReceiver.swift`) ; la montre déchiffre et chiffre
+> **elle-même**, avec le même `BrocolisCrypto` que l'iPhone. Tu peux donc lire
+> et répondre au poignet sans sortir le téléphone.
 
 Dans Xcode, pour **chaque** cible (`Brocolis`, `BrocolisAction`,
 `BrocolisStatus` et `BrocolisKeyboard`) :
@@ -380,11 +403,14 @@ côté Apple.
 
 ### Identifiants à enregistrer (developer.apple.com)
 La signature automatique de Xcode peut les créer, sinon vérifie qu'existent :
-- les **3 App IDs** :
+- les **6 App IDs** :
   - `rs.brocolis.messagerie` (app)
   - `rs.brocolis.messagerie.action` (Action Extension)
   - `rs.brocolis.messagerie.status` (widget / Live Activity)
-- l'**App Group** `group.rs.brocolis.messagerie`, activé sur les **3** cibles.
+  - `rs.brocolis.messagerie.keyboard` (clavier)
+  - `rs.brocolis.messagerie.imessage` (mini-app iMessage)
+  - `rs.brocolis.messagerie.watchkitapp` (app Apple Watch)
+- l'**App Group** `group.rs.brocolis.messagerie`, activé sur **toutes** les cibles.
 
 ### Conformité export (chiffrement) — déjà déclarée
 L'app chiffre (AES‑256‑GCM, X25519). La clé
