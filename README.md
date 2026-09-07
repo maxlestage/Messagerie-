@@ -298,7 +298,17 @@ open Brocolis.xcodeproj
 > 🛠️ **Projet généré par XcodeGen** : la structure est décrite dans
 > [`project.yml`](project.yml). Après une modif (nouveau fichier, réglage),
 > régénère avec `brew install xcodegen && xcodegen generate`, plus besoin
-> d'éditer le pbxproj à la main.
+> d'éditer le pbxproj à la main. **Attention** : une cible présente dans le
+> pbxproj mais absente de `project.yml` est *supprimée* par la régénération,
+> sans erreur. La CI le vérifie à chaque PR
+> ([`.github/scripts/check_project_spec.py`](.github/scripts/check_project_spec.py),
+> lançable à la main).
+>
+> ✅ **Tests à chaque PR** : [`ios-tests.yml`](.github/workflows/ios-tests.yml)
+> compile l'app — extensions et app montre comprises — et lance les tests
+> XCTest sur simulateur, dès qu'une PR touche du code iOS. Les runners macOS
+> étant facturés 10× les runners Linux, le workflow filtre par chemins, annule
+> les runs superposés, et fait tourner le contrôle `project.yml` sur Linux.
 >
 > ☁️ **CI via Xcode Cloud** (recommandé) : le guide pas à pas est dans
 > [`docs/XCODE_CLOUD.md`](docs/XCODE_CLOUD.md). Il tourne sur l'infra d'Apple et
