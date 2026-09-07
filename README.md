@@ -412,7 +412,10 @@ côté Apple.
 - **Xcode 15+**.
 
 ### Identifiants à enregistrer (developer.apple.com)
-La signature automatique de Xcode peut les créer, sinon vérifie qu'existent :
+La signature automatique de Xcode peut les créer — **mais pas toujours** :
+l'App ID de la montre a manqué à l'appel et a fait échouer l'archive (voir
+[`docs/ios-testflight.md`](docs/ios-testflight.md#6-en-cas-déchec-de-la-signature-cloud)).
+Vérifie qu'existent :
 - les **6 App IDs** :
   - `rs.brocolis.messagerie` (app)
   - `rs.brocolis.messagerie.action` (Action Extension)

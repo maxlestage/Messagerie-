@@ -165,7 +165,10 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: rs.brocolis.messagerie.watchkitapp
-        CODE_SIGN_ENTITLEMENTS: BrocolisWatch/BrocolisWatch.entitlements
+        # AUCUN entitlements : la montre est un processus unique, sans extension
+        # avec qui partager de données. L'App Group n'y servait à rien mais
+        # imposait une capacité à déclarer à la main sur l'identifiant, ce qui
+        # faisait échouer la signature automatique de l'archive.
         GENERATE_INFOPLIST_FILE: YES
         ENABLE_PREVIEWS: YES
         INFOPLIST_KEY_CFBundleDisplayName: "Brocolis 🥦"
