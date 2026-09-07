@@ -172,6 +172,9 @@ targets:
         # App montre « single-target » (watchOS 9+) : pas d'extension WatchKit.
         INFOPLIST_KEY_WKApplication: YES
         INFOPLIST_KEY_WKCompanionAppBundleIdentifier: rs.brocolis.messagerie
+        # Apple EXIGE une icône pour toute app watchOS distribuée : sans elle,
+        # l'export App Store échoue (l'app montre n'en avait aucune).
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         TARGETED_DEVICE_FAMILY: "4"
         SKIP_INSTALL: YES
 
