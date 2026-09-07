@@ -84,6 +84,43 @@ enum MessagingPrefs {
     static func setFloor(_ seq: UInt64, for conversationId: String) {
         defaults?.set(Int(seq), forKey: floorPrefix + conversationId)
     }
+
+    // MARK: Planchers partagés avec la montre
+
+    /// Tous les planchers connus, par conversation. Poussés vers la montre pour
+    /// qu'elle respecte « effacer à la fermeture » réglé sur l'iPhone : sans ça
+    /// le poignet continue d'afficher ce que le téléphone a effacé.
+    static func allFloors() -> [String: Int] {
+        guard let defaults else { return [:] }
+        var out: [String: Int] = [:]
+        for (key, value) in defaults.dictionaryRepresentation()
+        where key.hasPrefix(floorPrefix) {
+            guard let seq = value as? Int, seq > 0 else { continue }
+            out[String(key.dropFirst(floorPrefix.count))] = seq
+        }
+        return out
+    }
+
+    /// Fusionne des planchers reçus avec ceux déjà en place, **sans jamais en
+    /// abaisser un** : la montre peut avoir vu des messages plus récents que le
+    /// téléphone, et un plancher qui redescend ferait réapparaître de
+    /// l'historique effacé. Pur et testable.
+    static func mergedFloors(local: [String: Int],
+                             incoming: [String: Int]) -> [String: Int] {
+        var out = local
+        for (conversationId, seq) in incoming {
+            out[conversationId] = max(out[conversationId] ?? 0, seq)
+        }
+        return out
+    }
+
+    /// Applique les planchers reçus de l'iPhone (côté montre).
+    static func adoptFloors(_ incoming: [String: Int]) {
+        guard let defaults, !incoming.isEmpty else { return }
+        for (conversationId, seq) in mergedFloors(local: allFloors(), incoming: incoming) {
+            defaults.set(seq, forKey: floorPrefix + conversationId)
+        }
+    }
 }
 
 // MARK: - Contrat de synchronisation montre
@@ -109,6 +146,9 @@ struct WatchSyncPayload: Equatable {
     var serverURL: String?
     /// Interrupteur « Actif » de l'iPhone.
     var active: Bool?
+    /// Planchers de confidentialité par conversation : ce que l'iPhone a
+    /// effacé ne doit pas rester visible au poignet.
+    var floors: [String: Int]?
     /// Horodatage d'envoi : rend chaque contexte distinct, sinon un contenu
     /// identique ne serait pas relivré après réinstallation côté montre.
     var sentAt: Date
@@ -119,6 +159,7 @@ struct WatchSyncPayload: Equatable {
         static let deviceId = "deviceId"
         static let serverURL = "serverURL"
         static let active = "active"
+        static let floors = "floors"
         static let sentAt = "sentAt"
     }
 
@@ -127,12 +168,14 @@ struct WatchSyncPayload: Equatable {
          deviceId: String? = nil,
          serverURL: String? = nil,
          active: Bool? = nil,
+         floors: [String: Int]? = nil,
          sentAt: Date = Date()) {
         self.keysJSON = keysJSON
         self.selectedKeyId = selectedKeyId
         self.deviceId = deviceId
         self.serverURL = serverURL
         self.active = active
+        self.floors = floors
         self.sentAt = sentAt
     }
 
@@ -145,6 +188,7 @@ struct WatchSyncPayload: Equatable {
             deviceId: context[Key.deviceId] as? String,
             serverURL: context[Key.serverURL] as? String,
             active: context[Key.active] as? Bool,
+            floors: context[Key.floors] as? [String: Int],
             sentAt: Date(timeIntervalSince1970: context[Key.sentAt] as? TimeInterval ?? 0)
         )
     }
@@ -158,6 +202,7 @@ struct WatchSyncPayload: Equatable {
         if let deviceId { c[Key.deviceId] = deviceId }
         if let serverURL { c[Key.serverURL] = serverURL }
         if let active { c[Key.active] = active }
+        if let floors, !floors.isEmpty { c[Key.floors] = floors }
         return c
     }
 }
@@ -200,6 +245,56 @@ enum MediaPayload {
             return .audio(data)
         }
         return .text(clear)
+    }
+}
+
+// MARK: - État d'un fil au poignet
+
+/// Accumulation d'une conversation sondée : déduplication, curseur, et les
+/// deux décisions qui vont avec — faut-il re-rendre l'affichage, faut-il
+/// envoyer un accusé de lecture. PUR : ni réseau, ni UI, donc testable.
+///
+/// Ces décisions ont un coût réel au poignet. Rendre veut dire re-déchiffrer
+/// (AES-GCM) TOUT le fil ; accuser réception veut dire une requête réseau.
+/// Les refaire à chaque tour de sondage — toutes les 4 s, écran allumé —
+/// brûlait la batterie pour un résultat identique.
+struct WatchFeedState {
+    /// Messages accumulés, dans l'ordre d'arrivée (le rendu les trie par `seq`).
+    private(set) var messages: [BrocolisMessagingClient.RawMessage] = []
+    /// Plus haut curseur connu du serveur ; départ = plancher de confidentialité.
+    private(set) var cursor: UInt64
+    private var seenIds = Set<String>()
+    private var lastMarkedRead: UInt64 = 0
+
+    /// Ce qu'il reste à faire après avoir intégré une page.
+    struct Step: Equatable {
+        /// Un message a été ajouté : l'affichage doit être refait.
+        var shouldRender: Bool
+        /// `seq` à accuser en lecture, ou `nil` s'il n'y a rien de neuf à accuser.
+        var readReceiptUpTo: UInt64?
+    }
+
+    init(floor: UInt64) {
+        cursor = floor
+    }
+
+    /// Intègre une page reçue du serveur et dit quoi faire ensuite.
+    mutating func ingest(_ page: [BrocolisMessagingClient.RawMessage],
+                         cursor newCursor: UInt64) -> Step {
+        var added = false
+        for message in page where !seenIds.contains(message.id) {
+            seenIds.insert(message.id)
+            messages.append(message)
+            added = true
+        }
+        cursor = max(cursor, newCursor)
+
+        var receipt: UInt64?
+        if let top = messages.map(\.seq).max(), top > lastMarkedRead {
+            lastMarkedRead = top
+            receipt = top
+        }
+        return Step(shouldRender: added, readReceiptUpTo: receipt)
     }
 }
 
