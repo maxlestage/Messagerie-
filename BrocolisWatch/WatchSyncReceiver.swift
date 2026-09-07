@@ -23,7 +23,7 @@ final class WatchSyncReceiver: NSObject, ObservableObject, WCSessionDelegate {
 
     private override init() {
         super.init()
-        if let t = UserDefaults(suiteName: BrocolisKeyStore.appGroup)?
+        if let t = BrocolisKeyStore.sharedDefaults?
             .object(forKey: Self.lastSyncName) as? TimeInterval {
             lastSyncAt = Date(timeIntervalSince1970: t)
         }
@@ -54,7 +54,7 @@ final class WatchSyncReceiver: NSObject, ObservableObject, WCSessionDelegate {
         // messages plus récents que le téléphone.
         if let floors = payload.floors { MessagingPrefs.adoptFloors(floors) }
         let now = Date()
-        UserDefaults(suiteName: BrocolisKeyStore.appGroup)?
+        BrocolisKeyStore.sharedDefaults?
             .set(now.timeIntervalSince1970, forKey: Self.lastSyncName)
         DispatchQueue.main.async {
             self.lastSyncAt = now

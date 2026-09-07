@@ -74,9 +74,28 @@ enum BrocolisKeyStore {
     private static let fingerprintName = "pairing_fingerprint"
     private static let recipientIdsName = "recipient_key_ids"
 
-    private static var defaults: UserDefaults? {
+    /// Stockage partagé, défini À UN SEUL ENDROIT pour toutes les cibles.
+    ///
+    /// Sur iOS, c'est un **App Group** : l'app, le clavier, les extensions et
+    /// le widget lisent le même trousseau — ils sont plusieurs processus.
+    ///
+    /// Sur **watchOS il n'y a qu'un seul processus** : l'app montre n'a aucune
+    /// extension avec qui partager quoi que ce soit. L'App Group n'y apportait
+    /// rien, mais il imposait la capacité « App Groups » sur l'identifiant
+    /// `…watchkitapp` — capacité qu'il faut déclarer à la main sur le portail
+    /// Apple, et dont l'absence faisait échouer la signature de l'archive
+    /// (« No profiles for 'rs.brocolis.messagerie.watchkitapp' were found »).
+    /// `standard` suffit donc au poignet, et la cible n'a plus besoin
+    /// d'entitlements du tout.
+    static var sharedDefaults: UserDefaults? {
+        #if os(watchOS)
+        UserDefaults.standard
+        #else
         UserDefaults(suiteName: appGroup)
+        #endif
     }
+
+    private static var defaults: UserDefaults? { sharedDefaults }
 
     // MARK: - Liste de clés
 
