@@ -49,6 +49,10 @@ final class WatchSyncReceiver: NSObject, ObservableObject, WCSessionDelegate {
         if let url = payload.serverURL, !url.isEmpty {
             MessagingPrefs.serverURL = url
         }
+        // Planchers de confidentialité : ce que l'iPhone a effacé ne doit pas
+        // rester lisible au poignet. Jamais abaissés — la montre a pu voir des
+        // messages plus récents que le téléphone.
+        if let floors = payload.floors { MessagingPrefs.adoptFloors(floors) }
         let now = Date()
         UserDefaults(suiteName: BrocolisKeyStore.appGroup)?
             .set(now.timeIntervalSince1970, forKey: Self.lastSyncName)

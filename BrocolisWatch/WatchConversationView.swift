@@ -26,12 +26,9 @@ final class WatchChatStore: ObservableObject {
     private let key: SymmetricKey
     private let conversationId: String
     private let client: BrocolisMessagingClient
-    private var raw: [BrocolisMessagingClient.RawMessage] = []
-    private var seenIds = Set<String>()
-    private var cursor: UInt64 = 0
-    /// Dernier `seq` déjà accusé en lecture, pour ne pas le renvoyer à chaque
-    /// sondage.
-    private var lastMarkedRead: UInt64 = 0
+    /// Accumulation + décisions (rendu, accusé de lecture) : logique pure et
+    /// testée, voir `WatchFeedState`.
+    private var feed: WatchFeedState
 
     /// Échoue si la clé est illisible ou le serveur non configuré.
     init?(correspondent: NamedKey) {
@@ -43,45 +40,36 @@ final class WatchChatStore: ObservableObject {
         self.key = key
         self.conversationId = cid
         self.client = BrocolisMessagingClient(baseURL: base, deviceId: MessagingPrefs.deviceId)
-        // Même plancher de confidentialité que l'iPhone (App Group local).
-        self.cursor = MessagingPrefs.floor(for: cid)
+        // Même plancher de confidentialité que l'iPhone : il est synchronisé
+        // depuis le téléphone, donc ce qui y a été effacé l'est aussi ici.
+        self.feed = WatchFeedState(floor: MessagingPrefs.floor(for: cid))
     }
 
     /// Récupère ce qui manque depuis le curseur, déchiffre et affiche.
     func refresh() async {
         guard let (msgs, cur, _) = try? await client.fetch(conversationId: conversationId,
-                                                           after: cursor) else {
+                                                           after: feed.cursor) else {
             if lines.isEmpty {
                 status = loc("Hors ligne — réessaie", "Offline — retry", "Sin conexión — reintenta")
             }
             return
         }
         status = nil
-        var added = false
-        for m in msgs where !seenIds.contains(m.id) {
-            seenIds.insert(m.id)
-            raw.append(m)
-            added = true
-        }
-        cursor = max(cursor, cur)
-        // `render()` re-déchiffre TOUT le fil. Le faire à chaque sondage (4 s)
-        // brûlerait la batterie du poignet pour un résultat identique : on ne
-        // rend que quand quelque chose est réellement arrivé.
-        if added { render() }
+        let step = feed.ingest(msgs, cursor: cur)
 
-        // Accusé de lecture : lu au poignet = lu. Une seule fois par nouveau
-        // message — sinon le même `seq` repartait sur le réseau toutes les 4 s.
-        if let top = raw.map(\.seq).max(), top > lastMarkedRead {
-            lastMarkedRead = top
+        // Rendre = re-déchiffrer tout le fil ; accuser = une requête réseau.
+        // `WatchFeedState` ne les demande que quand c'est utile.
+        if step.shouldRender { render() }
+        if let upTo = step.readReceiptUpTo {
             let c = client
             let cid = conversationId
-            Task { await c.markRead(conversationId: cid, upTo: top) }
+            Task { await c.markRead(conversationId: cid, upTo: upTo) }
         }
     }
 
     private func render() {
         let me = MessagingPrefs.deviceId
-        lines = raw
+        lines = feed.messages
             .sorted { $0.seq < $1.seq }
             .map { m in
                 let (text, opened) = BrocolisCrypto.decryptTokens(m.ciphertext, keys: [key])

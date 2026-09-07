@@ -30,6 +30,14 @@ final class BrocolisWatchSync: NSObject, WCSessionDelegate {
                            name: UIApplication.didBecomeActiveNotification, object: nil)
         center.addObserver(self, selector: #selector(pushNow),
                            name: UIApplication.willResignActiveNotification, object: nil)
+        // `didEnterBackground` AUSSI, et pas seulement `willResignActive` :
+        // « effacer à la fermeture » monte le plancher de confidentialité sur
+        // `.background`, donc APRÈS la première notification. Sans ce second
+        // point de passage, le plancher partirait avec un cycle de retard et la
+        // montre afficherait encore, tout ce temps, ce que le téléphone vient
+        // d'effacer.
+        center.addObserver(self, selector: #selector(pushNow),
+                           name: UIApplication.didEnterBackgroundNotification, object: nil)
     }
 
     /// Pousse l'état courant vers la montre. Sans danger d'appeler trop souvent :
@@ -47,7 +55,8 @@ final class BrocolisWatchSync: NSObject, WCSessionDelegate {
             selectedKeyId: BrocolisKeyStore.selectedKeyId,
             deviceId: MessagingPrefs.deviceId,
             serverURL: MessagingPrefs.serverURL,
-            active: BrocolisKeyStore.isActive
+            active: BrocolisKeyStore.isActive,
+            floors: MessagingPrefs.allFloors()
         )
         try? session.updateApplicationContext(payload.context)
     }
