@@ -194,7 +194,6 @@
 		1000000000000000000C0031 /* WatchRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchRootView.swift; sourceTree = "<group>"; };
 		1000000000000000000C0032 /* WatchConversationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchConversationView.swift; sourceTree = "<group>"; };
 		1000000000000000000C0033 /* WatchSyncReceiver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSyncReceiver.swift; sourceTree = "<group>"; };
-		1000000000000000000C0034 /* BrocolisWatch.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = BrocolisWatch.entitlements; sourceTree = "<group>"; };
 		1000000000000000000C0102 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		1000000000000000000C0035 /* BrocolisWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BrocolisWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1000000000000000000C0036 /* BrocolisMessagingCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrocolisMessagingCore.swift; sourceTree = "<group>"; };
@@ -382,7 +381,6 @@
 				1000000000000000000C0031 /* WatchRootView.swift */,
 				1000000000000000000C0032 /* WatchConversationView.swift */,
 				1000000000000000000C0033 /* WatchSyncReceiver.swift */,
-				1000000000000000000C0034 /* BrocolisWatch.entitlements */,
 				1000000000000000000C0102 /* Assets.xcassets */,
 			);
 			path = BrocolisWatch;
@@ -1168,7 +1166,6 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = BrocolisWatch/BrocolisWatch.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 2FW8T4UX4L;
@@ -1198,7 +1195,6 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = BrocolisWatch/BrocolisWatch.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 2FW8T4UX4L;

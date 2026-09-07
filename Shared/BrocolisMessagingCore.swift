@@ -17,9 +17,8 @@ import CryptoKit
 /// Petits réglages persistés dans l'App Group : identité d'appareil (pour
 /// distinguer « mes » messages) et URL du serveur de messagerie.
 enum MessagingPrefs {
-    private static var defaults: UserDefaults? {
-        UserDefaults(suiteName: BrocolisKeyStore.appGroup)
-    }
+    // Même stockage que le trousseau : App Group sur iOS, `standard` au poignet.
+    private static var defaults: UserDefaults? { BrocolisKeyStore.sharedDefaults }
     private static let deviceIdName = "messaging_device_id"
     private static let serverURLName = "messaging_server_url"
 
