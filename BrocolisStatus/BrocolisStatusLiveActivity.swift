@@ -37,21 +37,33 @@ struct BrocolisStatusLiveActivity: Widget {
             .background(Capsule().fill(.green))
     }
 
-    /// Sous-titre « de X · il y a … » du dernier message reçu (jamais le
-    /// contenu : il reste chiffré, la Live Activity n'en sait rien).
+    /// Sous-titre du dernier message reçu (jamais le contenu : il reste
+    /// chiffré, la Live Activity n'en sait rien).
+    ///
+    /// Le choix de la ligne vit dans `BrocolisLastLine` — logique pure et
+    /// testée ; ici on ne fait que l'habiller.
     @ViewBuilder
     private func lastLine(_ context: ActivityViewContext<BrocolisActivityAttributes>) -> some View {
-        if let from = context.state.lastFrom, let at = context.state.lastAt {
-            (Text(loc("De \(from) · il y a ", "From \(from) · ", "De \(from) · hace "))
-                + Text(at, style: .relative))
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-        } else {
-            (Text(loc("Chiffrement prêt depuis ", "Encryption ready for ", "Cifrado listo desde hace "))
-                + Text(context.state.since, style: .relative))
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+        let line = BrocolisLastLine.choose(lastFrom: context.state.lastFrom,
+                                           lastAt: context.state.lastAt,
+                                           since: context.state.since)
+        Group {
+            switch line {
+            case let .from(name, at):
+                Text(loc("De \(name) · il y a ", "From \(name) · ", "De \(name) · hace "))
+                    + Text(at, style: .relative)
+            case let .receivedAt(at):
+                Text(loc("Reçu il y a ", "Received ", "Recibido hace "))
+                    + Text(at, style: .relative)
+            case let .fromOnly(name):
+                Text(loc("De \(name)", "From \(name)", "De \(name)"))
+            case let .activeSince(since):
+                Text(loc("Chiffrement prêt depuis ", "Encryption ready for ", "Cifrado listo desde hace "))
+                    + Text(since, style: .relative)
+            }
         }
+        .font(.footnote)
+        .foregroundStyle(.secondary)
     }
 
     var body: some WidgetConfiguration {

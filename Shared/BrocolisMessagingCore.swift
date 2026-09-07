@@ -86,6 +86,82 @@ enum MessagingPrefs {
     }
 }
 
+// MARK: - Contrat de synchronisation montre
+
+/// Ce que l'iPhone pousse vers la montre (`applicationContext` de
+/// WatchConnectivity) — et ce que la montre en relit. UN SEUL type décrit les
+/// deux côtés : un champ ajouté ici est forcément écrit *et* relu, ce qui ferme
+/// la porte au bug « l'iPhone l'envoie, la montre l'ignore » (c'était le cas de
+/// `active` : la montre affichait « En pause » en permanence).
+///
+/// Chaque champ optionnel signifie « absent du contexte → ne touche à rien
+/// localement », pour qu'un iPhone d'une version antérieure n'efface pas un
+/// réglage que la montre a déjà.
+struct WatchSyncPayload: Equatable {
+    /// Trousseau complet, tel quel (JSON brut du stockage).
+    var keysJSON: String?
+    /// Clé sélectionnée sur l'iPhone.
+    var selectedKeyId: String?
+    /// Identité d'appareil : la montre envoie et lit comme « toi », pas comme
+    /// un correspondant.
+    var deviceId: String?
+    /// Serveur de messagerie auquel la montre parlera directement.
+    var serverURL: String?
+    /// Interrupteur « Actif » de l'iPhone.
+    var active: Bool?
+    /// Horodatage d'envoi : rend chaque contexte distinct, sinon un contenu
+    /// identique ne serait pas relivré après réinstallation côté montre.
+    var sentAt: Date
+
+    private enum Key {
+        static let keysJSON = "keysJSON"
+        static let selectedKeyId = "selectedKeyId"
+        static let deviceId = "deviceId"
+        static let serverURL = "serverURL"
+        static let active = "active"
+        static let sentAt = "sentAt"
+    }
+
+    init(keysJSON: String? = nil,
+         selectedKeyId: String? = nil,
+         deviceId: String? = nil,
+         serverURL: String? = nil,
+         active: Bool? = nil,
+         sentAt: Date = Date()) {
+        self.keysJSON = keysJSON
+        self.selectedKeyId = selectedKeyId
+        self.deviceId = deviceId
+        self.serverURL = serverURL
+        self.active = active
+        self.sentAt = sentAt
+    }
+
+    /// Relecture d'un contexte reçu. `nil` si rien n'est encore arrivé.
+    init?(context: [String: Any]) {
+        guard !context.isEmpty else { return nil }
+        self.init(
+            keysJSON: context[Key.keysJSON] as? String,
+            selectedKeyId: context[Key.selectedKeyId] as? String,
+            deviceId: context[Key.deviceId] as? String,
+            serverURL: context[Key.serverURL] as? String,
+            active: context[Key.active] as? Bool,
+            sentAt: Date(timeIntervalSince1970: context[Key.sentAt] as? TimeInterval ?? 0)
+        )
+    }
+
+    /// Dictionnaire à passer à `updateApplicationContext` : uniquement des
+    /// types property-list, seule chose que WatchConnectivity accepte.
+    var context: [String: Any] {
+        var c: [String: Any] = [Key.sentAt: sentAt.timeIntervalSince1970]
+        if let keysJSON { c[Key.keysJSON] = keysJSON }
+        if let selectedKeyId { c[Key.selectedKeyId] = selectedKeyId }
+        if let deviceId { c[Key.deviceId] = deviceId }
+        if let serverURL { c[Key.serverURL] = serverURL }
+        if let active { c[Key.active] = active }
+        return c
+    }
+}
+
 // MARK: - Modèle affiché
 
 /// Un message prêt à afficher : déchiffré localement.

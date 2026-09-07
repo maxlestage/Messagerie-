@@ -37,14 +37,16 @@ final class WatchSyncReceiver: NSObject, ObservableObject, WCSessionDelegate {
     }
 
     private func apply(_ context: [String: Any]) {
-        guard !context.isEmpty else { return }
-        if let keysJSON = context["keysJSON"] as? String {
-            BrocolisKeyStore.importKeysJSON(keysJSON,
-                                            selectedId: context["selectedKeyId"] as? String)
+        guard let payload = WatchSyncPayload(context: context) else { return }
+        if let keysJSON = payload.keysJSON {
+            BrocolisKeyStore.importKeysJSON(keysJSON, selectedId: payload.selectedKeyId)
         }
         // Même identité que l'iPhone : la montre envoie et lit comme « toi ».
-        if let id = context["deviceId"] as? String { MessagingPrefs.adoptDeviceId(id) }
-        if let url = context["serverURL"] as? String, !url.isEmpty {
+        if let id = payload.deviceId { MessagingPrefs.adoptDeviceId(id) }
+        // État « Actif » : la montre reflète l'interrupteur de l'iPhone.
+        // (Après les clés : `isActive` exige aussi un trousseau non vide.)
+        if let active = payload.active { BrocolisKeyStore.setActive(active) }
+        if let url = payload.serverURL, !url.isEmpty {
             MessagingPrefs.serverURL = url
         }
         let now = Date()

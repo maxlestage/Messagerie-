@@ -29,6 +29,9 @@ final class WatchChatStore: ObservableObject {
     private var raw: [BrocolisMessagingClient.RawMessage] = []
     private var seenIds = Set<String>()
     private var cursor: UInt64 = 0
+    /// Dernier `seq` déjà accusé en lecture, pour ne pas le renvoyer à chaque
+    /// sondage.
+    private var lastMarkedRead: UInt64 = 0
 
     /// Échoue si la clé est illisible ou le serveur non configuré.
     init?(correspondent: NamedKey) {
@@ -54,14 +57,22 @@ final class WatchChatStore: ObservableObject {
             return
         }
         status = nil
+        var added = false
         for m in msgs where !seenIds.contains(m.id) {
             seenIds.insert(m.id)
             raw.append(m)
+            added = true
         }
         cursor = max(cursor, cur)
-        render()
-        // Accusé de lecture : lu au poignet = lu.
-        if let top = raw.map(\.seq).max(), top > 0 {
+        // `render()` re-déchiffre TOUT le fil. Le faire à chaque sondage (4 s)
+        // brûlerait la batterie du poignet pour un résultat identique : on ne
+        // rend que quand quelque chose est réellement arrivé.
+        if added { render() }
+
+        // Accusé de lecture : lu au poignet = lu. Une seule fois par nouveau
+        // message — sinon le même `seq` repartait sur le réseau toutes les 4 s.
+        if let top = raw.map(\.seq).max(), top > lastMarkedRead {
+            lastMarkedRead = top
             let c = client
             let cid = conversationId
             Task { await c.markRead(conversationId: cid, upTo: top) }
