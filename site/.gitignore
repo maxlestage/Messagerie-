@@ -1,4 +1,3 @@
-node_modules/
+# Sortie de `trunk build`
 dist/
-# Généré au build depuis le README du dépôt :
-public/README.md
+target/

@@ -23,6 +23,7 @@ final class BrocolisWatchSyncTests: XCTestCase {
             serverURL: "https://exemple.test",
             active: true,
             floors: ["conv-a": 42, "conv-b": 7],
+            eraseOnClose: true,
             sentAt: Date(timeIntervalSince1970: 1_700_000_000)
         )
 
@@ -51,6 +52,7 @@ final class BrocolisWatchSyncTests: XCTestCase {
         XCTAssertNil(received.selectedKeyId)
         XCTAssertNil(received.serverURL)
         XCTAssertNil(received.floors)
+        XCTAssertNil(received.eraseOnClose)
     }
 
     /// Un contexte vide = rien n'est encore arrivé de l'iPhone.
@@ -113,5 +115,28 @@ final class BrocolisWatchSyncTests: XCTestCase {
         let merged = MessagingPrefs.mergedFloors(local: [:], incoming: ["neuve": 12])
 
         XCTAssertEqual(merged, ["neuve": 12])
+    }
+
+    // MARK: « Effacer à la fermeture » : un vrai choix
+
+    /// Réglage désactivé : le plancher stocké est IGNORÉ. C'était le bug —
+    /// le plancher s'appliquait quel que soit le réglage, et le désactiver ne
+    /// faisait réapparaître aucun message.
+    func testFloorIsIgnoredWhenEraseOnCloseIsOff() {
+        XCTAssertEqual(MessagingPrefs.effectiveFloor(stored: 120, eraseOnClose: false), 0)
+    }
+
+    /// Réglage activé : le plancher s'applique, on ne recharge pas l'effacé.
+    func testFloorAppliesWhenEraseOnCloseIsOn() {
+        XCTAssertEqual(MessagingPrefs.effectiveFloor(stored: 120, eraseOnClose: true), 120)
+    }
+
+    /// Le réglage voyage jusqu'à la montre, sinon elle cacherait un historique
+    /// que l'iPhone affiche.
+    func testEraseOnCloseCrossesTheWire() throws {
+        for value in [true, false] {
+            let context = WatchSyncPayload(eraseOnClose: value).context
+            XCTAssertEqual(try XCTUnwrap(WatchSyncPayload(context: context)).eraseOnClose, value)
+        }
     }
 }

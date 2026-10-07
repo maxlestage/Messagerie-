@@ -1,11 +1,18 @@
-name: Déploiement du site (GitHub Pages)
+name: Site (Yew) — tests et déploiement GitHub Pages
 
+# Vitrine en Rust/WebAssembly (Yew), construite par Trunk.
+# - Sur une PR : tests + build (rien n'est publié).
+# - Sur master : tests + build + déploiement GitHub Pages.
 on:
   push:
     branches: [master]
     paths:
       - 'site/**'
       - 'README.md'
+      - '.github/workflows/pages.yml'
+  pull_request:
+    paths:
+      - 'site/**'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
@@ -14,36 +21,55 @@ permissions:
   pages: write
   id-token: write
 
-# Un seul déploiement à la fois.
+# Un seul run par branche ; un build de PR n'annule jamais un déploiement.
 concurrency:
-  group: pages
+  group: pages-${{ github.ref }}
   cancel-in-progress: true
+
+env:
+  TRUNK_VERSION: 0.21.14
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          node-version: 20
+          targets: wasm32-unknown-unknown
 
-      - name: Installer et construire le site
-        working-directory: site
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: site
+
+      - name: Installer Trunk
         run: |
-          npm install
-          npm run build
+          curl -sSfL "https://github.com/trunk-rs/trunk/releases/download/v${TRUNK_VERSION}/trunk-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar -xz -C /usr/local/bin trunk
+          trunk --version
 
-      - uses: actions/configure-pages@v5
+      - name: Tests (i18n, rendu Markdown)
+        working-directory: site
+        run: cargo test --locked
+
+      - name: Construire le site
+        working-directory: site
+        run: trunk build --release --locked
+
+      - if: github.event_name != 'pull_request'
+        uses: actions/configure-pages@v6
         with:
           enablement: true   # active GitHub Pages (source = Actions) au 1er run
 
-      - uses: actions/upload-pages-artifact@v3
+      - if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v5
         with:
           path: site/dist
 
   deploy:
+    if: github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
     environment:
@@ -51,4 +77,4 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

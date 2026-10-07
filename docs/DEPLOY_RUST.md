@@ -138,5 +138,6 @@ inter-dynos, CDN pour la vitrine, partitionnement/sharding) : voir
   intra-dyno). Avec l'add-on, vérifie que `REDIS_URL` commence par `rediss://`.
 - **APNs 503** : configuration incomplète (une des 4 variables APNS_* manque ou
   la clé .p8 est mal collée). `502` = APNs a refusé (mauvais topic/clé/token).
-- **La vitrine `/site/` renvoie 404** : normal, l'image Rust n'embarque pas les
-  fichiers statiques (facultatifs). Règle `PUBLIC_DIR` si tu en ajoutes.
+- **La vitrine `/site/` renvoie 404** : l'image Docker construit la vitrine Yew
+  (étage `site`, Trunk) et la copie dans `PUBLIC_DIR` (`/app/public`). Un 404
+  veut dire que ce répertoire est vide ou que `PUBLIC_DIR` pointe ailleurs.

@@ -56,7 +56,8 @@ final class BrocolisWatchSync: NSObject, WCSessionDelegate {
             deviceId: MessagingPrefs.deviceId,
             serverURL: MessagingPrefs.serverURL,
             active: BrocolisKeyStore.isActive,
-            floors: MessagingPrefs.allFloors()
+            floors: MessagingPrefs.allFloors(),
+            eraseOnClose: MessagingPrefs.eraseOnClose
         )
         try? session.updateApplicationContext(payload.context)
     }

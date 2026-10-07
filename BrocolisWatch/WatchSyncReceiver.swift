@@ -53,6 +53,7 @@ final class WatchSyncReceiver: NSObject, ObservableObject, WCSessionDelegate {
         // rester lisible au poignet. Jamais abaissés — la montre a pu voir des
         // messages plus récents que le téléphone.
         if let floors = payload.floors { MessagingPrefs.adoptFloors(floors) }
+        if let erase = payload.eraseOnClose { MessagingPrefs.eraseOnClose = erase }
         let now = Date()
         BrocolisKeyStore.sharedDefaults?
             .set(now.timeIntervalSince1970, forKey: Self.lastSyncName)
