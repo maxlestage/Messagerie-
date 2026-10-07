@@ -268,7 +268,7 @@ struct RootView: View {
             } header: {
                 Text(loc("Confidentialité", "Privacy", "Privacidad"))
             } footer: {
-                locText("**Verrouiller** : il faut Face ID (ou le code de l’appareil) pour voir tes messages, comme le propose Apple.\n\n**Effacer à la fermeture** : en quittant l’app, les messages affichés disparaissent ; à la réouverture, seuls les **nouveaux** messages réapparaissent.", "**Lock** : Face ID (or the device passcode) is required to see your messages, just as Apple offers.\n\n**Erase on close** : when you leave the app, the displayed messages disappear; on reopening, only the **new** messages reappear.", "**Bloquear** : hace falta Face ID (o el código del dispositivo) para ver tus mensajes, como propone Apple.\n\n**Borrar al cerrar** : al salir de la app, los mensajes mostrados desaparecen; al reabrir, solo reaparecen los mensajes **nuevos**.")
+                locText("**Verrouiller** : il faut Face ID (ou le code de l’appareil) pour voir tes messages, comme le propose Apple.\n\n**Effacer à la fermeture** (facultatif) : en quittant l’app, les messages affichés disparaissent ; à la réouverture, seuls les **nouveaux** réapparaissent. Désactivé, tout l’historique encore sur le serveur (7 jours) reste visible.", "**Lock** : Face ID (or the device passcode) is required to see your messages, just as Apple offers.\n\n**Erase on close** (optional): when you leave the app, the displayed messages disappear; on reopening, only the **new** ones reappear. Turned off, the whole history still on the server (7 days) stays visible.", "**Bloquear** : hace falta Face ID (o el código del dispositivo) para ver tus mensajes, como propone Apple.\n\n**Borrar al cerrar** (opcional): al salir de la app, los mensajes mostrados desaparecen; al reabrir, solo reaparecen los **nuevos**. Desactivado, todo el historial aún en el servidor (7 días) sigue visible.")
             }
         }
     }
@@ -283,7 +283,14 @@ struct RootView: View {
     private var eraseBinding: Binding<Bool> {
         Binding(
             get: { eraseOnClose },
-            set: { MessagingPrefs.eraseOnClose = $0; eraseOnClose = $0 }
+            set: {
+                MessagingPrefs.eraseOnClose = $0
+                eraseOnClose = $0
+                // La montre suit le réglage sans attendre le passage en arrière-plan.
+                #if canImport(WatchConnectivity)
+                BrocolisWatchSync.shared.pushNow()
+                #endif
+            }
         )
     }
 

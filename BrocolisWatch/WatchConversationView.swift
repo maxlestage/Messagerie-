@@ -42,7 +42,7 @@ final class WatchChatStore: ObservableObject {
         self.client = BrocolisMessagingClient(baseURL: base, deviceId: MessagingPrefs.deviceId)
         // Même plancher de confidentialité que l'iPhone : il est synchronisé
         // depuis le téléphone, donc ce qui y a été effacé l'est aussi ici.
-        self.feed = WatchFeedState(floor: MessagingPrefs.floor(for: cid))
+        self.feed = WatchFeedState(floor: MessagingPrefs.effectiveFloor(for: cid))
     }
 
     /// Récupère ce qui manque depuis le curseur, déchiffre et affiche.
