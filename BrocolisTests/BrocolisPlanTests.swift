@@ -100,6 +100,45 @@ final class BrocolisPlanTests: XCTestCase {
         }
     }
 
+    // MARK: Accès offerts (serveur) et achats (App Store)
+
+    /// Les deux sources ne s'écrasent pas : le plus ouvert l'emporte. Un accès
+    /// offert ne retire rien à qui a payé, et un abonnement ne retire rien à
+    /// qui a reçu un accès.
+    func testTheMostOpenSourceWins() {
+        XCTAssertEqual(BrocolisPlan.effectiveTier(purchased: .free, granted: .pro), .pro)
+        XCTAssertEqual(BrocolisPlan.effectiveTier(purchased: .pro, granted: .free), .pro)
+        XCTAssertEqual(BrocolisPlan.effectiveTier(purchased: .plus, granted: .pro), .pro)
+        XCTAssertEqual(BrocolisPlan.effectiveTier(purchased: .pro, granted: .plus), .pro)
+    }
+
+    /// Les noms que renvoie le serveur se traduisent exactement.
+    func testServerTierNamesAreUnderstood() {
+        XCTAssertEqual(BrocolisPlan.tier(forServerName: "free"), .free)
+        XCTAssertEqual(BrocolisPlan.tier(forServerName: "plus"), .plus)
+        XCTAssertEqual(BrocolisPlan.tier(forServerName: "pro"), .pro)
+    }
+
+    /// Un nom inconnu ne débloque RIEN : un serveur plus récent que l'app ne
+    /// doit pas ouvrir un palier par surprise. L'appelant garde alors la
+    /// dernière valeur connue.
+    func testUnknownServerTierNameUnlocksNothing() {
+        XCTAssertNil(BrocolisPlan.tier(forServerName: "ultra"))
+        XCTAssertNil(BrocolisPlan.tier(forServerName: ""))
+        XCTAssertNil(BrocolisPlan.tier(forServerName: "PRO"))
+    }
+
+    /// Sans rien d'aucun côté, on reste gratuit.
+    func testNoSourceMeansFree() {
+        XCTAssertEqual(BrocolisPlan.effectiveTier(purchased: .free, granted: .free), .free)
+    }
+
+    /// Un accès offert retiré du serveur ne doit pas emporter un abonnement
+    /// réellement payé — c'est tout l'intérêt de garder les deux séparés.
+    func testRevokingAGrantKeepsAPaidSubscription() {
+        XCTAssertEqual(BrocolisPlan.effectiveTier(purchased: .plus, granted: .free), .plus)
+    }
+
     // MARK: Les deux offres
 
     /// Deux abonnements mensuels distincts, préfixés par l'identifiant de

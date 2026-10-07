@@ -377,6 +377,24 @@ struct BrocolisMessagingClient {
         return (page.messages, page.cursor, page.readers ?? [:])
     }
 
+    /// GET /v1/plan — le nom du palier OFFERT par le serveur à cet appareil
+    /// (liste `BROCOLIS_PRO_IDS`). Renvoie la chaîne telle quelle : ce fichier
+    /// est aussi compilé par l'app montre, qui ignore tout des paliers
+    /// tarifaires. C'est à l'appelant de la traduire.
+    ///
+    /// `nil` si le serveur est injoignable ou répond autre chose : l'appelant
+    /// garde alors la dernière valeur connue, plutôt que de retirer un accès
+    /// pour une coupure réseau.
+    func fetchGrantedTierName() async -> String? {
+        var req = URLRequest(url: baseURL.appendingPathComponent("v1/plan"))
+        req.setValue(deviceId, forHTTPHeaderField: "X-User-Id")
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        return json["tier"] as? String
+    }
+
     /// Accusé de lecture : signale qu'on a lu jusqu'à `upTo`.
     func markRead(conversationId: String, upTo: UInt64) async {
         var req = request("v1/read", method: "POST")

@@ -89,6 +89,7 @@ struct RootView: View {
                 recipientsSection.listRowBackground(Color.brocoliCard)
                 selectedKeySection.listRowBackground(Color.brocoliCard)
                 howToSection.listRowBackground(Color.brocoliCard)
+                deviceIdSection.listRowBackground(Color.brocoliCard)
                 creditsSection.listRowBackground(Color.brocoliCard)
             }
             .brocolisBackground()
@@ -615,6 +616,37 @@ struct RootView: View {
             locText("⚠️ Le résultat chiffré est copié : **colle‑le en remplaçant ton texte d’origine**. Ne laisse pas la version en clair dans le message, sinon elle reste visible.", "⚠️ The encrypted result is copied: **paste it over your original text**. Do not leave the clear version in the message, or it stays visible.", "⚠️ El resultado cifrado se copia: **pégalo reemplazando tu texto original**. No dejes la versión en claro en el mensaje, o seguirá visible.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    // MARK: Identifiant d'appareil
+
+    /// L'identifiant opaque de CET appareil. Sert à ouvrir un accès offert
+    /// depuis le serveur (liste `BROCOLIS_PRO_IDS`) : sans un moyen de le
+    /// lire, impossible de remplir cette liste. Ne révèle rien — c'est un
+    /// UUID, pas une identité.
+    private var deviceIdSection: some View {
+        Section(loc("Cet appareil", "This device", "Este dispositivo")) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(MessagingPrefs.deviceId)
+                    .font(.caption.monospaced())
+                    .textSelection(.enabled)
+                    .lineLimit(2)
+                Button {
+                    UIPasteboard.general.string = MessagingPrefs.deviceId
+                    alertMessage = loc("Identifiant copié.", "Identifier copied.",
+                                       "Identificador copiado.")
+                } label: {
+                    Label(loc("Copier l'identifiant", "Copy identifier", "Copiar identificador"),
+                          systemImage: "doc.on.doc")
+                }
+                .font(.footnote)
+                Text(loc("Identifiant opaque de cet appareil. Il ne révèle rien de toi : il sert au serveur à reconnaître tes messages, et à t'ouvrir un accès offert.",
+                         "Opaque identifier for this device. It reveals nothing about you: the server uses it to recognise your messages, and to open a complimentary access.",
+                         "Identificador opaco de este dispositivo. No revela nada de ti: el servidor lo usa para reconocer tus mensajes y para abrirte un acceso de cortesía."))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 

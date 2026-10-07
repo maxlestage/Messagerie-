@@ -64,6 +64,40 @@ fn retention_days() -> i64 {
         .unwrap_or(7)
 }
 
+/// Accès offerts : les identifiants d'appareil listés dans `BROCOLIS_PRO_IDS`
+/// (séparés par des virgules) obtiennent Brocolis Pro sans passer par l'App
+/// Store. Sert aux comptes de l'auteur et de ses proches, pas à vendre.
+///
+/// Pure, donc testable sans serveur ni variable d'environnement.
+fn granted_tier_from_list(raw: &str, user: &str) -> &'static str {
+    let user = user.trim();
+    if user.is_empty() {
+        return "free";
+    }
+    // Comparaison exacte après nettoyage : une entrée vide (« a,,b ») ou de
+    // simples espaces ne doivent ouvrir aucun accès.
+    for entry in raw.split(',') {
+        let entry = entry.trim();
+        if !entry.is_empty() && entry == user {
+            return "pro";
+        }
+    }
+    "free"
+}
+
+/// GET /v1/plan — le palier offert à l'appelant, d'après `BROCOLIS_PRO_IDS`.
+/// Ne dit RIEN des abonnements App Store : ceux-là, seul l'appareil les
+/// connaît, via StoreKit. L'app prend le plus ouvert des deux.
+async fn get_plan(req: HttpRequest) -> impl Responder {
+    let Some(user) = user_id(&req) else {
+        return HttpResponse::Unauthorized().body("x-user-id requis");
+    };
+    let raw = std::env::var("BROCOLIS_PRO_IDS").unwrap_or_default();
+    HttpResponse::Ok().json(serde_json::json!({
+        "tier": granted_tier_from_list(&raw, &user),
+    }))
+}
+
 /// Horodatage ISO 8601 en UTC avec 'Z' (même forme que `Date.toISOString()`),
 /// pour que la comparaison lexicographique = comparaison chronologique.
 fn now_iso() -> String {
@@ -978,6 +1012,7 @@ fn configure_api(cfg: &mut web::ServiceConfig) {
         .route("/v1/messages", web::post().to(post_message))
         .route("/v1/messages", web::get().to(get_messages))
         .route("/v1/read", web::post().to(post_read))
+        .route("/v1/plan", web::get().to(get_plan))
         .route("/v1/stream", web::get().to(stream));
 }
 
@@ -1139,6 +1174,41 @@ async fn main() -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // --- Accès offerts (BROCOLIS_PRO_IDS) ---
+
+    #[test]
+    fn granted_tier_opens_pro_for_a_listed_id() {
+        assert_eq!(granted_tier_from_list("AAA,BBB", "BBB"), "pro");
+        // Les espaces autour des entrées sont tolérés : une liste se colle
+        // souvent à la main dans l'interface Heroku.
+        assert_eq!(granted_tier_from_list(" AAA , BBB ", "AAA"), "pro");
+    }
+
+    #[test]
+    fn granted_tier_stays_free_for_everyone_else() {
+        assert_eq!(granted_tier_from_list("AAA,BBB", "CCC"), "free");
+        assert_eq!(granted_tier_from_list("", "AAA"), "free");
+    }
+
+    /// Le piège : une liste vide, ou avec des virgules en trop, ne doit pas
+    /// ouvrir Pro à un appelant sans identifiant. Sans ce garde-fou,
+    /// `"".split(',')` renvoie une entrée vide qui matcherait un `user` vide.
+    #[test]
+    fn granted_tier_never_opens_on_an_empty_identity() {
+        assert_eq!(granted_tier_from_list("", ""), "free");
+        assert_eq!(granted_tier_from_list(",,", ""), "free");
+        assert_eq!(granted_tier_from_list("AAA,,BBB", ""), "free");
+        assert_eq!(granted_tier_from_list("AAA,,BBB", "   "), "free");
+    }
+
+    /// Un identifiant qui n'est qu'un préfixe d'une entrée listée n'ouvre
+    /// rien : la comparaison est exacte, pas « commence par ».
+    #[test]
+    fn granted_tier_requires_an_exact_match() {
+        assert_eq!(granted_tier_from_list("AAABBB", "AAA"), "free");
+        assert_eq!(granted_tier_from_list("AAA", "AAABBB"), "free");
+    }
 
     #[test]
     fn normalize_forces_sslmode_on_remote_postgres() {
