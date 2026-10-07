@@ -81,6 +81,6 @@ Détail : `Readme.md` du dépôt `brocolis`.
 | Dépôt | Workflow | Vérifie |
 |-------|----------|---------|
 | `Messagerie-` | `ci.yml` | Build + XCTest de l'app iOS (simulateur) |
-| `Messagerie-` | `ios-testflight.yml` | Archive + upload TestFlight (sur tag `v*`) |
+| `Messagerie-` | `ios-testflight.yml` | Archive + upload TestFlight : automatique après chaque passage au vert de « iOS build & tests » sur master, ou sur tag `v*` |
 | `Messagerie-` | `server-tests.yml` | `node --test` du serveur de rendez-vous |
 | `brocolis` | `rust.yml` | `cargo test` + `clippy -D warnings` |

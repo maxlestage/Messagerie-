@@ -14,8 +14,15 @@ name: iOS TestFlight
 # Voir docs/ios-testflight.md pour la marche à suivre complète.
 
 on:
+  # Automatique : chaque fois que « iOS build & tests » passe au vert sur
+  # master (donc après chaque merge qui touche l'app), un build part vers
+  # TestFlight. Rien ne part si les tests échouent.
+  workflow_run:
+    workflows: ['iOS build & tests']
+    types: [completed]
+    branches: [master]
   push:
-    tags: ['v*'] # ex. v1.0.0 : le tag déclenche une livraison TestFlight.
+    tags: ['v*'] # ex. v1.0.0 : le tag déclenche aussi une livraison TestFlight.
   workflow_dispatch: # déclenchement manuel possible.
 
 concurrency:
@@ -29,9 +36,17 @@ jobs:
     # sélection de la dernière version stable de Xcode.
     runs-on: macos-15
     timeout-minutes: 45
+    # Après les tests : seulement s'ils ont réussi, sur un push vers master.
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push')
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Après les tests : le commit exactement testé, pas le dernier master.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Sélectionner Xcode (dernier stable = Xcode 26+)
         uses: maxim-lobanov/setup-xcode@v1
