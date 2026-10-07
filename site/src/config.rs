@@ -11,7 +11,7 @@ pub const SERVER_URL: &str = "https://brocolis-serveur-839b43057467.herokuapp.co
 
 /// Quand la vitrine est servie PAR le serveur lui-même (sur /site/), on
 /// interroge la même origine : la page Serveur montre alors toujours l'état du
-/// serveur qui héberge la page. Sinon (GitHub Pages, dev local), on retombe
+/// serveur qui héberge la page. Sinon (autre hébergement, dev local), on retombe
 /// sur l'adresse de production.
 pub fn server_base() -> String {
     let location = gloo::utils::window().location();
