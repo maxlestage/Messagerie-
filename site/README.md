@@ -20,8 +20,8 @@ cargo test                     # dictionnaire FR/EN/ES, rendu Markdown
 ```
 
 `index.html` recopie `../README.md` et `public/photo.png` dans `dist/`. Les
-chemins sont relatifs (`public_url = "./"`) : la même sortie sert sur GitHub
-Pages (`/Messagerie-/`), sur le serveur Heroku (`/` et `/site/`) et en local.
+chemins sont relatifs (`public_url = "./"`) : la même sortie sert sur le
+serveur Heroku (`/` et `/site/`) comme en local.
 
 ## Organisation
 

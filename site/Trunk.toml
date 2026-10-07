@@ -2,8 +2,8 @@
 [build]
 target = "index.html"
 dist = "dist"
-# Chemins relatifs : la même sortie marche sur GitHub Pages (/Messagerie-/),
-# sur le serveur Heroku (/ et /site/) et en local.
+# Chemins relatifs : la même sortie marche sur le serveur Heroku (/ et
+# /site/), sous n'importe quel sous-chemin et en local.
 public_url = "./"
 filehash = true
 

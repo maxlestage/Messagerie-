@@ -34,7 +34,7 @@ async fn probe(base: &str) -> Status {
         Ok(res) if res.ok() => Status::Online(elapsed()),
         Ok(_) => Status::Offline,
         Err(_) => {
-            // Hors du serveur (GitHub Pages, dev local), pas d'en-têtes CORS :
+            // Hors du serveur (autre hébergement, dev local), pas d'en-têtes CORS :
             // une requête opaque qui aboutit suffit à dire qu'il est joignable.
             let signal = AbortSignal::timeout_with_u32(TIMEOUT_MS);
             match Request::get(&url)

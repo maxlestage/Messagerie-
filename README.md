@@ -12,10 +12,10 @@ de messagerie existante** (WhatsApp, iMessage, Messenger, Notes…) via une
 > hébergement séparé : une seule app Heroku sert l'API d'appairage **et** la
 > vitrine.
 >
-> Elle est reconstruite à chaque déploiement (étage `site` du `Dockerfile`, et
-> workflow GitHub Pages). En local : `cd site && trunk serve` (outils :
-> `rustup target add wasm32-unknown-unknown` puis Trunk), ou
-> `trunk build --release` pour produire `site/dist/`.
+> Elle est reconstruite à chaque déploiement Heroku (étage `site` du
+> `Dockerfile`) ; la CI vérifie qu'elle compile. En local :
+> `cd site && trunk serve` (outils : `rustup target add wasm32-unknown-unknown`
+> puis Trunk), ou `trunk build --release` pour produire `site/dist/`.
 
 ## Pourquoi une extension (et pas un proxy en arrière-plan)
 

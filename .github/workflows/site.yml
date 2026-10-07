@@ -1,0 +1,56 @@
+name: Site (Yew) — tests et build
+
+# Vitrine en Rust/WebAssembly (Yew), construite par Trunk. Elle est publiée par
+# le serveur Heroku (étage `site` du Dockerfile) ; ce workflow vérifie seulement
+# qu'elle compile et que ses tests passent.
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'site/**'
+      - 'README.md'
+      - '.github/workflows/site.yml'
+  pull_request:
+    paths:
+      - 'site/**'
+      - '.github/workflows/site.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: site-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TRUNK_VERSION: 0.21.14
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: site
+
+      - name: Installer Trunk
+        run: |
+          curl -sSfL "https://github.com/trunk-rs/trunk/releases/download/v${TRUNK_VERSION}/trunk-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar -xz -C /usr/local/bin trunk
+          trunk --version
+
+      - name: Tests (i18n, rendu Markdown)
+        working-directory: site
+        run: cargo test --locked
+
+      - name: Construire le site
+        working-directory: site
+        run: trunk build --release --locked
