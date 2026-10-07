@@ -42,6 +42,8 @@ struct RootView: View {
     @State private var fingerprint: String? = BrocolisKeyStore.pairingFingerprint
     @State private var keyTTL = BrocolisKeyStore.selectedKey?.ttlSeconds ?? 0
     @State private var pairedPeerCount = BrocolisKeyStore.pairingPeerIds.count
+    /// Pourquoi l'écran d'offres s'ouvre, s'il s'ouvre.
+    @State private var paywallReason: BrocolisPaidFeature?
 
     @State private var alertMessage: String?
     @State private var showPairing = false
@@ -109,6 +111,9 @@ struct RootView: View {
                     createKeyFromContact(contact)
                 }
             }
+            .sheet(item: $paywallReason) { reason in
+                PaywallView(reason: reason)
+            }
             .sheet(item: $invite) { payload in
                 MessageComposeView(recipients: payload.recipients, body: payload.body) {
                     invite = nil
@@ -118,6 +123,7 @@ struct RootView: View {
             .alert(loc("Nouvelle clé", "New key", "Nueva clave"), isPresented: $showGenerate) {
                 TextField(loc("Nom (ex. Maman)", "Name (e.g. Mom)", "Nombre (ej. Mamá)"), text: $newKeyName)
                 Button(loc("Générer", "Generate", "Generar")) {
+                    guard canAddKey() else { return }
                     BrocolisKeyStore.addKey(name: newKeyName, base64: BrocolisCrypto.generateKeyBase64())
                     BrocolisKeyStore.setActive(true) // activation auto : plus besoin de l'interrupteur
                     reload()
@@ -641,11 +647,25 @@ struct RootView: View {
         reload()
     }
 
+    /// Peut-on ajouter une clé de plus ? Sinon, on ouvre l'écran d'offres.
+    /// La limite porte sur l'AJOUT : aucune clé existante n'est jamais retirée,
+    /// même si le trousseau dépasse déjà ce que le gratuit permet.
+    private func canAddKey() -> Bool {
+        let gate = BrocolisPlan.gateForAddingKey(currentKeyCount: BrocolisKeyStore.keys.count,
+                                                 isPlus: BrocolisPlan.isPlus)
+        if case .needsPlus(let feature) = gate {
+            paywallReason = feature
+            return false
+        }
+        return true
+    }
+
     // Crée une clé pour un contact choisi : nommée d'après lui, avec son numéro
     // rattaché. La clé est neuve → il faut la PARTAGER avec ce contact (ou
     // s'appairer) pour qu'il puisse déchiffrer. Le numéro sert d'identité, pas
     // de clé.
     private func createKeyFromContact(_ contact: PhoneContact) {
+        guard canAddKey() else { return }
         let id = BrocolisKeyStore.addKey(name: contact.name,
                                          base64: BrocolisCrypto.generateKeyBase64())
         BrocolisKeyStore.setKeyPhone(contact.phoneNumber, forKeyId: id)
@@ -658,6 +678,7 @@ struct RootView: View {
         let trimmed = importText.trimmingCharacters(in: .whitespacesAndNewlines)
         do {
             _ = try BrocolisCrypto.symmetricKey(fromBase64: trimmed)
+            guard canAddKey() else { return }
             BrocolisKeyStore.addKey(name: importName, base64: trimmed)
             BrocolisKeyStore.setActive(true) // activation auto
             importText = ""

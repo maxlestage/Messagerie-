@@ -258,13 +258,25 @@ final class BrocolisChatStore: ObservableObject {
         sendPlain(text, restoreDraftOnFailure: text)
     }
 
+    /// Ce qui a déclenché l'écran d'offres, s'il y a lieu. RECEVOIR n'est
+    /// jamais concerné : seul l'envoi passe par une porte.
+    @Published var paywallReason: BrocolisPaidFeature?
+
     /// Envoie une photo (JPEG déjà compressé) — chiffrée comme le texte.
     func sendImage(_ jpeg: Data) {
+        guard BrocolisPlan.gateForSendingPhoto(isPlus: BrocolisPlan.isPlus).isAllowed else {
+            paywallReason = .photo
+            return
+        }
         sendPlain(MediaPayload.imagePrefix + jpeg.base64EncodedString())
     }
 
     /// Envoie un message vocal (M4A) — chiffré comme le texte.
     func sendVoice(_ m4a: Data) {
+        guard BrocolisPlan.gateForSendingVoiceNote(isPlus: BrocolisPlan.isPlus).isAllowed else {
+            paywallReason = .voiceNote
+            return
+        }
         sendPlain(MediaPayload.audioPrefix + m4a.base64EncodedString())
     }
 
@@ -545,6 +557,9 @@ private struct ChatScreen: View {
             default:
                 break
             }
+        }
+        .sheet(item: $store.paywallReason) { reason in
+            PaywallView(reason: reason)
         }
         .sheet(item: $invite) { payload in
             MessageComposeView(recipients: payload.recipients, body: payload.body) {
