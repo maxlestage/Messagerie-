@@ -92,18 +92,55 @@ enum BrocolisPlan {
     /// l'app soit réellement utilisable gratuitement, pas une démo.
     static let freeKeyLimit = 3
 
-    // MARK: Palier courant
+    // MARK: Palier courant — deux sources, jamais mélangées
 
-    private static let tierName = "plan_tier"
+    private static let purchasedName = "plan_tier"
+    private static let grantedName = "plan_granted_tier"
 
-    /// Palier actif. Rangé avec le reste : App Group sur iOS, local au poignet.
-    /// `BrocolisStore` est seul à l'écrire, d'après StoreKit.
-    static var tier: BrocolisTier {
-        get {
-            let raw = BrocolisKeyStore.sharedDefaults?.integer(forKey: tierName) ?? 0
-            return BrocolisTier(rawValue: raw) ?? .free
+    /// Ce que l'App Store accorde. `BrocolisStore` est seul à l'écrire, et
+    /// toujours d'après `Transaction.currentEntitlements`.
+    static var purchasedTier: BrocolisTier {
+        get { storedTier(purchasedName) }
+        set { BrocolisKeyStore.sharedDefaults?.set(newValue.rawValue, forKey: purchasedName) }
+    }
+
+    /// Ce que le SERVEUR offre (liste `BROCOLIS_PRO_IDS`, voir
+    /// docs/acces-offerts.md). Sert aux comptes de l'auteur et de ses proches.
+    /// Rangé séparément : un rafraîchissement StoreKit ne doit jamais l'effacer,
+    /// ni l'inverse.
+    static var grantedTier: BrocolisTier {
+        get { storedTier(grantedName) }
+        set { BrocolisKeyStore.sharedDefaults?.set(newValue.rawValue, forKey: grantedName) }
+    }
+
+    private static func storedTier(_ key: String) -> BrocolisTier {
+        let raw = BrocolisKeyStore.sharedDefaults?.integer(forKey: key) ?? 0
+        return BrocolisTier(rawValue: raw) ?? .free
+    }
+
+    /// Traduit le nom renvoyé par le serveur (`/v1/plan`). `nil` pour un nom
+    /// inconnu — un serveur plus récent que l'app ne doit rien débloquer par
+    /// surprise.
+    static func tier(forServerName name: String) -> BrocolisTier? {
+        switch name {
+        case "free": return .free
+        case "plus": return .plus
+        case "pro":  return .pro
+        default:     return nil
         }
-        set { BrocolisKeyStore.sharedDefaults?.set(newValue.rawValue, forKey: tierName) }
+    }
+
+    /// Le palier qui s'applique réellement. Pur, donc testable.
+    /// Le plus ouvert des deux l'emporte : un accès offert ne retire rien à
+    /// qui a payé, et un abonnement ne retire rien à qui a reçu un accès.
+    static func effectiveTier(purchased: BrocolisTier, granted: BrocolisTier) -> BrocolisTier {
+        max(purchased, granted)
+    }
+
+    /// Palier appliqué partout dans l'app. Lecture seule : il se déduit des
+    /// deux sources, on ne l'écrit jamais directement.
+    static var tier: BrocolisTier {
+        effectiveTier(purchased: purchasedTier, granted: grantedTier)
     }
 
     // MARK: Décisions — pures, sans état global, donc testables
