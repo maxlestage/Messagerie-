@@ -264,7 +264,7 @@ final class BrocolisChatStore: ObservableObject {
 
     /// Envoie une photo (JPEG déjà compressé) — chiffrée comme le texte.
     func sendImage(_ jpeg: Data) {
-        guard BrocolisPlan.gateForSendingPhoto(isPlus: BrocolisPlan.isPlus).isAllowed else {
+        guard BrocolisPlan.gateForSendingPhoto(tier: BrocolisPlan.tier).isAllowed else {
             paywallReason = .photo
             return
         }
@@ -273,7 +273,7 @@ final class BrocolisChatStore: ObservableObject {
 
     /// Envoie un message vocal (M4A) — chiffré comme le texte.
     func sendVoice(_ m4a: Data) {
-        guard BrocolisPlan.gateForSendingVoiceNote(isPlus: BrocolisPlan.isPlus).isAllowed else {
+        guard BrocolisPlan.gateForSendingVoiceNote(tier: BrocolisPlan.tier).isAllowed else {
             paywallReason = .voiceNote
             return
         }

@@ -2,9 +2,9 @@
 //  BrocolisPlan.swift
 //  Brocolis 🥦 (partagé)
 //
-//  Ce qui est gratuit, ce qui demande Brocolis+, et les identifiants des deux
-//  offres App Store. La DÉCISION est ici, pure et testable ; l'achat lui-même
-//  vit dans `BrocolisStore` (StoreKit, app seulement).
+//  Ce qui est gratuit, ce que chaque palier ouvre, et les identifiants des deux
+//  abonnements. La DÉCISION est ici, pure et testable ; l'achat lui-même vit
+//  dans `BrocolisStore` (StoreKit, app seulement).
 //
 //  Trois règles qui ne doivent jamais bouger :
 //
@@ -15,46 +15,76 @@
 //     la messagerie se casserait en deux.
 //  3. Aucune clé existante n'est jamais retirée. La limite ne s'applique qu'à
 //     l'AJOUT : qui a déjà dix clés les garde toutes, il ne peut simplement pas
-//     en créer une onzième sans Brocolis+.
+//     en créer une onzième sans abonnement.
 //
 
 import Foundation
 
+/// Les paliers, du moins au plus ouvert. L'ordre compte : `>=` sert à décider.
+enum BrocolisTier: Int, Comparable, CaseIterable {
+    case free = 0
+    /// Clés illimitées et expiration automatique — ne coûte presque rien à servir.
+    case plus = 1
+    /// En plus : envoi de photos et de vocaux — là où le serveur paie vraiment.
+    case pro = 2
+
+    static func < (a: BrocolisTier, b: BrocolisTier) -> Bool { a.rawValue < b.rawValue }
+}
+
 /// Ce qu'une action réclame comme droit.
 enum BrocolisGate: Equatable {
     case allowed
-    case needsPlus(BrocolisPaidFeature)
+    /// Refusé, avec le palier minimal qui l'ouvrirait et la raison à montrer.
+    case needs(BrocolisTier, BrocolisPaidFeature)
 
     var isAllowed: Bool { self == .allowed }
 }
 
-/// Les fonctions qu'ouvre Brocolis+. Sert aussi à dire à l'utilisateur
+/// Les fonctions qu'ouvre un abonnement. Sert aussi à dire à l'utilisateur
 /// POURQUOI on lui propose de payer, au lieu d'un mur générique.
 enum BrocolisPaidFeature: String, Equatable, CaseIterable, Identifiable {
     var id: String { rawValue }
 
     /// Au-delà des clés offertes.
     case moreKeys
+    /// Faire expirer une clé automatiquement.
+    case keyExpiry
     /// Envoyer une photo chiffrée.
     case photo
     /// Envoyer un message vocal chiffré.
     case voiceNote
-    /// Faire expirer une clé automatiquement.
-    case keyExpiry
+
+    /// Le palier minimal qui ouvre cette fonction.
+    var requiredTier: BrocolisTier {
+        switch self {
+        case .moreKeys, .keyExpiry: return .plus
+        case .photo, .voiceNote:    return .pro
+        }
+    }
 }
 
 enum BrocolisPlan {
 
-    // MARK: Les deux offres
+    // MARK: Les deux offres — deux abonnements mensuels
 
     /// Identifiants des produits App Store. Doivent correspondre EXACTEMENT à
     /// ceux créés dans App Store Connect, sinon StoreKit ne renvoie rien.
     /// Voir docs/ios-achats-integres.md.
-    static let monthlyProductId = "rs.brocolis.messagerie.plus.monthly"
-    static let lifetimeProductId = "rs.brocolis.messagerie.plus.lifetime"
+    static let plusProductId = "rs.brocolis.messagerie.plus.monthly"
+    static let proProductId = "rs.brocolis.messagerie.pro.monthly"
 
-    /// L'ordre d'affichage dans l'écran d'offres.
-    static let productIds = [monthlyProductId, lifetimeProductId]
+    /// L'ordre d'affichage dans l'écran d'offres : du moins cher au plus cher.
+    static let productIds = [plusProductId, proProductId]
+
+    /// Le palier qu'ouvre un produit acheté. `nil` pour un identifiant inconnu
+    /// — on ne débloque jamais sur un produit qu'on ne reconnaît pas.
+    static func tier(forProductId id: String) -> BrocolisTier? {
+        switch id {
+        case plusProductId: return .plus
+        case proProductId:  return .pro
+        default:            return nil
+        }
+    }
 
     // MARK: Ce qui est offert
 
@@ -62,46 +92,54 @@ enum BrocolisPlan {
     /// l'app soit réellement utilisable gratuitement, pas une démo.
     static let freeKeyLimit = 3
 
-    // MARK: État de l'abonnement
+    // MARK: Palier courant
 
-    private static let plusName = "plan_is_plus"
+    private static let tierName = "plan_tier"
 
-    /// Vrai si Brocolis+ est actif (abonnement en cours ou achat à vie).
-    /// Rangé avec le reste : App Group sur iOS, local au poignet.
+    /// Palier actif. Rangé avec le reste : App Group sur iOS, local au poignet.
     /// `BrocolisStore` est seul à l'écrire, d'après StoreKit.
-    static var isPlus: Bool {
-        get { BrocolisKeyStore.sharedDefaults?.bool(forKey: plusName) ?? false }
-        set { BrocolisKeyStore.sharedDefaults?.set(newValue, forKey: plusName) }
+    static var tier: BrocolisTier {
+        get {
+            let raw = BrocolisKeyStore.sharedDefaults?.integer(forKey: tierName) ?? 0
+            return BrocolisTier(rawValue: raw) ?? .free
+        }
+        set { BrocolisKeyStore.sharedDefaults?.set(newValue.rawValue, forKey: tierName) }
     }
 
     // MARK: Décisions — pures, sans état global, donc testables
 
+    /// Porte générique : la fonction est-elle ouverte à ce palier ?
+    static func gate(for feature: BrocolisPaidFeature, tier: BrocolisTier) -> BrocolisGate {
+        tier >= feature.requiredTier ? .allowed : .needs(feature.requiredTier, feature)
+    }
+
     /// Ajouter une clé. La limite porte sur l'ajout, jamais sur l'existant :
     /// un trousseau déjà au-dessus de la limite reste intact.
-    static func gateForAddingKey(currentKeyCount: Int, isPlus: Bool) -> BrocolisGate {
-        if isPlus { return .allowed }
-        return currentKeyCount < freeKeyLimit ? .allowed : .needsPlus(.moreKeys)
+    static func gateForAddingKey(currentKeyCount: Int, tier: BrocolisTier) -> BrocolisGate {
+        if currentKeyCount < freeKeyLimit { return .allowed }
+        return gate(for: .moreKeys, tier: tier)
     }
 
     /// Envoyer une photo chiffrée.
-    static func gateForSendingPhoto(isPlus: Bool) -> BrocolisGate {
-        isPlus ? .allowed : .needsPlus(.photo)
+    static func gateForSendingPhoto(tier: BrocolisTier) -> BrocolisGate {
+        gate(for: .photo, tier: tier)
     }
 
     /// Envoyer un message vocal chiffré.
-    static func gateForSendingVoiceNote(isPlus: Bool) -> BrocolisGate {
-        isPlus ? .allowed : .needsPlus(.voiceNote)
+    static func gateForSendingVoiceNote(tier: BrocolisTier) -> BrocolisGate {
+        gate(for: .voiceNote, tier: tier)
     }
 
     /// Donner une durée de vie à une clé. `ttlSeconds == 0` = pas d'expiration,
     /// donc toujours gratuit : on ne fait pas payer pour NE PAS utiliser une
     /// fonction.
-    static func gateForKeyExpiry(ttlSeconds: Int, isPlus: Bool) -> BrocolisGate {
-        if ttlSeconds <= 0 || isPlus { return .allowed }
-        return .needsPlus(.keyExpiry)
+    static func gateForKeyExpiry(ttlSeconds: Int, tier: BrocolisTier) -> BrocolisGate {
+        if ttlSeconds <= 0 { return .allowed }
+        return gate(for: .keyExpiry, tier: tier)
     }
 
-    /// Recevoir et déchiffrer : TOUJOURS gratuit, quel que soit le contenu.
-    /// Exposé en fonction (plutôt qu'en commentaire) pour qu'un test le fige.
+    /// Recevoir et déchiffrer : TOUJOURS gratuit, quel que soit le contenu et
+    /// le palier. Exposé en fonction (plutôt qu'en commentaire) pour qu'un test
+    /// le fige.
     static func gateForReceiving() -> BrocolisGate { .allowed }
 }

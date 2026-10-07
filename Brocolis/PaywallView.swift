@@ -2,7 +2,7 @@
 //  PaywallView.swift
 //  Brocolis 🥦 (app uniquement)
 //
-//  Les deux offres Brocolis+. Apple impose, pour un abonnement
+//  Les deux abonnements mensuels : Brocolis+ et Brocolis Pro. Apple impose, pour un abonnement
 //  auto-renouvelable, que cet écran affiche : le nom de l'offre, sa durée, son
 //  prix, un bouton « Restaurer », et des liens vers les conditions et la
 //  politique de confidentialité. Tout est là — un oubli vaut un rejet.
@@ -40,7 +40,7 @@ struct PaywallView: View {
                 }
                 .padding()
             }
-            .navigationTitle("Brocolis+")
+            .navigationTitle(loc("S'abonner", "Subscribe", "Suscribirse"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -48,7 +48,7 @@ struct PaywallView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(loc("Restaurer", "Restore", "Restaurar")) {
-                        Task { await store.restore(); if store.isPlus { dismiss() } }
+                        Task { await store.restore(); if store.tier > .free { dismiss() } }
                     }
                     .disabled(store.isWorking)
                 }
@@ -63,10 +63,11 @@ struct PaywallView: View {
         HStack(spacing: 10) {
             Text("🥦").font(.largeTitle)
             VStack(alignment: .leading) {
-                Text("Brocolis+").font(.title2.bold())
-                Text(loc("Soutiens le serveur, débloque tout.",
-                         "Support the server, unlock everything.",
-                         "Apoya el servidor, desbloquéalo todo."))
+                Text(loc("Deux formules, au mois", "Two plans, monthly", "Dos planes, mensuales"))
+                    .font(.title2.bold())
+                Text(loc("Sans engagement. Résiliable à tout moment.",
+                         "No commitment. Cancel anytime.",
+                         "Sin compromiso. Cancela cuando quieras."))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -103,7 +104,7 @@ struct PaywallView: View {
     /// Dire franchement ce qui reste gratuit vaut mieux que de le cacher :
     /// personne n'achète une app dont il croit la fonction principale bridée.
     private var freeReassurance: some View {
-        Text(loc("Le chiffrement reste gratuit, sans limite, pour toujours — et recevoir photos et vocaux aussi. Brocolis+ ne verrouille rien de ce qui marche déjà chez toi.",
+        Text(loc("Le chiffrement reste gratuit, sans limite, pour toujours — et recevoir photos et vocaux aussi. et l'app Apple Watch également. S'abonner ne verrouille rien de ce qui marche déjà chez toi.",
                  "Encryption stays free, unlimited, forever — and so does receiving photos and voice notes. Brocolis+ locks nothing that already works for you.",
                  "El cifrado sigue siendo gratuito, sin límite, para siempre — y recibir fotos y notas de voz también. Brocolis+ no bloquea nada de lo que ya funciona."))
             .font(.footnote)
@@ -112,15 +113,19 @@ struct PaywallView: View {
 
     private var unlocked: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(loc("Ce que Brocolis+ ouvre", "What Brocolis+ opens", "Lo que abre Brocolis+"))
-                .font(.headline)
+            Text("Brocolis+").font(.headline)
             perk("key.fill", loc("Clés illimitées", "Unlimited keys", "Claves ilimitadas"))
+            perk("timer", loc("Expiration automatique des clés",
+                              "Automatic key expiry", "Caducidad automática de claves"))
+            Divider().padding(.vertical, 2)
+            Text("Brocolis Pro").font(.headline)
+            Text(loc("Tout Brocolis+, et en plus :", "Everything in Brocolis+, plus:",
+                     "Todo Brocolis+, y además:"))
+                .font(.caption).foregroundStyle(.secondary)
             perk("photo.fill", loc("Envoyer des photos chiffrées",
                                    "Send encrypted photos", "Enviar fotos cifradas"))
             perk("mic.fill", loc("Envoyer des messages vocaux chiffrés",
                                  "Send encrypted voice notes", "Enviar notas de voz cifradas"))
-            perk("timer", loc("Expiration automatique des clés",
-                              "Automatic key expiry", "Caducidad automática de claves"))
         }
     }
 
@@ -186,9 +191,9 @@ struct PaywallView: View {
                        "Subscription, renewed every \(period.value) \(unit). Cancel anytime.",
                        "Suscripción, renovada cada \(period.value) \(unit). Cancela cuando quieras.")
         }
-        return loc("Paiement unique. Aucun abonnement.",
-                   "One-time payment. No subscription.",
-                   "Pago único. Sin suscripción.")
+        // Les deux offres sont des abonnements. Si l'App Store ne renvoie pas
+        // de période, on ne l'invente pas : mieux vaut muet que faux.
+        return ""
     }
 
     private func errorLine(_ error: String) -> some View {

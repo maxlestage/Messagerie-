@@ -572,6 +572,14 @@ struct RootView: View {
         Binding(
             get: { keyTTL },
             set: { newValue in
+                // L'expiration automatique était annoncée dans l'écran
+                // d'offres sans être appliquée nulle part : porte posée ici.
+                let gate = BrocolisPlan.gateForKeyExpiry(ttlSeconds: newValue,
+                                                         tier: BrocolisPlan.tier)
+                if case .needs(_, let feature) = gate {
+                    paywallReason = feature
+                    return
+                }
                 BrocolisKeyStore.setKeyTTL(newValue, forKeyId: id)
                 reload()
             }
@@ -652,8 +660,8 @@ struct RootView: View {
     /// même si le trousseau dépasse déjà ce que le gratuit permet.
     private func canAddKey() -> Bool {
         let gate = BrocolisPlan.gateForAddingKey(currentKeyCount: BrocolisKeyStore.keys.count,
-                                                 isPlus: BrocolisPlan.isPlus)
-        if case .needsPlus(let feature) = gate {
+                                                 tier: BrocolisPlan.tier)
+        if case .needs(_, let feature) = gate {
             paywallReason = feature
             return false
         }

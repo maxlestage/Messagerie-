@@ -1,21 +1,26 @@
-# Achats intégrés — Brocolis+
+# Achats intégrés — Brocolis+ et Brocolis Pro
 
-Deux offres, un seul contenu débloqué. Tout passe par **StoreKit 2** : Apple
-l'exige dès qu'un paiement ouvre une fonction de l'app. Un lien vers Stripe ou
-un paiement externe serait un motif de rejet.
+Deux **abonnements mensuels**, sans engagement. Ni offre annuelle, ni achat à
+vie. Tout passe par **StoreKit 2** : Apple l'exige dès qu'un paiement ouvre une
+fonction de l'app. Un lien vers Stripe ou un paiement externe serait un motif
+de rejet.
+
+Le découpage suit la dépense : Brocolis+ ouvre ce qui ne coûte presque rien à
+servir (des clés, un minuteur), Brocolis Pro ouvre les médias — le stockage et
+la bande passante que le serveur paie vraiment.
 
 ## Ce qui est gratuit, et le reste
 
-| | Gratuit | Brocolis+ |
-|---|---|---|
-| Chiffrement de bout en bout | ✅ illimité | ✅ |
-| Lire / **recevoir** photos et vocaux | ✅ | ✅ |
-| Extension Partager, clavier, iMessage, widgets, Live Activity, Siri | ✅ | ✅ |
-| App Apple Watch | ✅ | ✅ |
-| Nombre de clés 🔑 | 3 | illimité |
-| **Envoyer** une photo chiffrée | — | ✅ |
-| **Envoyer** un message vocal chiffré | — | ✅ |
-| Expiration automatique des clés | — | ✅ |
+| | Gratuit | Brocolis+ | Brocolis Pro |
+|---|---|---|---|
+| Chiffrement de bout en bout | ✅ illimité | ✅ | ✅ |
+| Lire / **recevoir** photos et vocaux | ✅ | ✅ | ✅ |
+| Partager, clavier, iMessage, widgets, Live Activity, Siri | ✅ | ✅ | ✅ |
+| App Apple Watch | ✅ | ✅ | ✅ |
+| Nombre de clés 🔑 | 3 | illimité | illimité |
+| Expiration automatique des clés | — | ✅ | ✅ |
+| **Envoyer** une photo chiffrée | — | — | ✅ |
+| **Envoyer** un message vocal chiffré | — | — | ✅ |
 
 Trois règles sont figées dans le code et verrouillées par `BrocolisPlanTests` :
 
@@ -31,14 +36,22 @@ Les identifiants doivent correspondre **exactement** à
 `Shared/BrocolisPlan.swift`, sinon StoreKit ne renvoie rien et l'écran d'offres
 reste vide.
 
-| Identifiant | Type | Prix proposé |
-|---|---|---|
-| `rs.brocolis.messagerie.plus.monthly` | Abonnement auto-renouvelable, 1 mois | 2,99 € |
-| `rs.brocolis.messagerie.plus.lifetime` | Non consommable | 49,99 € |
+| Identifiant | Type | Niveau | Prix proposé |
+|---|---|---|---|
+| `rs.brocolis.messagerie.plus.monthly` | Abonnement auto-renouvelable, 1 mois | 2 | 2,99 €/mois |
+| `rs.brocolis.messagerie.pro.monthly` | Abonnement auto-renouvelable, 1 mois | 1 | 6,99 €/mois |
 
 Marche à suivre : App Store Connect → ton app → **Monétisation** →
-*Abonnements* (pour le mensuel, dans un groupe d'abonnement nommé p. ex.
-« Brocolis+ ») et *Achats intégrés* → *Non consommable* (pour l'offre à vie).
+*Abonnements*. Crée **un seul groupe d'abonnement** (p. ex. « Brocolis ») et
+mets les deux produits dedans.
+
+Le groupe unique n'est pas un détail : c'est ce qui permet de passer de l'un à
+l'autre sans payer deux fois, Apple gérant le prorata. Dans le groupe, le
+**niveau** ordonne les formules — niveau 1 pour la plus complète (Pro),
+niveau 2 pour Brocolis+ — pour qu'Apple traite le passage à Pro comme une
+montée en gamme, immédiate, et le retour vers + comme une descente, à la fin
+de la période en cours.
+
 Chaque produit a besoin d'un nom affiché, d'une description, d'une capture
 d'écran de validation, et doit être soumis avec une version de l'app.
 
@@ -62,8 +75,9 @@ empêcher de chiffrer.
 
 En local, Xcode sait simuler l'App Store : *Product → Scheme → Edit Scheme →
 Run → Options → StoreKit Configuration*. Crée un fichier de configuration
-StoreKit avec les deux identifiants ci-dessus pour acheter, annuler, rembourser
-et faire expirer un abonnement sans compte réel.
+StoreKit avec les deux identifiants ci-dessus, dans un même groupe, pour
+acheter, changer de formule, annuler, rembourser et faire expirer un abonnement
+sans compte réel.
 
 En TestFlight, les achats passent par le **bac à sable** : aucun débit réel.
 
@@ -71,12 +85,14 @@ En TestFlight, les achats passent par le **bac à sable** : aucun débit réel.
 
 | Rôle | Fichier |
 |---|---|
-| Ce qui est gratuit, ce qui ne l'est pas (pur, testé) | `Shared/BrocolisPlan.swift` |
+| Les paliers, ce que chacun ouvre (pur, testé) | `Shared/BrocolisPlan.swift` |
 | Achat, restauration, état réel d'après l'App Store | `Brocolis/BrocolisStore.swift` |
 | Écran des deux offres | `Brocolis/PaywallView.swift` |
-| Portes : clés, photo, vocal | `Brocolis/RootView.swift`, `Brocolis/MessagingView.swift` |
+| Portes : clés, expiration, photo, vocal | `Brocolis/RootView.swift`, `Brocolis/MessagingView.swift` |
 
-`BrocolisStore` est **seul** à écrire `BrocolisPlan.isPlus`, et le recalcule
+`BrocolisStore` est **seul** à écrire `BrocolisPlan.tier`, et le recalcule
 toujours depuis `Transaction.currentEntitlements` — jamais depuis un drapeau
 qu'on aurait posé soi-même. Un remboursement (`revocationDate`) referme donc
-l'accès tout seul.
+l'accès tout seul. Si les deux abonnements se chevauchent le temps d'un
+changement de formule, le plus ouvert l'emporte : on ne retire jamais à
+quelqu'un ce qu'il vient de payer.
