@@ -127,14 +127,15 @@ heroku pg:diagnose -a <app>
 
 ### 3.6 CDN pour la vitrine
 
-La vitrine React (`site/`) est statique et **incompressible côté API** (les
+La vitrine Yew (`site/`, Rust → WebAssembly) est statique et **incompressible côté API** (les
 tokens sont chiffrés) — mais le HTML/JS/CSS, lui, gagne à être servi par un CDN,
 pas par les dynos.
 
 Deux options :
-1. **CDN devant Heroku** (Cloudflare/Fastly) avec cache long sur `/assets/*`.
+1. **CDN devant Heroku** (Cloudflare/Fastly) avec cache long sur les fichiers
+   hachés (`*.wasm`, `*.js`, `*.css` produits par Trunk).
 2. **Héberger la vitrine ailleurs** (Cloudflare Pages / Netlify / GitHub Pages)
-   et pointer `SERVER_URL` (dans `site/src/config.ts`) vers l'API. Les dynos ne
+   et pointer `SERVER_URL` (dans `site/src/config.rs`) vers l'API. Les dynos ne
    servent alors plus que l'API.
 
 Dans les deux cas, l'API reste sur les dynos ; seul le trafic statique est

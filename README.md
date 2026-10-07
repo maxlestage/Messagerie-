@@ -5,16 +5,17 @@ Petite app iOS native (Swift) qui ajoute le **chiffrement sélectif de
 de messagerie existante** (WhatsApp, iMessage, Messenger, Notes…) via une
 **Action Extension** dans le menu **Partager**.
 
-> 🌐 **Site vitrine** : une vitrine React (dans [`site/`](site/)) qui rend ce
-> README. Elle est **servie par le serveur de rendez-vous lui-même**, sur la
-> seconde page **`/site/`** :
+> 🌐 **Site vitrine** : une vitrine en **Rust/WebAssembly avec Yew** (dans
+> [`site/`](site/)) qui rend ce README. Elle est **servie par le serveur de
+> rendez-vous lui-même**, sur la seconde page **`/site/`** :
 > <https://brocolis-serveur-839b43057467.herokuapp.com/site/>. Pas besoin d'un
 > hébergement séparé : une seule app Heroku sert l'API d'appairage **et** la
 > vitrine.
 >
-> Pour régénérer la vitrine embarquée après une modif du README ou du site :
-> `cd site && npm run build:embed` (construit `site/dist` et le recopie dans
-> [`server/public/`](server/public/), d'où le serveur la sert).
+> Elle est reconstruite à chaque déploiement (étage `site` du `Dockerfile`, et
+> workflow GitHub Pages). En local : `cd site && trunk serve` (outils :
+> `rustup target add wasm32-unknown-unknown` puis Trunk), ou
+> `trunk build --release` pour produire `site/dist/`.
 
 ## Pourquoi une extension (et pas un proxy en arrière-plan)
 

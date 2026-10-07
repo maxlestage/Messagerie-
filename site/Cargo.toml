@@ -1,0 +1,39 @@
+[package]
+name = "brocolis-site"
+version = "2.0.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Vitrine Brocolis 🥦 messageries — Rust/WebAssembly avec Yew"
+publish = false
+
+[dependencies]
+yew = { version = "0.23.0", features = ["csr"] }
+yew-router = "0.20.0"
+gloo = { version = "0.12.0", default-features = false, features = ["console", "events", "net", "timers", "utils"] }
+wasm-bindgen = "0.2.129"
+wasm-bindgen-futures = "0.4.79"
+js-sys = "0.3.106"
+web-sys = { version = "0.3.106", features = [
+  "AbortSignal",
+  "Document",
+  "DomTokenList",
+  "Element",
+  "HtmlElement",
+  "HtmlInputElement",
+  "KeyboardEvent",
+  "Navigator",
+  "RequestMode",
+  "ScrollBehavior",
+  "ScrollIntoViewOptions",
+  "Storage",
+  "Window",
+] }
+pulldown-cmark = { version = "0.13.4", default-features = false, features = ["html"] }
+serde = { version = "1.0.229", features = ["derive"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
