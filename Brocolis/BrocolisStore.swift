@@ -127,7 +127,8 @@ final class BrocolisStore: ObservableObject {
         guard let base = URL(string: MessagingPrefs.serverURL), MessagingPrefs.isConfigured
         else { return }
         let client = BrocolisMessagingClient(baseURL: base, deviceId: MessagingPrefs.deviceId)
-        guard let granted = await client.fetchGrantedTier() else { return }
+        guard let name = await client.fetchGrantedTierName(),
+              let granted = BrocolisPlan.tier(forServerName: name) else { return }
         BrocolisPlan.grantedTier = granted
         tier = BrocolisPlan.tier
     }

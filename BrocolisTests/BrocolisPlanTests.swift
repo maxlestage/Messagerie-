@@ -112,6 +112,22 @@ final class BrocolisPlanTests: XCTestCase {
         XCTAssertEqual(BrocolisPlan.effectiveTier(purchased: .pro, granted: .plus), .pro)
     }
 
+    /// Les noms que renvoie le serveur se traduisent exactement.
+    func testServerTierNamesAreUnderstood() {
+        XCTAssertEqual(BrocolisPlan.tier(forServerName: "free"), .free)
+        XCTAssertEqual(BrocolisPlan.tier(forServerName: "plus"), .plus)
+        XCTAssertEqual(BrocolisPlan.tier(forServerName: "pro"), .pro)
+    }
+
+    /// Un nom inconnu ne débloque RIEN : un serveur plus récent que l'app ne
+    /// doit pas ouvrir un palier par surprise. L'appelant garde alors la
+    /// dernière valeur connue.
+    func testUnknownServerTierNameUnlocksNothing() {
+        XCTAssertNil(BrocolisPlan.tier(forServerName: "ultra"))
+        XCTAssertNil(BrocolisPlan.tier(forServerName: ""))
+        XCTAssertNil(BrocolisPlan.tier(forServerName: "PRO"))
+    }
+
     /// Sans rien d'aucun côté, on reste gratuit.
     func testNoSourceMeansFree() {
         XCTAssertEqual(BrocolisPlan.effectiveTier(purchased: .free, granted: .free), .free)

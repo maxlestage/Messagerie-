@@ -118,6 +118,18 @@ enum BrocolisPlan {
         return BrocolisTier(rawValue: raw) ?? .free
     }
 
+    /// Traduit le nom renvoyé par le serveur (`/v1/plan`). `nil` pour un nom
+    /// inconnu — un serveur plus récent que l'app ne doit rien débloquer par
+    /// surprise.
+    static func tier(forServerName name: String) -> BrocolisTier? {
+        switch name {
+        case "free": return .free
+        case "plus": return .plus
+        case "pro":  return .pro
+        default:     return nil
+        }
+    }
+
     /// Le palier qui s'applique réellement. Pur, donc testable.
     /// Le plus ouvert des deux l'emporte : un accès offert ne retire rien à
     /// qui a payé, et un abonnement ne retire rien à qui a reçu un accès.
