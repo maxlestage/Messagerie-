@@ -40,6 +40,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         #if canImport(WatchConnectivity)
         BrocolisWatchSync.shared.start()
         #endif
+        // Achats : recalcule le droit Brocolis+ d'après l'App Store, et écoute
+        // les transactions venues d'ailleurs (autre appareil, renouvellement).
+        Task { @MainActor in BrocolisStore.shared.start() }
         return true
     }
 
