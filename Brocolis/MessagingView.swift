@@ -135,9 +135,10 @@ final class BrocolisChatStore: ObservableObject {
         // Conversation ouverte : le compteur « non lus » de la Live Activity
         // repart à zéro.
         BrocolisLiveActivity.clearUnread()
-        // Plancher de confidentialité : on ne recharge JAMAIS ce qui a été effacé
-        // à la fermeture — seulement les messages plus récents que le plancher.
-        cursor = max(cursor, MessagingPrefs.floor(for: conversationId))
+        // Plancher de confidentialité : réglage activé, on ne recharge pas ce
+        // qui a été effacé à la fermeture. Réglage désactivé, le plancher est
+        // ignoré et l'historique encore sur le serveur revient.
+        cursor = max(cursor, MessagingPrefs.effectiveFloor(for: conversationId))
         let floor = cursor
         task = Task { @MainActor [weak self] in
             guard let self else { return }

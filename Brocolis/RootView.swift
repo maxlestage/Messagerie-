@@ -8,6 +8,7 @@
 
 import SwiftUI
 import UIKit
+import StoreKit
 
 // Fond de la marque + application « plein écran » (contenu + barre de navigation).
 // Défini une fois ici, réutilisé par tous les écrans de l'app.
@@ -15,6 +16,8 @@ extension Color {
     static let brocoliBg = Color(red: 232.0 / 255, green: 245.0 / 255, blue: 219.0 / 255)
     /// Fond des cartes : un cran PLUS FONCÉ que le fond (vert doux, plus de blanc pur).
     static let brocoliCard = Color(red: 220.0 / 255, green: 239.0 / 255, blue: 208.0 / 255)
+    /// Vert de la marque — le même que l'écran d'offres et la montre.
+    static let brocoliGreen = Color(red: 47.0 / 255, green: 158.0 / 255, blue: 74.0 / 255)
 }
 
 extension View {
@@ -33,6 +36,11 @@ extension View {
 struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @ObservedObject private var router = AppRouter.shared
+    /// Palier courant, observé : la section Forfait se met à jour dès qu'un
+    /// achat aboutit ou que le serveur ouvre un accès offert.
+    @ObservedObject private var store = BrocolisStore.shared
+    @State private var showOffers = false
+    @State private var showManageSubscription = false
 
     @State private var keys: [NamedKey] = BrocolisKeyStore.keys
     @State private var selectedId: String? = BrocolisKeyStore.selectedKeyId
@@ -80,6 +88,7 @@ struct RootView: View {
                 // il n'a aucun effet — d'où les cartes restées blanches.
                 quickStartSection.listRowBackground(Color.brocoliCard)
                 messagingSection.listRowBackground(Color.brocoliCard)
+                planSection.listRowBackground(Color.brocoliCard)
                 privacySection.listRowBackground(Color.brocoliCard)
                 conversationSection.listRowBackground(Color.brocoliCard)
                 keyboardSection.listRowBackground(Color.brocoliCard)
@@ -93,6 +102,10 @@ struct RootView: View {
                 creditsSection.listRowBackground(Color.brocoliCard)
             }
             .brocolisBackground()
+            .sheet(isPresented: $showOffers) { PaywallView(reason: nil) }
+            // Feuille Apple native : changer de formule, résilier, voir la date
+            // de renouvellement — sans quitter l'app.
+            .manageSubscriptionsSheet(isPresented: $showManageSubscription)
             .navigationTitle("Brocolis 🥦")
             .onAppear {
                 purgeIfNeeded()
@@ -268,7 +281,7 @@ struct RootView: View {
             } header: {
                 Text(loc("Confidentialité", "Privacy", "Privacidad"))
             } footer: {
-                locText("**Verrouiller** : il faut Face ID (ou le code de l’appareil) pour voir tes messages, comme le propose Apple.\n\n**Effacer à la fermeture** : en quittant l’app, les messages affichés disparaissent ; à la réouverture, seuls les **nouveaux** messages réapparaissent.", "**Lock** : Face ID (or the device passcode) is required to see your messages, just as Apple offers.\n\n**Erase on close** : when you leave the app, the displayed messages disappear; on reopening, only the **new** messages reappear.", "**Bloquear** : hace falta Face ID (o el código del dispositivo) para ver tus mensajes, como propone Apple.\n\n**Borrar al cerrar** : al salir de la app, los mensajes mostrados desaparecen; al reabrir, solo reaparecen los mensajes **nuevos**.")
+                locText("**Verrouiller** : il faut Face ID (ou le code de l’appareil) pour voir tes messages, comme le propose Apple.\n\n**Effacer à la fermeture** (facultatif) : en quittant l’app, les messages affichés disparaissent ; à la réouverture, seuls les **nouveaux** réapparaissent. Désactivé, tout l’historique encore sur le serveur (7 jours) reste visible.", "**Lock** : Face ID (or the device passcode) is required to see your messages, just as Apple offers.\n\n**Erase on close** (optional): when you leave the app, the displayed messages disappear; on reopening, only the **new** ones reappear. Turned off, the whole history still on the server (7 days) stays visible.", "**Bloquear** : hace falta Face ID (o el código del dispositivo) para ver tus mensajes, como propone Apple.\n\n**Borrar al cerrar** (opcional): al salir de la app, los mensajes mostrados desaparecen; al reabrir, solo reaparecen los **nuevos**. Desactivado, todo el historial aún en el servidor (7 días) sigue visible.")
             }
         }
     }
@@ -283,7 +296,14 @@ struct RootView: View {
     private var eraseBinding: Binding<Bool> {
         Binding(
             get: { eraseOnClose },
-            set: { MessagingPrefs.eraseOnClose = $0; eraseOnClose = $0 }
+            set: {
+                MessagingPrefs.eraseOnClose = $0
+                eraseOnClose = $0
+                // La montre suit le réglage sans attendre le passage en arrière-plan.
+                #if canImport(WatchConnectivity)
+                BrocolisWatchSync.shared.pushNow()
+                #endif
+            }
         )
     }
 
@@ -617,6 +637,90 @@ struct RootView: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    // MARK: Forfait
+
+    /// Toujours visible : jusqu'ici l'écran d'offres n'apparaissait qu'en
+    /// butant sur une limite, et rien ne permettait de voir son forfait ni
+    /// d'en changer.
+    private var planSection: some View {
+        Section {
+            HStack(spacing: 12) {
+                Image(systemName: store.tier == .free ? "leaf.fill" : "crown.fill")
+                    .font(.title2)
+                    .foregroundStyle(store.tier == .free ? Color.secondary : Color.brocoliGreen)
+                    .frame(width: 32)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(planName).font(.headline)
+                        if isOffered {
+                            Text(loc("offert", "complimentary", "de cortesía"))
+                                .font(.caption2.bold())
+                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(Capsule().fill(Color.brocoliGreen.opacity(0.2)))
+                        }
+                    }
+                    Text(planDetail).font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+            .padding(.vertical, 2)
+
+            Button { showOffers = true } label: {
+                Label(store.tier == .free
+                      ? loc("Voir les formules", "See plans", "Ver los planes")
+                      : loc("Changer de formule", "Change plan", "Cambiar de plan"),
+                      systemImage: "arrow.up.arrow.down.circle")
+            }
+            // Gérer / résilier n'a de sens que pour un abonnement App Store :
+            // un accès offert ne se gère pas chez Apple.
+            if BrocolisPlan.purchasedTier > .free {
+                Button { showManageSubscription = true } label: {
+                    Label(loc("Gérer mon abonnement", "Manage my subscription",
+                              "Gestionar mi suscripción"),
+                          systemImage: "creditcard")
+                }
+            }
+        } header: {
+            Text(loc("Forfait", "Plan", "Plan"))
+        } footer: {
+            Text(loc("Mensuel, sans engagement. Le chiffrement reste gratuit et illimité.",
+                     "Monthly, no commitment. Encryption stays free and unlimited.",
+                     "Mensual, sin compromiso. El cifrado sigue siendo gratuito e ilimitado."))
+        }
+        // Rafraîchit l'accès offert à l'affichage : utile juste après avoir
+        // ajouté son identifiant à BROCOLIS_PRO_IDS, sans relancer l'app.
+        .task { await store.refreshGrantedAccess() }
+    }
+
+    private var planName: String {
+        switch store.tier {
+        case .free: return loc("Gratuit", "Free", "Gratis")
+        case .plus: return "Brocolis+"
+        case .pro:  return "Brocolis Pro"
+        }
+    }
+
+    private var planDetail: String {
+        switch store.tier {
+        case .free:
+            return loc("\(BrocolisPlan.freeKeyLimit) clés · chiffrement illimité",
+                       "\(BrocolisPlan.freeKeyLimit) keys · unlimited encryption",
+                       "\(BrocolisPlan.freeKeyLimit) claves · cifrado ilimitado")
+        case .plus:
+            return loc("Clés illimitées · expiration automatique",
+                       "Unlimited keys · automatic expiry",
+                       "Claves ilimitadas · caducidad automática")
+        case .pro:
+            return loc("Tout Brocolis+ · photos et vocaux chiffrés",
+                       "All of Brocolis+ · encrypted photos and voice notes",
+                       "Todo Brocolis+ · fotos y notas de voz cifradas")
+        }
+    }
+
+    /// Le palier vient du serveur (accès offert), pas d'un abonnement payé.
+    private var isOffered: Bool {
+        BrocolisPlan.grantedTier > BrocolisPlan.purchasedTier
     }
 
     // MARK: Identifiant d'appareil

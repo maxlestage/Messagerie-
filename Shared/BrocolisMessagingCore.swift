@@ -60,9 +60,13 @@ enum MessagingPrefs {
 
     /// Efface les messages affichés à la fermeture de l'app : on ne recharge
     /// plus l'historique déjà vu, seuls les NOUVEAUX messages réapparaissent.
-    /// Activé par défaut (confidentialité). Voir `floor(for:)`.
+    ///
+    /// **Désactivé par défaut** : c'est un choix, pas une fatalité. Il était
+    /// activé d'office, et comme le plancher ne redescendait jamais, l'effacer
+    /// semblait obligatoire. Qui l'a activé lui-même le garde : seule la valeur
+    /// par défaut (jamais touchée) change. Voir `effectiveFloor(for:)`.
     static var eraseOnClose: Bool {
-        get { defaults?.object(forKey: eraseOnCloseName) as? Bool ?? true }
+        get { defaults?.object(forKey: eraseOnCloseName) as? Bool ?? false }
         set { defaults?.set(newValue, forKey: eraseOnCloseName) }
     }
 
@@ -82,6 +86,24 @@ enum MessagingPrefs {
 
     static func setFloor(_ seq: UInt64, for conversationId: String) {
         defaults?.set(Int(seq), forKey: floorPrefix + conversationId)
+    }
+
+    /// Plancher qui s'applique RÉELLEMENT au chargement d'une conversation.
+    ///
+    /// Le plancher stocké ne fait que monter, à chaque fermeture. Sans cette
+    /// fonction il s'appliquait même réglage désactivé : désactiver « Effacer à
+    /// la fermeture » ne faisait réapparaître aucun message, et l'effacement
+    /// paraissait imposé. Désormais, réglage désactivé = plancher ignoré =
+    /// l'historique encore présent sur le serveur revient. Le plancher stocké
+    /// est conservé : réactiver le réglage le retrouve tel quel.
+    ///
+    /// Pur, donc testable.
+    static func effectiveFloor(stored: UInt64, eraseOnClose: Bool) -> UInt64 {
+        eraseOnClose ? stored : 0
+    }
+
+    static func effectiveFloor(for conversationId: String) -> UInt64 {
+        effectiveFloor(stored: floor(for: conversationId), eraseOnClose: eraseOnClose)
     }
 
     // MARK: Planchers partagés avec la montre
@@ -148,6 +170,10 @@ struct WatchSyncPayload: Equatable {
     /// Planchers de confidentialité par conversation : ce que l'iPhone a
     /// effacé ne doit pas rester visible au poignet.
     var floors: [String: Int]?
+    /// Réglage « Effacer à la fermeture » de l'iPhone. Sans lui, la montre
+    /// appliquerait les planchers même quand le téléphone les ignore — elle
+    /// cacherait un historique que l'iPhone affiche.
+    var eraseOnClose: Bool?
     /// Horodatage d'envoi : rend chaque contexte distinct, sinon un contenu
     /// identique ne serait pas relivré après réinstallation côté montre.
     var sentAt: Date
@@ -159,6 +185,7 @@ struct WatchSyncPayload: Equatable {
         static let serverURL = "serverURL"
         static let active = "active"
         static let floors = "floors"
+        static let eraseOnClose = "eraseOnClose"
         static let sentAt = "sentAt"
     }
 
@@ -168,6 +195,7 @@ struct WatchSyncPayload: Equatable {
          serverURL: String? = nil,
          active: Bool? = nil,
          floors: [String: Int]? = nil,
+         eraseOnClose: Bool? = nil,
          sentAt: Date = Date()) {
         self.keysJSON = keysJSON
         self.selectedKeyId = selectedKeyId
@@ -175,6 +203,7 @@ struct WatchSyncPayload: Equatable {
         self.serverURL = serverURL
         self.active = active
         self.floors = floors
+        self.eraseOnClose = eraseOnClose
         self.sentAt = sentAt
     }
 
@@ -188,6 +217,7 @@ struct WatchSyncPayload: Equatable {
             serverURL: context[Key.serverURL] as? String,
             active: context[Key.active] as? Bool,
             floors: context[Key.floors] as? [String: Int],
+            eraseOnClose: context[Key.eraseOnClose] as? Bool,
             sentAt: Date(timeIntervalSince1970: context[Key.sentAt] as? TimeInterval ?? 0)
         )
     }
@@ -202,6 +232,7 @@ struct WatchSyncPayload: Equatable {
         if let serverURL { c[Key.serverURL] = serverURL }
         if let active { c[Key.active] = active }
         if let floors, !floors.isEmpty { c[Key.floors] = floors }
+        if let eraseOnClose { c[Key.eraseOnClose] = eraseOnClose }
         return c
     }
 }

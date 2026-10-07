@@ -1,0 +1,18 @@
+# Vitrine Brocolis 🥦 — build : `trunk build --release` (sortie dans dist/).
+[build]
+target = "index.html"
+dist = "dist"
+# Chemins relatifs : la même sortie marche sur GitHub Pages (/Messagerie-/),
+# sur le serveur Heroku (/ et /site/) et en local.
+public_url = "./"
+filehash = true
+
+[serve]
+port = 8080
+
+# Outils téléchargés par Trunk, épinglés : wasm-bindgen doit correspondre à la
+# version de la crate (Cargo.lock) ; wasm-opt récent pour les opérations
+# mémoire « bulk » qu'émet Rust ≥ 1.87.
+[tools]
+wasm_bindgen = "0.2.129"
+wasm_opt = "version_133"
