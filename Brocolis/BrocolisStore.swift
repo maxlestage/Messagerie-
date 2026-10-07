@@ -49,6 +49,7 @@ final class BrocolisStore: ObservableObject {
         Task {
             await loadProducts()
             await refreshEntitlement()
+            await refreshGrantedAccess()
         }
     }
 
@@ -119,6 +120,19 @@ final class BrocolisStore: ObservableObject {
         }
     }
 
+    /// Accès offert par le serveur (liste `BROCOLIS_PRO_IDS`). Sans réseau,
+    /// on garde la dernière valeur connue : on ne retire pas un accès pour une
+    /// coupure de connexion.
+    func refreshGrantedAccess() async {
+        guard let base = URL(string: MessagingPrefs.serverURL), MessagingPrefs.isConfigured
+        else { return }
+        let client = BrocolisMessagingClient(baseURL: base, deviceId: MessagingPrefs.deviceId)
+        guard let name = await client.fetchGrantedTierName(),
+              let granted = BrocolisPlan.tier(forServerName: name) else { return }
+        BrocolisPlan.grantedTier = granted
+        tier = BrocolisPlan.tier
+    }
+
     // MARK: L'état réel, d'après l'App Store
 
     /// Recalcule le palier à partir des transactions courantes. C'est l'App
@@ -136,7 +150,7 @@ final class BrocolisStore: ObservableObject {
             else { continue }
             best = max(best, earned)
         }
-        BrocolisPlan.tier = best
-        tier = best
+        BrocolisPlan.purchasedTier = best
+        tier = BrocolisPlan.tier
     }
 }
