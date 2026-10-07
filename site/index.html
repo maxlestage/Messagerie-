@@ -1,16 +1,18 @@
 <!doctype html>
-<html lang="fr">
+<html lang="fr" data-theme="green">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Brocolis 🥦 messageries — chiffrement sélectif</title>
     <meta
       name="description"
       content="Brocolis 🥦 : ajoute le chiffrement sélectif de brocolis à tes apps de messagerie iOS via une extension de partage. Appairage automatique X25519, clé de groupe, expiration."
     />
+    <meta name="theme-color" content="#2f9e4a" />
+    <meta name="color-scheme" content="light dark" />
 
     <!-- Vignette de partage (Open Graph / Twitter). URLs ABSOLUES : les robots
-         d'aperçu n'exécutent pas le JS, ces balises statiques font foi. -->
+         d'aperçu n'exécutent pas le WebAssembly, ces balises statiques font foi. -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Brocolis 🥦 messageries" />
     <meta property="og:url" content="https://maxlestage.github.io/Messagerie-/" />
@@ -28,9 +30,37 @@
 
     <link rel="icon" type="image/png" href="./photo.png" />
     <link rel="apple-touch-icon" href="./photo.png" />
+
+    <!-- Thème et langue appliqués AVANT le chargement du WebAssembly : pas de
+         flash de la mauvaise couleur au premier affichage. -->
+    <script>
+      try {
+        var t = localStorage.getItem("messagerie.theme");
+        if (t === "green" || t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+        var l = localStorage.getItem("messagerie.lang");
+        if (l === "fr" || l === "en" || l === "es") document.documentElement.lang = l;
+      } catch (e) {}
+    </script>
+
+    <!-- Assets gérés par Trunk. wasm-opt reçoit les fonctionnalités WebAssembly
+         activées par défaut dans Rust (bulk memory, sign-ext, etc.). -->
+    <link
+      data-trunk
+      rel="rust"
+      data-wasm-opt="z"
+      data-wasm-opt-params="--enable-bulk-memory --enable-bulk-memory-opt --enable-nontrapping-float-to-int --enable-sign-ext --enable-mutable-globals --enable-reference-types --enable-multivalue"
+    />
+    <link data-trunk rel="css" href="style.css" />
+    <link data-trunk rel="copy-file" href="public/photo.png" />
+    <link data-trunk rel="copy-file" href="../README.md" />
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <div id="splash" class="splash" aria-hidden="true">🥦</div>
+    <noscript>
+      <p style="padding:24px;text-align:center">
+        Brocolis 🥦 messageries — ce site a besoin de JavaScript / WebAssembly.
+        Voir le dépôt : <a href="https://github.com/maxlestage/Messagerie-">github.com/maxlestage/Messagerie-</a>
+      </p>
+    </noscript>
   </body>
 </html>
