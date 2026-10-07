@@ -100,6 +100,29 @@ final class BrocolisPlanTests: XCTestCase {
         }
     }
 
+    // MARK: Accès offerts (serveur) et achats (App Store)
+
+    /// Les deux sources ne s'écrasent pas : le plus ouvert l'emporte. Un accès
+    /// offert ne retire rien à qui a payé, et un abonnement ne retire rien à
+    /// qui a reçu un accès.
+    func testTheMostOpenSourceWins() {
+        XCTAssertEqual(BrocolisPlan.effectiveTier(purchased: .free, granted: .pro), .pro)
+        XCTAssertEqual(BrocolisPlan.effectiveTier(purchased: .pro, granted: .free), .pro)
+        XCTAssertEqual(BrocolisPlan.effectiveTier(purchased: .plus, granted: .pro), .pro)
+        XCTAssertEqual(BrocolisPlan.effectiveTier(purchased: .pro, granted: .plus), .pro)
+    }
+
+    /// Sans rien d'aucun côté, on reste gratuit.
+    func testNoSourceMeansFree() {
+        XCTAssertEqual(BrocolisPlan.effectiveTier(purchased: .free, granted: .free), .free)
+    }
+
+    /// Un accès offert retiré du serveur ne doit pas emporter un abonnement
+    /// réellement payé — c'est tout l'intérêt de garder les deux séparés.
+    func testRevokingAGrantKeepsAPaidSubscription() {
+        XCTAssertEqual(BrocolisPlan.effectiveTier(purchased: .plus, granted: .free), .plus)
+    }
+
     // MARK: Les deux offres
 
     /// Deux abonnements mensuels distincts, préfixés par l'identifiant de
