@@ -11,5 +11,11 @@
 	     sur l'environnement de production via le profil d'approvisionnement. -->
 	<key>aps-environment</key>
 	<string>development</string>
+	<!-- « Se connecter avec Apple » : prouve l'e-mail au serveur pour les accès
+	     offerts (BROCOLIS_PRO_EMAILS). -->
+	<key>com.apple.developer.applesignin</key>
+	<array>
+		<string>Default</string>
+	</array>
 </dict>
 </plist>

@@ -24,6 +24,14 @@
     "APNS_KEY_ID": { "description": "Key ID de la clé APNs.", "required": false },
     "APNS_TEAM_ID": { "description": "Team ID Apple Developer.", "required": false },
     "APNS_BUNDLE_ID": { "description": "Bundle ID de l'app (ex. rs.brocolis.messagerie).", "required": false },
+    "BROCOLIS_PRO_EMAILS": {
+      "description": "Accès Pro offerts : e-mails (séparés par des virgules) prouvés par « Se connecter avec Apple ».",
+      "required": false
+    },
+    "BROCOLIS_PRO_IDS": {
+      "description": "Accès Pro offerts : identifiants d'appareil (séparés par des virgules).",
+      "required": false
+    },
     "APNS_ENV": {
       "description": "\"sandbox\" (builds development, défaut) ou \"production\".",
       "value": "sandbox",
