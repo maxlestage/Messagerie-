@@ -113,6 +113,13 @@ enum BrocolisPlan {
         set { BrocolisKeyStore.sharedDefaults?.set(newValue.rawValue, forKey: grantedName) }
     }
 
+    /// E-mail Apple rattaché à cet appareil par « Se connecter avec Apple »
+    /// (accès offert par `BROCOLIS_PRO_EMAILS`), tel que le serveur l'a vu.
+    static var linkedEmail: String? {
+        get { BrocolisKeyStore.sharedDefaults?.string(forKey: "plan_linked_email") }
+        set { BrocolisKeyStore.sharedDefaults?.set(newValue, forKey: "plan_linked_email") }
+    }
+
     private static func storedTier(_ key: String) -> BrocolisTier {
         let raw = BrocolisKeyStore.sharedDefaults?.integer(forKey: key) ?? 0
         return BrocolisTier(rawValue: raw) ?? .free

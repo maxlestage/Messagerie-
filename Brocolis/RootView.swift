@@ -9,6 +9,7 @@
 import SwiftUI
 import UIKit
 import StoreKit
+import AuthenticationServices
 
 // Fond de la marque + application « plein écran » (contenu + barre de navigation).
 // Défini une fois ici, réutilisé par tous les écrans de l'app.
@@ -41,6 +42,9 @@ struct RootView: View {
     @ObservedObject private var store = BrocolisStore.shared
     @State private var showOffers = false
     @State private var showManageSubscription = false
+    /// Résultat de « Se connecter avec Apple » à afficher sous le bouton.
+    @State private var appleMessage: String?
+    @Environment(\.colorScheme) private var colorScheme
 
     @State private var keys: [NamedKey] = BrocolisKeyStore.keys
     @State private var selectedId: String? = BrocolisKeyStore.selectedKeyId
@@ -681,6 +685,7 @@ struct RootView: View {
                           systemImage: "creditcard")
                 }
             }
+            appleAccessRow
         } header: {
             Text(loc("Forfait", "Plan", "Plan"))
         } footer: {
@@ -691,6 +696,62 @@ struct RootView: View {
         // Rafraîchit l'accès offert à l'affichage : utile juste après avoir
         // ajouté son identifiant à BROCOLIS_PRO_IDS, sans relancer l'app.
         .task { await store.refreshGrantedAccess() }
+    }
+
+    /// Accès offert par e-mail : « Se connecter avec Apple » prouve l'e-mail au
+    /// serveur, qui ouvre Pro s'il figure dans `BROCOLIS_PRO_EMAILS`.
+    @ViewBuilder
+    private var appleAccessRow: some View {
+        if let email = store.linkedEmail {
+            HStack {
+                Label(email, systemImage: "apple.logo")
+                    .font(.footnote)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+                Button(loc("Déconnecter", "Sign out", "Cerrar sesión"), role: .destructive) {
+                    Task { await store.unlinkApple() }
+                }
+                .font(.footnote)
+                .buttonStyle(.borderless)
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 6) {
+                SignInWithAppleButton(.signIn) { request in
+                    request.requestedScopes = [.email]
+                } onCompletion: { result in
+                    handleAppleSignIn(result)
+                }
+                .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
+                .frame(height: 44)
+                .disabled(store.isWorking)
+                Text(appleMessage ?? loc(
+                    "Accès offert ? Connecte-toi avec Apple et choisis « Partager mon e-mail ».",
+                    "Complimentary access? Sign in with Apple and choose “Share My Email”.",
+                    "¿Acceso de cortesía? Inicia sesión con Apple y elige «Compartir mi correo»."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.vertical, 4)
+        }
+    }
+
+    private func handleAppleSignIn(_ result: Result<ASAuthorization, Error>) {
+        switch result {
+        case .success(let authorization):
+            guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
+                  let data = credential.identityToken,
+                  let token = String(data: data, encoding: .utf8) else {
+                appleMessage = loc("Apple n'a pas renvoyé de jeton.", "Apple returned no token.",
+                                   "Apple no devolvió ningún token.")
+                return
+            }
+            Task { appleMessage = await store.linkApple(identityToken: token) }
+        case .failure(let error):
+            // Annulation par l'utilisateur : rien à signaler.
+            if (error as? ASAuthorizationError)?.code == .canceled { return }
+            appleMessage = error.localizedDescription
+        }
     }
 
     private var planName: String {

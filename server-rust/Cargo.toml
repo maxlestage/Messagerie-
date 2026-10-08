@@ -28,6 +28,17 @@ sea-orm = { version = "1.1", default-features = false, features = [
     "macros",
 ] }
 
+[dev-dependencies]
+# Tests de « Se connecter avec Apple » : paire RSA générée à la volée.
+rsa = "0.9.10"
+rand = "0.8.5"
+
+# Génération de clé RSA rapide même en build de test.
+[profile.dev.package.num-bigint-dig]
+opt-level = 3
+[profile.dev.package.rsa]
+opt-level = 3
+
 [profile.release]
 lto = true
 codegen-units = 1

@@ -25,6 +25,8 @@ final class BrocolisStore: ObservableObject {
     @Published private(set) var isWorking = false
     /// Dernier échec à montrer à l'utilisateur (nil si tout va bien).
     @Published var lastError: String?
+    /// E-mail Apple rattaché à cet appareil (accès offert par e-mail).
+    @Published private(set) var linkedEmail = BrocolisPlan.linkedEmail
 
     private var updates: Task<Void, Never>?
 
@@ -124,12 +126,61 @@ final class BrocolisStore: ObservableObject {
     /// on garde la dernière valeur connue : on ne retire pas un accès pour une
     /// coupure de connexion.
     func refreshGrantedAccess() async {
+        guard let client = grantClient(), let grant = await client.fetchGrant() else { return }
+        apply(grant)
+    }
+
+    /// « Se connecter avec Apple » : envoie le jeton d'identité au serveur.
+    /// Renvoie le message à afficher, ou nil si l'accès offert est ouvert.
+    func linkApple(identityToken: String) async -> String? {
+        guard let client = grantClient() else {
+            return loc("Serveur non configuré.", "Server not configured.", "Servidor no configurado.")
+        }
+        isWorking = true
+        defer { isWorking = false }
+        switch await client.linkAppleIdentity(identityToken) {
+        case .success(let grant):
+            // E-mail hors liste : le serveur ne l'a pas gardé, on ne l'affiche
+            // donc pas comme « connecté ».
+            if grant.tierName == "free" {
+                let email = grant.email ?? ""
+                return loc("Aucun accès offert pour \(email).",
+                           "No complimentary access for \(email).",
+                           "Ningún acceso de cortesía para \(email).")
+            }
+            apply(grant)
+            return nil
+        case .failure(.noVerifiedEmail):
+            return loc("Apple n'a pas transmis d'e-mail vérifié. Choisis « Partager mon e-mail ».",
+                       "Apple didn't share a verified email. Choose “Share My Email”.",
+                       "Apple no compartió un correo verificado. Elige «Compartir mi correo».")
+        case .failure(.rejected):
+            return loc("Connexion refusée par le serveur.", "Sign-in rejected by the server.",
+                       "El servidor rechazó el inicio de sesión.")
+        case .failure(.unreachable):
+            return loc("Serveur injoignable, réessaie.", "Server unreachable, try again.",
+                       "Servidor inaccesible, inténtalo de nuevo.")
+        }
+    }
+
+    /// Détache l'e-mail Apple de cet appareil.
+    func unlinkApple() async {
+        guard let client = grantClient() else { return }
+        if let grant = await client.unlinkApple() { apply(grant) }
+    }
+
+    private func grantClient() -> BrocolisMessagingClient? {
         guard let base = URL(string: MessagingPrefs.serverURL), MessagingPrefs.isConfigured
-        else { return }
-        let client = BrocolisMessagingClient(baseURL: base, deviceId: MessagingPrefs.deviceId)
-        guard let name = await client.fetchGrantedTierName(),
-              let granted = BrocolisPlan.tier(forServerName: name) else { return }
-        BrocolisPlan.grantedTier = granted
+        else { return nil }
+        return BrocolisMessagingClient(baseURL: base, deviceId: MessagingPrefs.deviceId)
+    }
+
+    private func apply(_ grant: BrocolisMessagingClient.GrantStatus) {
+        if let granted = BrocolisPlan.tier(forServerName: grant.tierName) {
+            BrocolisPlan.grantedTier = granted
+        }
+        BrocolisPlan.linkedEmail = grant.email
+        linkedEmail = grant.email
         tier = BrocolisPlan.tier
     }
 
