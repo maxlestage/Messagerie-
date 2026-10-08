@@ -8,12 +8,14 @@
 //! snapshot SQLite comme côté Node). `seq` = BIGSERIAL, stable et monotone.
 
 mod apns;
+mod apple_signin;
 mod entities;
 mod realtime;
 mod rendezvous;
 
 use actix_files::Files;
 use apns::Apns;
+use apple_signin::{AppleKeys, VerifyError};
 use realtime::Realtime;
 use actix_web::web::Bytes;
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer, Responder};
@@ -22,7 +24,7 @@ use chrono::SecondsFormat;
 use sea_orm::sea_query::OnConflict;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectOptions, ConnectionTrait, Database, DatabaseConnection,
-    DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Set,
+    DbBackend, DbErr, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Set, Statement,
 };
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -85,17 +87,113 @@ fn granted_tier_from_list(raw: &str, user: &str) -> &'static str {
     "free"
 }
 
-/// GET /v1/plan — le palier offert à l'appelant, d'après `BROCOLIS_PRO_IDS`.
+/// E-mail rattaché à cet appareil par « Se connecter avec Apple », s'il y en a un.
+async fn linked_email(db: &DatabaseConnection, user: &str) -> Option<String> {
+    let row = db
+        .query_one(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "SELECT email FROM plan_grants WHERE user_id = $1",
+            [user.into()],
+        ))
+        .await
+        .ok()??;
+    row.try_get::<String>("", "email").ok()
+}
+
+/// Palier offert à un appareil : par son identifiant (`BROCOLIS_PRO_IDS`) ou
+/// par l'e-mail Apple qui lui est rattaché (`BROCOLIS_PRO_EMAILS`). Les listes
+/// sont relues à chaque appel : retirer une entrée retire l'accès.
+async fn granted_tier(db: &DatabaseConnection, user: &str) -> (&'static str, Option<String>) {
+    let ids = std::env::var("BROCOLIS_PRO_IDS").unwrap_or_default();
+    let email = linked_email(db, user).await;
+    if granted_tier_from_list(&ids, user) == "pro" {
+        return ("pro", email);
+    }
+    let emails = std::env::var("BROCOLIS_PRO_EMAILS").unwrap_or_default();
+    match &email {
+        Some(e) if apple_signin::email_in_list(&emails, e) => ("pro", email),
+        _ => ("free", email),
+    }
+}
+
+/// GET /v1/plan — le palier offert à l'appelant (voir `granted_tier`).
 /// Ne dit RIEN des abonnements App Store : ceux-là, seul l'appareil les
 /// connaît, via StoreKit. L'app prend le plus ouvert des deux.
-async fn get_plan(req: HttpRequest) -> impl Responder {
+async fn get_plan(db: web::Data<DatabaseConnection>, req: HttpRequest) -> impl Responder {
     let Some(user) = user_id(&req) else {
         return HttpResponse::Unauthorized().body("x-user-id requis");
     };
-    let raw = std::env::var("BROCOLIS_PRO_IDS").unwrap_or_default();
-    HttpResponse::Ok().json(serde_json::json!({
-        "tier": granted_tier_from_list(&raw, &user),
-    }))
+    let (tier, email) = granted_tier(&db, &user).await;
+    HttpResponse::Ok().json(serde_json::json!({ "tier": tier, "email": email }))
+}
+
+#[derive(serde::Deserialize)]
+struct AppleLinkBody {
+    #[serde(rename = "identityToken")]
+    identity_token: String,
+}
+
+/// POST /v1/plan/apple — « Se connecter avec Apple ». Vérifie le jeton
+/// d'identité d'Apple ; si son e-mail figure dans `BROCOLIS_PRO_EMAILS`, le
+/// rattache à cet appareil (Pro offert). Sinon rien n'est conservé.
+async fn post_plan_apple(
+    db: web::Data<DatabaseConnection>,
+    apple: web::Data<AppleKeys>,
+    req: HttpRequest,
+    body: web::Json<AppleLinkBody>,
+) -> impl Responder {
+    let Some(user) = user_id(&req) else {
+        return HttpResponse::Unauthorized().body("x-user-id requis");
+    };
+    let email = match apple.verify(&body.identity_token, &apple_signin::expected_audience()).await {
+        Ok(email) => email,
+        Err(None) => {
+            return HttpResponse::ServiceUnavailable()
+                .json(serde_json::json!({ "error": "Apple injoignable, réessaie" }))
+        }
+        Err(Some(VerifyError::NoVerifiedEmail)) => {
+            return HttpResponse::UnprocessableEntity()
+                .json(serde_json::json!({ "error": "aucun e-mail vérifié dans le jeton Apple" }))
+        }
+        Err(Some(e)) => {
+            eprintln!("[plan/apple] jeton refusé : {e:?}");
+            return HttpResponse::Unauthorized()
+                .json(serde_json::json!({ "error": "jeton Apple invalide" }));
+        }
+    };
+    let emails = std::env::var("BROCOLIS_PRO_EMAILS").unwrap_or_default();
+    if !apple_signin::email_in_list(&emails, &email) {
+        return HttpResponse::Ok().json(serde_json::json!({ "tier": "free", "email": email }));
+    }
+    let saved = db
+        .execute(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "INSERT INTO plan_grants (user_id, email) VALUES ($1, $2) \
+             ON CONFLICT (user_id) DO UPDATE SET email = EXCLUDED.email, linked_at = now()",
+            [user.clone().into(), email.clone().into()],
+        ))
+        .await;
+    if let Err(e) = saved {
+        eprintln!("[plan/apple] enregistrement impossible : {e}");
+        return HttpResponse::InternalServerError().finish();
+    }
+    HttpResponse::Ok().json(serde_json::json!({ "tier": "pro", "email": email }))
+}
+
+/// DELETE /v1/plan/apple — détache l'e-mail de cet appareil.
+async fn delete_plan_apple(db: web::Data<DatabaseConnection>, req: HttpRequest) -> impl Responder {
+    let Some(user) = user_id(&req) else {
+        return HttpResponse::Unauthorized().body("x-user-id requis");
+    };
+    let _ = db
+        .execute(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "DELETE FROM plan_grants WHERE user_id = $1",
+            [user.clone().into()],
+        ))
+        .await;
+    let (tier, _) = granted_tier(&db, &user).await;
+    HttpResponse::Ok().json(serde_json::json!({ "tier": tier, "email": null }))
 }
 
 /// Horodatage ISO 8601 en UTC avec 'Z' (même forme que `Date.toISOString()`),
@@ -901,6 +999,13 @@ async fn ensure_schema(db: &DatabaseConnection) -> Result<(), sea_orm::DbErr> {
         -- Index clé : « les conversations de cet utilisateur » sans balayer la
         -- table entière. Indispensable dès que le nombre de conversations grandit.
         CREATE INDEX IF NOT EXISTS idx_members_user ON conversation_members(user_id);
+        -- Accès offerts par e-mail : appareil → e-mail Apple vérifié. Une
+        -- ligne n'existe que si l'e-mail figurait dans BROCOLIS_PRO_EMAILS.
+        CREATE TABLE IF NOT EXISTS plan_grants (
+            user_id   TEXT PRIMARY KEY,
+            email     TEXT NOT NULL,
+            linked_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
         "#,
     )
     .await
@@ -1013,6 +1118,8 @@ fn configure_api(cfg: &mut web::ServiceConfig) {
         .route("/v1/messages", web::get().to(get_messages))
         .route("/v1/read", web::post().to(post_read))
         .route("/v1/plan", web::get().to(get_plan))
+        .route("/v1/plan/apple", web::post().to(post_plan_apple))
+        .route("/v1/plan/apple", web::delete().to(delete_plan_apple))
         .route("/v1/stream", web::get().to(stream));
 }
 
@@ -1120,6 +1227,7 @@ async fn main() -> std::io::Result<()> {
     }
 
     let data = web::Data::new(db);
+    let apple_keys = web::Data::new(AppleKeys::default());
     let broadcaster = web::Data::new(Broadcaster::default());
 
     // Temps réel inter-dynos (Redis, optionnel) : rediffuse aux abonnés locaux.
@@ -1140,6 +1248,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(rdv.clone())
             .app_data(apns.clone())
             .app_data(realtime.clone())
+            .app_data(apple_keys.clone())
             .app_data(web::JsonConfig::default().limit(8 * 1024 * 1024)) // médias chiffrés
             .configure(configure_api);
         // Vitrine React (Vite/HashRouter) : servie À LA RACINE quand le bundle
@@ -1301,6 +1410,7 @@ mod integration {
                     .app_data(web::Data::new(Rendezvous::new(16)))
                     .app_data(web::Data::new(Option::<Apns>::None))
                     .app_data(web::Data::new(Realtime::disabled()))
+                    .app_data(web::Data::new(AppleKeys::default()))
                     .app_data(web::JsonConfig::default().limit(8 * 1024 * 1024))
                     .configure(configure_api),
             )
@@ -1337,6 +1447,68 @@ mod integration {
             let body: serde_json::Value = test::read_body_json(resp).await;
             body["seq"].as_i64().unwrap()
         }};
+    }
+
+    /// Accès offert par e-mail : un appareil rattaché à un e-mail Apple listé
+    /// dans `BROCOLIS_PRO_EMAILS` obtient Pro ; retirer l'e-mail de la liste ou
+    /// détacher l'appareil le retire. (La vérification du jeton Apple elle-même
+    /// est couverte par les tests de `apple_signin`.)
+    #[actix_web::test]
+    async fn plan_follows_the_linked_apple_email() {
+        let db = db_or_skip!();
+        let app = make_app!(db);
+        let user = format!("grant-{}", uuid::Uuid::new_v4());
+        db.execute(Statement::from_sql_and_values(
+            DbBackend::Postgres,
+            "INSERT INTO plan_grants (user_id, email) VALUES ($1, 'max@icloud.com')",
+            [user.clone().into()],
+        ))
+        .await
+        .unwrap();
+
+        macro_rules! plan {
+            () => {{
+                let req = test::TestRequest::get()
+                    .uri("/v1/plan")
+                    .insert_header(("X-User-Id", user.as_str()))
+                    .to_request();
+                let v: serde_json::Value = test::call_and_read_body_json(&app, req).await;
+                v
+            }};
+        }
+
+        // Seul ce test lit ou écrit BROCOLIS_PRO_EMAILS.
+        std::env::set_var("BROCOLIS_PRO_EMAILS", "ami@exemple.fr, Max@iCloud.com");
+        let v = plan!();
+        assert_eq!(v["tier"], "pro");
+        assert_eq!(v["email"], "max@icloud.com");
+
+        std::env::set_var("BROCOLIS_PRO_EMAILS", "ami@exemple.fr");
+        assert_eq!(plan!()["tier"], "free", "retiré de la liste = plus de Pro");
+
+        std::env::set_var("BROCOLIS_PRO_EMAILS", "max@icloud.com");
+        let req = test::TestRequest::delete()
+            .uri("/v1/plan/apple")
+            .insert_header(("X-User-Id", user.as_str()))
+            .to_request();
+        let v: serde_json::Value = test::call_and_read_body_json(&app, req).await;
+        assert_eq!(v["tier"], "free", "appareil détaché");
+        assert_eq!(plan!()["email"], serde_json::Value::Null);
+        std::env::remove_var("BROCOLIS_PRO_EMAILS");
+    }
+
+    /// Un jeton Apple illisible est refusé (401) sans rien enregistrer.
+    #[actix_web::test]
+    async fn plan_apple_rejects_a_bogus_token() {
+        let db = db_or_skip!();
+        let app = make_app!(db);
+        let req = test::TestRequest::post()
+            .uri("/v1/plan/apple")
+            .insert_header(("X-User-Id", "bogus-token-user"))
+            .set_json(json!({ "identityToken": "pas-un-jeton" }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 401);
     }
 
     #[actix_web::test]

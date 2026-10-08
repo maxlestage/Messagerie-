@@ -408,22 +408,72 @@ struct BrocolisMessagingClient {
         return (page.messages, page.cursor, page.readers ?? [:])
     }
 
-    /// GET /v1/plan — le nom du palier OFFERT par le serveur à cet appareil
-    /// (liste `BROCOLIS_PRO_IDS`). Renvoie la chaîne telle quelle : ce fichier
-    /// est aussi compilé par l'app montre, qui ignore tout des paliers
-    /// tarifaires. C'est à l'appelant de la traduire.
+    /// Accès offert par le serveur à cet appareil : le nom du palier (chaîne
+    /// brute : ce fichier est aussi compilé par l'app montre, qui ignore tout
+    /// des paliers tarifaires) et l'e-mail Apple rattaché, s'il y en a un.
+    struct GrantStatus: Equatable {
+        let tierName: String
+        let email: String?
+    }
+
+    /// Échec de « Se connecter avec Apple » côté serveur.
+    enum GrantLinkError: Error, Equatable {
+        case unreachable      // réseau ou Apple injoignable : réessayer
+        case noVerifiedEmail  // Apple n'a pas fourni d'e-mail vérifié
+        case rejected         // jeton refusé
+    }
+
+    private func grantStatus(from data: Data) -> GrantStatus? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let tier = json["tier"] as? String else { return nil }
+        return GrantStatus(tierName: tier, email: json["email"] as? String)
+    }
+
+    /// GET /v1/plan — accès offert (`BROCOLIS_PRO_IDS` ou e-mail Apple listé
+    /// dans `BROCOLIS_PRO_EMAILS`).
     ///
     /// `nil` si le serveur est injoignable ou répond autre chose : l'appelant
     /// garde alors la dernière valeur connue, plutôt que de retirer un accès
     /// pour une coupure réseau.
-    func fetchGrantedTierName() async -> String? {
+    func fetchGrant() async -> GrantStatus? {
         var req = URLRequest(url: baseURL.appendingPathComponent("v1/plan"))
         req.setValue(deviceId, forHTTPHeaderField: "X-User-Id")
         guard let (data, resp) = try? await URLSession.shared.data(for: req),
-              let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+              let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode)
         else { return nil }
-        return json["tier"] as? String
+        return grantStatus(from: data)
+    }
+
+    /// POST /v1/plan/apple — envoie le jeton d'identité reçu de « Se connecter
+    /// avec Apple ». Le serveur vérifie la signature d'Apple et, si l'e-mail
+    /// est dans sa liste, rattache l'accès offert à cet appareil.
+    func linkAppleIdentity(_ identityToken: String) async -> Result<GrantStatus, GrantLinkError> {
+        var req = URLRequest(url: baseURL.appendingPathComponent("v1/plan/apple"))
+        req.httpMethod = "POST"
+        req.setValue(deviceId, forHTTPHeaderField: "X-User-Id")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["identityToken": identityToken])
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              let http = resp as? HTTPURLResponse
+        else { return .failure(.unreachable) }
+        switch http.statusCode {
+        case 200..<300:
+            return grantStatus(from: data).map { .success($0) } ?? .failure(.unreachable)
+        case 422: return .failure(.noVerifiedEmail)
+        case 401: return .failure(.rejected)
+        default:  return .failure(.unreachable)
+        }
+    }
+
+    /// DELETE /v1/plan/apple — détache l'e-mail Apple de cet appareil.
+    func unlinkApple() async -> GrantStatus? {
+        var req = URLRequest(url: baseURL.appendingPathComponent("v1/plan/apple"))
+        req.httpMethod = "DELETE"
+        req.setValue(deviceId, forHTTPHeaderField: "X-User-Id")
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode)
+        else { return nil }
+        return grantStatus(from: data)
     }
 
     /// Accusé de lecture : signale qu'on a lu jusqu'à `upTo`.
