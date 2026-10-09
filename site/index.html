@@ -55,7 +55,16 @@
     <link data-trunk rel="copy-file" href="../README.md" />
   </head>
   <body>
-    <div id="splash" class="splash" aria-hidden="true">🥦</div>
+    <!-- Rideau d'ouverture : la marque se trace pendant que le WebAssembly se
+         charge ; fx::lift_curtain le lève une fois l'app montée. -->
+    <div id="splash" class="curtain" aria-hidden="true">
+      <svg class="curtain-mark" viewBox="0 0 600 160">
+        <text x="300" y="80" text-anchor="middle" dominant-baseline="central">Brocolis</text>
+      </svg>
+      <div class="curtain-count"><span class="curtain-n"></span><i>%</i></div>
+    </div>
+    <div class="grain" aria-hidden="true"></div>
+    <div id="app"></div>
     <noscript>
       <p style="padding:24px;text-align:center">
         Brocolis 🥦 messageries — ce site a besoin de JavaScript / WebAssembly.
