@@ -70,9 +70,11 @@ pub fn app() -> Html {
 fn shell() -> Html {
     let route = use_route::<Route>();
 
-    // À chaque changement de page, on repart du haut.
+    // À chaque changement de page, on repart du haut, et les nouveaux
+    // éléments `.reveal` apparaîtront à leur entrée à l'écran.
     use_effect_with(route, |_| {
         gloo::utils::window().scroll_to_with_x_and_y(0.0, 0.0);
+        Timeout::new(30, crate::fx::observe_reveals).forget();
     });
 
     html! {

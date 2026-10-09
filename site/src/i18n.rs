@@ -65,6 +65,14 @@ macro_rules! tagline {
 
 #[rustfmt::skip]
 const FR: &[(&str, &str)] = &[
+    ("film.label", "Comment ça marche"),
+    ("film.hint", "Fais défiler ↓"),
+    ("film.s0", "Un secret, ça se garde."),
+    ("film.s1", "Tu écris ton message, comme d'habitude."),
+    ("film.s2", "Brocolis le chiffre avant qu'il parte. L'app ne voit que ça."),
+    ("film.s3", "La clé ne quitte jamais vos deux téléphones."),
+    ("film.s4", "Et la conversation te suit jusqu'au poignet."),
+    ("film.s5", "Brocolis. Chiffré à la carte."),
     ("meta.title", "Brocolis 🥦 messageries — chiffrement sélectif"),
     ("meta.desc", "Brocolis messageries : ajoute le chiffrement sélectif de brocolis à tes apps de messagerie iOS via une extension de partage. Appairage X25519, clé de groupe, expiration."),
     ("meta.ogTitle", "Brocolis 🥦 messageries"),
@@ -209,6 +217,14 @@ UTILISATION À VOS PROPRES RISQUES."),
 
 #[rustfmt::skip]
 const EN: &[(&str, &str)] = &[
+    ("film.label", "How it works"),
+    ("film.hint", "Scroll ↓"),
+    ("film.s0", "A secret should stay one."),
+    ("film.s1", "You type your message, as usual."),
+    ("film.s2", "Brocolis encrypts it before it leaves. The app only sees this."),
+    ("film.s3", "The key never leaves your two phones."),
+    ("film.s4", "And the conversation follows you to your wrist."),
+    ("film.s5", "Brocolis. Encrypted your way."),
     ("meta.title", "Brocolis 🥦 messaging — selective encryption"),
     ("meta.desc", "Brocolis messaging: adds brocolis selective encryption to your iOS messaging apps via a share extension. X25519 pairing, group key, expiry."),
     ("meta.ogTitle", "Brocolis 🥦 messaging"),
@@ -351,6 +367,14 @@ SOFTWARE. USE AT YOUR OWN RISK."),
 
 #[rustfmt::skip]
 const ES: &[(&str, &str)] = &[
+    ("film.label", "Cómo funciona"),
+    ("film.hint", "Desplázate ↓"),
+    ("film.s0", "Un secreto, se guarda."),
+    ("film.s1", "Escribes tu mensaje, como siempre."),
+    ("film.s2", "Brocolis lo cifra antes de salir. La app solo ve esto."),
+    ("film.s3", "La clave nunca sale de vuestros dos teléfonos."),
+    ("film.s4", "Y la conversación te sigue hasta la muñeca."),
+    ("film.s5", "Brocolis. Cifrado a la carta."),
     ("meta.title", "Brocolis 🥦 mensajería — cifrado selectivo"),
     ("meta.desc", "Brocolis mensajería: añade el cifrado selectivo de brocolis a tus apps de mensajería iOS mediante una extensión de compartir. Emparejamiento X25519, clave de grupo, caducidad."),
     ("meta.ogTitle", "Brocolis 🥦 mensajería"),
