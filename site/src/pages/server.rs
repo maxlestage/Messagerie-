@@ -81,49 +81,51 @@ pub fn server_page() -> Html {
     };
 
     html! {
-        <section class="legal server-page">
-            <h1>{ prefs.t("server.title") }{ " 🛰️" }</h1>
-            <p class="lead">{ prefs.t("server.note") }</p>
+        <div class="container">
+            <section class="legal server-page">
+                <h1>{ prefs.t("server.title") }{ " 🛰️" }</h1>
+                <p class="lead">{ prefs.t("server.note") }</p>
 
-            <div class="panel server-card">
-                <div class="server-row">
-                    <strong>{ prefs.t("server.status") }</strong>
-                    <span class={classes!("server-status", class)} role="status" aria-live="polite">
-                        <span class="server-dot" aria-hidden="true" />
-                        { label }
-                        if let Status::Online(ms) = *status {
-                            <em>{ format!(" — {} {ms} ms", prefs.t("server.latency")) }</em>
-                        }
-                    </span>
+                <div class="panel server-card">
+                    <div class="server-row">
+                        <strong>{ prefs.t("server.status") }</strong>
+                        <span class={classes!("server-status", class)} role="status" aria-live="polite">
+                            <span class="server-dot" aria-hidden="true" />
+                            { label }
+                            if let Status::Online(ms) = *status {
+                                <em>{ format!(" — {} {ms} ms", prefs.t("server.latency")) }</em>
+                            }
+                        </span>
+                    </div>
+                    <div class="server-row">
+                        <strong>{ prefs.t("server.address") }</strong>
+                        <code class="server-url">{ (*base).clone() }</code>
+                    </div>
+                    <div class="cta">
+                        <a class="btn primary" href={(*base).clone()} target="_blank" rel="noopener noreferrer">
+                            { prefs.t("server.open") }
+                        </a>
+                        <button type="button" class="btn" disabled={*status == Status::Checking}
+                                onclick={check.reform(|_: MouseEvent| ())}>
+                            { prefs.t("server.recheck") }
+                        </button>
+                    </div>
                 </div>
-                <div class="server-row">
-                    <strong>{ prefs.t("server.address") }</strong>
-                    <code class="server-url">{ (*base).clone() }</code>
-                </div>
-                <div class="cta">
-                    <a class="btn primary" href={(*base).clone()} target="_blank" rel="noopener noreferrer">
-                        { prefs.t("server.open") }
-                    </a>
-                    <button type="button" class="btn" disabled={*status == Status::Checking}
-                            onclick={check.reform(|_: MouseEvent| ())}>
-                        { prefs.t("server.recheck") }
-                    </button>
-                </div>
-            </div>
 
-            <h2>{ prefs.t("server.api") }</h2>
-            <ul class="endpoints">
-                { for ENDPOINTS.iter().map(|(method, path, key)| html! {
-                    <li>
-                        <code class="method">{ *method }</code>
-                        <code class="path">{ *path }</code>
-                        <span>{ prefs.t(key) }</span>
-                    </li>
-                }) }
-            </ul>
-            <p class="legal-note">{ prefs.t("server.privacy") }</p>
+                <h2>{ prefs.t("server.api") }</h2>
+                <ul class="endpoints">
+                    { for ENDPOINTS.iter().map(|(method, path, key)| html! {
+                        <li>
+                            <code class="method">{ *method }</code>
+                            <code class="path">{ *path }</code>
+                            <span>{ prefs.t(key) }</span>
+                        </li>
+                    }) }
+                </ul>
+                <p class="legal-note">{ prefs.t("server.privacy") }</p>
 
-            <p><Link<Route> to={Route::Home} classes="back">{ prefs.t("back") }</Link<Route>></p>
-        </section>
+                <p><Link<Route> to={Route::Home} classes="back">{ prefs.t("back") }</Link<Route>></p>
+            </section>
+        </div>
     }
 }
