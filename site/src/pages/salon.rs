@@ -117,77 +117,79 @@ pub fn salon_page() -> Html {
     let steps = ["salon.step1", "salon.step2", "salon.step3", "salon.step4"];
 
     html! {
-        <section class="legal salon-page">
-            <h1>{ prefs.t("salon.title") }{ " 🤝" }</h1>
-            <p class="lead">{ prefs.t("salon.intro") }</p>
+        <div class="container">
+            <section class="legal salon-page">
+                <h1>{ prefs.t("salon.title") }{ " 🤝" }</h1>
+                <p class="lead">{ prefs.t("salon.intro") }</p>
 
-            <h2>{ prefs.t("salon.howTitle") }</h2>
-            <ol class="steps">
-                { for steps.iter().map(|s| html! { <li>{ prefs.t(s) }</li> }) }
-            </ol>
-            <p class="callout">{ "🔑 " }{ prefs.t("salon.fingerprint") }</p>
+                <h2>{ prefs.t("salon.howTitle") }</h2>
+                <ol class="steps">
+                    { for steps.iter().map(|s| html! { <li>{ prefs.t(s) }</li> }) }
+                </ol>
+                <p class="callout">{ "🔑 " }{ prefs.t("salon.fingerprint") }</p>
 
-            <h2>{ prefs.t("salon.roomTitle") }</h2>
-            <p class="legal-note">{ prefs.t("salon.roomNote") }</p>
+                <h2>{ prefs.t("salon.roomTitle") }</h2>
+                <p class="legal-note">{ prefs.t("salon.roomNote") }</p>
 
-            <form class="salon-form" {onsubmit}>
-                <label for="salon-code">{ prefs.t("salon.codeLabel") }</label>
-                <div class="salon-row">
-                    <input
-                        id="salon-code"
-                        class="input"
-                        inputmode="text"
-                        autocomplete="off"
-                        placeholder={prefs.t("salon.codePlaceholder")}
-                        value={(*code).clone()}
-                        {oninput}
-                    />
-                    <button type="submit" class="btn primary" disabled={code.trim().is_empty()}>
-                        { prefs.t("salon.view") }
-                    </button>
-                </div>
-            </form>
+                <form class="salon-form" {onsubmit}>
+                    <label for="salon-code">{ prefs.t("salon.codeLabel") }</label>
+                    <div class="salon-row">
+                        <input
+                            id="salon-code"
+                            class="input"
+                            inputmode="text"
+                            autocomplete="off"
+                            placeholder={prefs.t("salon.codePlaceholder")}
+                            value={(*code).clone()}
+                            {oninput}
+                        />
+                        <button type="submit" class="btn primary" disabled={code.trim().is_empty()}>
+                            { prefs.t("salon.view") }
+                        </button>
+                    </div>
+                </form>
 
-            if let Some(c) = (*active).clone() {
-                <div class="panel salon-room" aria-live="polite">
-                    <p class="salon-room-head">
-                        <strong>{ prefs.t("salon.peers") }</strong>
-                        <code class="code-badge">{ c }</code>
-                        if *refreshing {
-                            <em class="salon-refreshing">{ prefs.t("salon.refreshing") }</em>
+                if let Some(c) = (*active).clone() {
+                    <div class="panel salon-room" aria-live="polite">
+                        <p class="salon-room-head">
+                            <strong>{ prefs.t("salon.peers") }</strong>
+                            <code class="code-badge">{ c }</code>
+                            if *refreshing {
+                                <em class="salon-refreshing">{ prefs.t("salon.refreshing") }</em>
+                            }
+                        </p>
+                        {
+                            match &*room {
+                                Room::Loading => html! {},
+                                Room::Unreachable => html! {
+                                    <div class="salon-error">
+                                        <strong>{ prefs.t("salon.errorTitle") }</strong>
+                                        <p>{ prefs.t("salon.errorCors") }</p>
+                                    </div>
+                                },
+                                Room::Peers(peers) if peers.is_empty() => html! {
+                                    <p class="salon-empty">{ prefs.t("salon.empty") }</p>
+                                },
+                                Room::Peers(peers) => html! {
+                                    <ul class="salon-peers">
+                                        { for peers.iter().map(|p| html! {
+                                            <li key={p.peer_id.clone()}>
+                                                <span class="salon-peer-id">{ "🥦 " }{ &p.peer_id }</span>
+                                                <code class="salon-peer-pub" title={p.public_key.clone()}>
+                                                    { format!("{}: {}", prefs.t("salon.pub"), short_key(&p.public_key)) }
+                                                </code>
+                                            </li>
+                                        }) }
+                                    </ul>
+                                },
+                            }
                         }
-                    </p>
-                    {
-                        match &*room {
-                            Room::Loading => html! {},
-                            Room::Unreachable => html! {
-                                <div class="salon-error">
-                                    <strong>{ prefs.t("salon.errorTitle") }</strong>
-                                    <p>{ prefs.t("salon.errorCors") }</p>
-                                </div>
-                            },
-                            Room::Peers(peers) if peers.is_empty() => html! {
-                                <p class="salon-empty">{ prefs.t("salon.empty") }</p>
-                            },
-                            Room::Peers(peers) => html! {
-                                <ul class="salon-peers">
-                                    { for peers.iter().map(|p| html! {
-                                        <li key={p.peer_id.clone()}>
-                                            <span class="salon-peer-id">{ "🥦 " }{ &p.peer_id }</span>
-                                            <code class="salon-peer-pub" title={p.public_key.clone()}>
-                                                { format!("{}: {}", prefs.t("salon.pub"), short_key(&p.public_key)) }
-                                            </code>
-                                        </li>
-                                    }) }
-                                </ul>
-                            },
-                        }
-                    }
-                </div>
-            }
+                    </div>
+                }
 
-            <p class="legal-note">{ prefs.t("salon.privacy") }</p>
-            <p><Link<Route> to={Route::Home} classes="back">{ prefs.t("back") }</Link<Route>></p>
-        </section>
+                <p class="legal-note">{ prefs.t("salon.privacy") }</p>
+                <p><Link<Route> to={Route::Home} classes="back">{ prefs.t("back") }</Link<Route>></p>
+            </section>
+        </div>
     }
 }
