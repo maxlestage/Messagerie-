@@ -130,22 +130,218 @@ button, input { font: inherit; }
   flex: 1;
   width: 100%;
   min-width: 0;
+}
+/* Colonne de contenu ; le film, lui, occupe toute la largeur. */
+.container {
+  width: 100%;
+  min-width: 0;
   max-width: var(--maxw);
   margin: 0 auto;
   padding: 0 max(var(--gutter), env(safe-area-inset-left)) 0 max(var(--gutter), env(safe-area-inset-right));
 }
 
-/* Écran d'attente pendant le chargement du WebAssembly */
-.splash {
+/* ---------- Rideau d'ouverture (posé dans index.html) ----------
+   La marque se trace pendant que le WebAssembly se charge, un compteur monte
+   jusqu'à 100 %, puis le rideau remonte. */
+@property --p { syntax: "<integer>"; inherits: false; initial-value: 0; }
+.curtain {
   position: fixed;
   inset: 0;
+  z-index: 10000;
   display: grid;
   place-items: center;
-  font-size: 56px;
-  background: var(--bg);
-  animation: splash-pulse 1.2s ease-in-out infinite;
+  background: #070b08;
+  color: #eef6ef;
+  clip-path: inset(0 0 0 0);
+  transition: clip-path 0.85s cubic-bezier(0.76, 0, 0.24, 1);
 }
-@keyframes splash-pulse { 50% { transform: scale(1.12); } }
+.curtain.done { clip-path: inset(0 0 100% 0); }
+.curtain-mark { width: min(78vw, 520px); height: auto; overflow: visible; }
+.curtain-mark text {
+  font: 850 118px/1 var(--font);
+  letter-spacing: -4px;
+  fill: transparent;
+  stroke: #6fd98a;
+  stroke-width: 1.6px;
+  stroke-dasharray: 1100;
+  stroke-dashoffset: 1100;
+  animation: trace 1.5s cubic-bezier(0.6, 0, 0.3, 1) forwards, fill-in 0.5s 1.2s ease forwards;
+}
+@keyframes trace { to { stroke-dashoffset: 0; } }
+@keyframes fill-in { to { fill: #eef6ef; stroke: transparent; } }
+.curtain-count {
+  position: absolute;
+  right: max(24px, env(safe-area-inset-right));
+  bottom: max(20px, env(safe-area-inset-bottom));
+  font: 300 clamp(56px, 14vw, 104px)/1 var(--font);
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+}
+.curtain-count i { font-style: normal; font-size: 0.3em; color: #b6f07a; margin-left: 4px; }
+.curtain-n { --p: 0; counter-reset: p var(--p); animation: count 1.3s cubic-bezier(0.3, 0.6, 0.2, 1) forwards; }
+.curtain-n::after { content: counter(p); }
+@keyframes count { to { --p: 100; } }
+
+/* ---------- Grain de pellicule, sur toute la page ---------- */
+.grain {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  overflow: hidden;
+  pointer-events: none;
+}
+.grain::before {
+  content: "";
+  position: absolute;
+  inset: -100%;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .5 0 0 0 0 .5 0 0 0 0 .5 0 0 0 1 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: 0.055;
+  animation: grain 0.9s steps(5) infinite;
+}
+:root[data-theme="dark"] .grain::before { opacity: 0.08; }
+@keyframes grain {
+  0% { transform: translate(0, 0); }
+  20% { transform: translate(-6%, 4%); }
+  40% { transform: translate(5%, -7%); }
+  60% { transform: translate(-3%, 8%); }
+  80% { transform: translate(7%, 2%); }
+  100% { transform: translate(0, 0); }
+}
+
+/* ---------- Curseur et boutons aimantés (souris seulement) ---------- */
+.cursor {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 9999;
+  width: 34px;
+  height: 34px;
+  margin: -17px 0 0 -17px;
+  border: 1.5px solid var(--brand);
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0;
+  transition: transform 0.2s cubic-bezier(0.2, 0.7, 0.1, 1), width 0.3s, height 0.3s,
+    margin 0.3s, background-color 0.3s, opacity 0.3s;
+}
+.cursor.live { opacity: 1; }
+.cursor.hover {
+  width: 62px;
+  height: 62px;
+  margin: -31px 0 0 -31px;
+  background: color-mix(in srgb, var(--brand) 14%, transparent);
+}
+
+/* ---------- Apparitions ---------- */
+/* Au défilement : les éléments .reveal montent en se dévoilant. */
+.reveal {
+  opacity: 0;
+  transform: translateY(28px);
+  transition: opacity 0.8s cubic-bezier(0.2, 0.7, 0.1, 1), transform 0.8s cubic-bezier(0.2, 0.7, 0.1, 1);
+  transition-delay: calc(var(--d, 0) * 90ms);
+}
+.reveal.in { opacity: 1; transform: none; }
+/* Au lever du rideau : le titre monte mot par mot, puis le reste du héros. */
+.w { display: inline-block; overflow: hidden; vertical-align: bottom; padding-bottom: 0.1em; margin-bottom: -0.1em; }
+.w > span { display: inline-block; transform: translateY(110%); }
+.rise { opacity: 0; transform: translateY(18px); }
+html.ready .w > span { animation: rise-in 1s calc(0.1s + var(--i, 0) * 70ms) cubic-bezier(0.2, 0.7, 0.1, 1) forwards; }
+html.ready .rise { animation: fade-up 0.9s calc(0.25s + var(--i, 0) * 70ms) cubic-bezier(0.2, 0.7, 0.1, 1) forwards; }
+@keyframes rise-in { to { transform: none; } }
+@keyframes fade-up { to { opacity: 1; transform: none; } }
+
+/* ---------- Film de grains ---------- */
+.film {
+  --film-bg: #060a07;
+  position: relative;
+  height: calc(var(--stations, 6) * 92svh);
+  background: var(--film-bg);
+  color: #eef6ef;
+}
+.film-stage {
+  position: sticky;
+  top: 0;
+  height: 100svh;
+  overflow: hidden;
+  background:
+    radial-gradient(60% 45% at 50% 40%, rgba(76, 198, 106, 0.1), transparent 70%),
+    var(--film-bg);
+}
+.film-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.film-fallback { display: none; }
+.film-captions {
+  position: absolute;
+  left: max(var(--gutter), env(safe-area-inset-left));
+  right: max(var(--gutter), env(safe-area-inset-right));
+  bottom: max(11svh, 72px);
+  height: 3.2em;
+  font-size: clamp(1.3rem, 5.4vw, 2.6rem);
+  text-align: center;
+}
+.film-line {
+  position: absolute;
+  inset: auto 0 0;
+  margin: 0 auto;
+  max-width: 820px;
+  font-weight: 760;
+  letter-spacing: -0.03em;
+  line-height: 1.12;
+  text-wrap: balance;
+  opacity: 0;
+  transform: translateY(26px);
+  filter: blur(10px);
+  transition: opacity 0.6s ease, transform 0.7s cubic-bezier(0.2, 0.7, 0.1, 1), filter 0.6s ease;
+}
+.film-line.on { opacity: 1; transform: none; filter: none; }
+.film-count {
+  position: absolute;
+  right: max(var(--gutter), env(safe-area-inset-right));
+  bottom: max(18px, env(safe-area-inset-bottom));
+  margin: 0;
+  font: 600 13px/1 var(--mono);
+  color: rgba(238, 246, 239, 0.5);
+  letter-spacing: 0.08em;
+}
+.film-count b { color: #b6f07a; }
+.film-hint {
+  position: absolute;
+  left: max(var(--gutter), env(safe-area-inset-left));
+  bottom: max(18px, env(safe-area-inset-bottom));
+  margin: 0;
+  font: 600 13px/1 var(--font);
+  color: rgba(238, 246, 239, 0.5);
+  transition: opacity 0.4s;
+  animation: nudge 1.8s ease-in-out infinite;
+}
+.film:not(:has([data-station="0"].on)) .film-hint { opacity: 0; }
+@keyframes nudge { 50% { transform: translateY(4px); } }
+/* La barre de navigation passe en sombre quand elle survole le film. */
+html.over-film .navbar {
+  background: rgba(6, 10, 7, 0.55);
+  border-bottom-color: rgba(238, 246, 239, 0.08);
+  box-shadow: none;
+}
+html.over-film .nav-brand,
+html.over-film .navbar .nav-links a { color: #eef6ef; }
+html.over-film .nav-brand-sub { color: rgba(238, 246, 239, 0.6); }
+html.over-film .nav-toggle { background: rgba(238, 246, 239, 0.08); border-color: rgba(238, 246, 239, 0.18); }
+html.over-film .nav-toggle span { background: #eef6ef; }
+html.over-film .switcher { background: rgba(238, 246, 239, 0.06); border-color: rgba(238, 246, 239, 0.16); }
+html.over-film .pill { color: rgba(238, 246, 239, 0.7); }
+html.over-film .pill.active { color: var(--brand-ink); }
+/* Le tiroir mobile garde ses couleurs claires, même au-dessus du film. */
+@media (max-width: 1179px) {
+  html.over-film .navbar .nav-drawer .nav-links a { color: var(--ink); }
+  html.over-film .nav-drawer .switcher { background: var(--bg-elev); border-color: var(--border); }
+  html.over-film .nav-drawer .pill { color: var(--muted); }
+}
+/* Sans WebGL : les phrases s'affichent simplement, l'une sous l'autre. */
+.film.no-gl { height: auto; }
+.film.no-gl .film-stage { position: relative; height: auto; padding: 56px max(var(--gutter), env(safe-area-inset-left)); }
+.film.no-gl .film-canvas, .film.no-gl .film-count, .film.no-gl .film-hint { display: none; }
+.film.no-gl .film-fallback { display: block; font-size: 72px; text-align: center; margin-bottom: 18px; }
+.film.no-gl .film-captions { position: static; height: auto; }
+.film.no-gl .film-line { position: static; opacity: 1; transform: none; filter: none; margin-bottom: 0.8em; }
 
 /* ---------- Barre de navigation ---------- */
 .navbar {
@@ -282,7 +478,7 @@ button, input { font: inherit; }
 /* ---------- Héros ---------- */
 .hero {
   position: relative;
-  /* Pleine largeur : déborde exactement de la gouttière de .page, donc
+  /* Pleine largeur : déborde exactement de la gouttière de .container, donc
      jamais au-delà de l'écran. */
   margin: 0 calc(-1 * var(--gutter));
   padding: 36px var(--gutter) 32px;
@@ -333,7 +529,8 @@ button, input { font: inherit; }
   font-weight: 850;
   text-wrap: balance;
 }
-.accent {
+.accent,
+.accent .w > span {
   background: linear-gradient(100deg, var(--brand) 10%, var(--accent) 90%);
   -webkit-background-clip: text;
   background-clip: text;
@@ -361,10 +558,11 @@ button, input { font: inherit; }
   text-decoration: none;
   cursor: pointer;
   box-shadow: var(--shadow);
-  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+  transform: translate(var(--mx, 0px), var(--my, 0px));
+  transition: transform 0.35s cubic-bezier(0.2, 0.7, 0.1, 1), box-shadow 0.15s ease, background 0.15s ease;
 }
-.btn:hover { transform: translateY(-1px); box-shadow: var(--shadow-lg); }
-.btn:active { transform: translateY(0); }
+.btn:hover { transform: translate(var(--mx, 0px), calc(var(--my, 0px) - 1px)); box-shadow: var(--shadow-lg); }
+.btn:active { transform: translate(var(--mx, 0px), var(--my, 0px)) scale(0.98); }
 .btn:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
 .btn.primary {
   border-color: transparent;
@@ -789,5 +987,9 @@ button, input { font: inherit; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
+  .w > span, .rise, .reveal { opacity: 1; transform: none; }
+  .curtain-mark text { fill: #eef6ef; stroke: transparent; }
+  .curtain-n::after { content: "100"; }
+  .grain { display: none; }
   html { scroll-behavior: auto; }
 }
