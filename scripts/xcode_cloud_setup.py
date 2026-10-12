@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Règle Xcode Cloud via l'API App Store Connect (clé ASC_* des secrets GitHub).
 
-Tout workflow Xcode Cloud qui ARCHIVE à chaque poussée devient « … Release »
-à démarrage MANUEL : plus de livraison TestFlight en double (GitHub s'en
-charge en 10000+), plus d'e-mail d'échec, et le workflow reste disponible
-pour sortir une version (ci_post_clone.sh autorise l'archive d'un workflow
-« Release »).
+Tout workflow Xcode Cloud qui ARCHIVE est DÉSACTIVÉ : la seule livraison
+TestFlight est celle de GitHub Actions (10000+). Le passage en démarrage
+manuel ne suffisait pas (Xcode Cloud lançait encore un build par poussée).
+Pour le réactiver un jour : App Store Connect → Xcode Cloud → le workflow →
+Enable, avec BROCOLIS_XCODE_CLOUD_UPLOAD=1 dans ses variables.
 """
 import json
 import os
@@ -67,19 +67,14 @@ def main():
 
     for wf in workflows:
         a = wf["attributes"]
-        auto = any(a.get(k) for k in ("branchStartCondition", "pullRequestStartCondition",
-                                      "tagStartCondition", "scheduledStartCondition"))
-        archives = any(x.get("actionType") == "ARCHIVE" for x in a.get("actions") or [])
-        if not (auto and archives):
+        print("  détail des démarrages :", json.dumps(
+            {k: v for k, v in a.items() if k.endswith("StartCondition")}, ensure_ascii=False))
+        if not any(x.get("actionType") == "ARCHIVE" for x in a.get("actions") or []):
             continue
-        name = a["name"] if "release" in a["name"].lower() else f"{a['name']} Release"
+        name = a["name"].replace(" Release", "").strip() or "Default"
         body = {"data": {"type": "ciWorkflows", "id": wf["id"], "attributes": {
             "name": name[:100],
-            "branchStartCondition": None,
-            "pullRequestStartCondition": None,
-            "tagStartCondition": None,
-            "scheduledStartCondition": None,
-            "manualBranchStartCondition": {"source": {"isAllMatch": True}},
+            "isEnabled": False,
         }}}
         print("  après :", summary(call("PATCH", f"/v1/ciWorkflows/{wf['id']}", body)["data"]))
 
