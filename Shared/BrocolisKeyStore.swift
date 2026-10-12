@@ -579,6 +579,49 @@ enum BrocolisKeyboardPrefs {
         set { d?.set(newValue, forKey: "kb_double_space") }
     }
 
+    enum Theme: Int, CaseIterable, Identifiable {
+        case system, brocoli, light, dark
+        var id: Int { rawValue }
+        var title: String {
+            switch self {
+            case .system: return loc("Système", "System", "Sistema")
+            case .brocoli: return loc("Brocoli 🥦", "Broccoli 🥦", "Brócoli 🥦")
+            case .light: return loc("Clair", "Light", "Claro")
+            case .dark: return loc("Sombre", "Dark", "Oscuro")
+            }
+        }
+    }
+
+    static var theme: Theme {
+        get { Theme(rawValue: int("kb_theme", Theme.system.rawValue)) ?? .system }
+        set { d?.set(newValue.rawValue, forKey: "kb_theme") }
+    }
+
+    /// Glisser sur la barre d'espace déplace le curseur.
+    static var spaceCursor: Bool {
+        get { bool("kb_space_cursor", true) }
+        set { d?.set(newValue, forKey: "kb_space_cursor") }
+    }
+
+    /// Appui long sur une lettre → ses accents (e → é è ê ë…).
+    static var longPressAccents: Bool {
+        get { bool("kb_long_accents", true) }
+        set { d?.set(newValue, forKey: "kb_long_accents") }
+    }
+
+    /// Touche 😀 (page d'emojis) sur la rangée du bas.
+    static var emojiKey: Bool {
+        get { bool("kb_emoji", true) }
+        set { d?.set(newValue, forKey: "kb_emoji") }
+    }
+
+    /// Le menu ⚙️ du clavier fait défiler chaque réglage à la valeur suivante.
+    static func cycle<T: CaseIterable & Equatable>(_ value: T) -> T {
+        let all = Array(T.allCases)
+        let i = all.firstIndex(of: value) ?? 0
+        return all[(i + 1) % all.count]
+    }
+
     /// Accents (é è / ê â / û ü) sur la rangée du bas.
     static var accentKeys: Bool {
         get { bool("kb_accents", true) }

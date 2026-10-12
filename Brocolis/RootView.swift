@@ -111,6 +111,16 @@ struct RootView: View {
             // de renouvellement — sans quitter l'app.
             .manageSubscriptionsSheet(isPresented: $showManageSubscription)
             .navigationTitle("Brocolis 🥦")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    NavigationLink {
+                        KeyboardHubView()
+                    } label: {
+                        Image(systemName: "keyboard")
+                    }
+                    .accessibilityLabel(loc("Clavier", "Keyboard", "Teclado"))
+                }
+            }
             .onAppear {
                 purgeIfNeeded()
                 Task { await BrocolisPush.subscribeLiveActivity() }
@@ -335,22 +345,27 @@ struct RootView: View {
 
     private var keyboardSection: some View {
         Section {
-            Button {
-                if let url = URL(string: UIApplication.openSettingsURLString) {
-                    UIApplication.shared.open(url)
-                }
-            } label: {
-                Label(loc("Activer le clavier Brocolis 🥦", "Enable the Brocolis 🥦 keyboard", "Activar el teclado Brocolis 🥦"), systemImage: "keyboard")
-            }
             NavigationLink {
-                KeyboardPrefsView()
+                KeyboardHubView()
             } label: {
-                Label(loc("Réglages du clavier", "Keyboard settings", "Ajustes del teclado"), systemImage: "slider.horizontal.3")
+                Label {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(loc("Clavier Brocolis 🥦", "Brocolis 🥦 keyboard", "Teclado Brocolis 🥦"))
+                            .font(.headline)
+                        Text(KeyboardHubView.isInstalled()
+                             ? loc("Ajouté · vibrations, thème, disposition…", "Added · haptics, theme, layout…", "Añadido · vibración, tema, distribución…")
+                             : loc("À ajouter · installation et réglages", "To add · setup and settings", "Por añadir · instalación y ajustes"))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "keyboard")
+                }
             }
         } header: {
             Text(loc("Envoyer sans copier", "Send without copying", "Enviar sin copiar"))
         } footer: {
-            locText("Active le **Clavier Brocolis 🥦** (Réglages → Général → Clavier → Claviers → Ajouter), puis autorise l’**Accès complet** (nécessaire pour lire tes clés et le presse-papiers). Ensuite, dans n’importe quelle app :\n\n• **Envoyer** : tape ton message, bascule sur Brocolis avec 🌐, touche **Chiffrer** — le texte est remplacé chiffré sur place, sans copier-coller.\n\n• **Lire un reçu** : appui long sur le message → Copier, bascule sur Brocolis avec 🌐, touche **📋 Lire** — il s’affiche en clair sur le clavier, sans quitter l’app.", "Enable the **Brocolis 🥦 Keyboard** (Settings → General → Keyboard → Keyboards → Add New Keyboard), then allow **Full Access** (needed to read your keys and the clipboard). Then, in any app:\n\n• **Send** : type your message, switch to Brocolis with 🌐, tap **Encrypt** — the text is replaced encrypted in place, no copy-paste.\n\n• **Read a received one** : long-press the message → Copy, switch to Brocolis with 🌐, tap **📋 Read** — it appears in the clear on the keyboard, without leaving the app.", "Activa el **Teclado Brocolis 🥦** (Ajustes → General → Teclado → Teclados → Añadir nuevo teclado), luego permite el **Acceso completo** (necesario para leer tus claves y el portapapeles). Después, en cualquier app:\n\n• **Enviar** : escribe tu mensaje, cambia a Brocolis con 🌐, toca **Cifrar** — el texto se reemplaza cifrado en el sitio, sin copiar y pegar.\n\n• **Leer uno recibido** : mantén pulsado el mensaje → Copiar, cambia a Brocolis con 🌐, toca **📋 Leer** — se muestra en claro en el teclado, sin salir de la app.")
+            Text(loc("Écris et chiffre dans n’importe quelle app, sans copier-coller. Tout se règle ici, ou avec ⚙️ sur le clavier.", "Type and encrypt in any app, no copy-paste. Set everything here, or with ⚙️ on the keyboard.", "Escribe y cifra en cualquier app, sin copiar y pegar. Todo se ajusta aquí o con ⚙️ en el teclado."))
         }
     }
 
@@ -916,21 +931,77 @@ struct InvitePayload: Identifiable {
     RootView()
 }
 
-// MARK: - Réglages du clavier Brocolis
+// MARK: - Menu du clavier Brocolis
 
-/// Vibrations, son, disposition, taille des touches… Enregistrés dans l'App
-/// Group : le clavier les relit à chaque ouverture.
-struct KeyboardPrefsView: View {
+/// Tout ce qui concerne le clavier, au même endroit : installation, essai,
+/// retour des touches, disposition, apparence, saisie, mode d'emploi.
+/// Enregistré dans l'App Group : le clavier relit tout à chaque ouverture (et
+/// son menu ⚙️ modifie les mêmes réglages).
+struct KeyboardHubView: View {
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var installed = KeyboardHubView.isInstalled()
+    @State private var trial = ""
     @State private var haptics = BrocolisKeyboardPrefs.haptics
     @State private var sound = BrocolisKeyboardPrefs.sound
     @State private var layout = BrocolisKeyboardPrefs.layout
     @State private var keySize = BrocolisKeyboardPrefs.keySize
+    @State private var theme = BrocolisKeyboardPrefs.theme
     @State private var autoCapitalize = BrocolisKeyboardPrefs.autoCapitalize
     @State private var doubleSpace = BrocolisKeyboardPrefs.doubleSpacePeriod
     @State private var accents = BrocolisKeyboardPrefs.accentKeys
+    @State private var longAccents = BrocolisKeyboardPrefs.longPressAccents
+    @State private var spaceCursor = BrocolisKeyboardPrefs.spaceCursor
+    @State private var emojiKey = BrocolisKeyboardPrefs.emojiKey
+
+    /// Le clavier figure-t-il parmi les claviers ajoutés dans Réglages ?
+    static func isInstalled() -> Bool {
+        UITextInputMode.activeInputModes.contains { mode in
+            (mode.value(forKey: "identifier") as? String)?.hasPrefix("rs.brocolis.messagerie.keyboard") == true
+        }
+    }
 
     var body: some View {
         Form {
+            Section {
+                HStack(spacing: 12) {
+                    Image(systemName: installed ? "checkmark.seal.fill" : "keyboard.badge.ellipsis")
+                        .font(.title2)
+                        .foregroundStyle(installed ? Color.brocoliGreen : Color.orange)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(installed
+                             ? loc("Clavier ajouté", "Keyboard added", "Teclado añadido")
+                             : loc("Clavier pas encore ajouté", "Keyboard not added yet", "Teclado aún no añadido"))
+                            .font(.headline)
+                        Text(loc("Réglages → Général → Clavier → Claviers → Ajouter → Brocolis 🥦, puis « Accès complet ».", "Settings → General → Keyboard → Keyboards → Add → Brocolis 🥦, then « Full Access ».", "Ajustes → General → Teclado → Teclados → Añadir → Brocolis 🥦, luego « Acceso completo »."))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Button {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                } label: {
+                    Label(loc("Ouvrir les Réglages", "Open Settings", "Abrir Ajustes"), systemImage: "gear")
+                }
+            } header: {
+                Text(loc("Installation", "Setup", "Instalación"))
+            }
+
+            Section {
+                TextField(loc("Touche ici, puis 🌐 pour choisir Brocolis", "Tap here, then 🌐 to pick Brocolis", "Toca aquí y luego 🌐 para elegir Brocolis"), text: $trial, axis: .vertical)
+                    .lineLimit(2...5)
+                if !trial.isEmpty {
+                    Button(role: .destructive) { trial = "" } label: {
+                        Label(loc("Effacer l’essai", "Clear", "Borrar"), systemImage: "xmark.circle")
+                    }
+                }
+            } header: {
+                Text(loc("Essayer", "Try it", "Probar"))
+            } footer: {
+                Text(loc("Les réglages ci-dessous s’appliquent dès que le clavier se rouvre.", "Settings below apply as soon as the keyboard reopens.", "Los ajustes de abajo se aplican al reabrir el teclado."))
+            }
+
             Section {
                 Picker(selection: $haptics) {
                     ForEach(BrocolisKeyboardPrefs.Haptics.allCases) { Text($0.title).tag($0) }
@@ -956,7 +1027,13 @@ struct KeyboardPrefsView: View {
                 Text(loc("iOS ne laisse vibrer un clavier que s’il a l’« Accès complet ». Le son suit aussi Réglages → Sons et vibrations → Retour clavier.", "iOS only lets a keyboard vibrate with « Full Access ». Sound also follows Settings → Sounds & Haptics → Keyboard Feedback.", "iOS solo deja vibrar un teclado con « Acceso completo ». El sonido también sigue Ajustes → Sonidos y vibraciones → Respuesta del teclado."))
             }
 
-            Section(loc("Touches", "Keys", "Teclas")) {
+            Section(loc("Apparence", "Appearance", "Apariencia")) {
+                Picker(selection: $theme) {
+                    ForEach(BrocolisKeyboardPrefs.Theme.allCases) { Text($0.title).tag($0) }
+                } label: {
+                    Label(loc("Thème", "Theme", "Tema"), systemImage: "paintpalette")
+                }
+                .onChange(of: theme) { v in BrocolisKeyboardPrefs.theme = v }
                 Picker(selection: $layout) {
                     ForEach(BrocolisKeyboardPrefs.Layout.allCases) { Text($0.title).tag($0) }
                 } label: {
@@ -966,16 +1043,28 @@ struct KeyboardPrefsView: View {
                 Picker(selection: $keySize) {
                     ForEach(BrocolisKeyboardPrefs.KeySize.allCases) { Text($0.title).tag($0) }
                 } label: {
-                    Label(loc("Taille", "Size", "Tamaño"), systemImage: "textformat.size")
+                    Label(loc("Taille des touches", "Key size", "Tamaño de teclas"), systemImage: "textformat.size")
                 }
                 .onChange(of: keySize) { v in BrocolisKeyboardPrefs.keySize = v }
                 Toggle(isOn: $accents) {
-                    Label(loc("Accents sur la barre d’espace", "Accents next to space", "Acentos junto al espacio"), systemImage: "character")
+                    Label(loc("Accents à côté de l’espace", "Accents next to space", "Acentos junto al espacio"), systemImage: "character")
                 }
                 .onChange(of: accents) { v in BrocolisKeyboardPrefs.accentKeys = v }
+                Toggle(isOn: $emojiKey) {
+                    Label(loc("Touche emojis 😀", "Emoji key 😀", "Tecla emojis 😀"), systemImage: "face.smiling")
+                }
+                .onChange(of: emojiKey) { v in BrocolisKeyboardPrefs.emojiKey = v }
             }
 
             Section(loc("Saisie", "Typing", "Escritura")) {
+                Toggle(isOn: $longAccents) {
+                    Label(loc("Appui long → accents (e → é è ê ë)", "Long press → accents (e → é è ê ë)", "Pulsación larga → acentos (e → é è ê ë)"), systemImage: "hand.tap")
+                }
+                .onChange(of: longAccents) { v in BrocolisKeyboardPrefs.longPressAccents = v }
+                Toggle(isOn: $spaceCursor) {
+                    Label(loc("Glisser sur l’espace → curseur", "Slide on space → cursor", "Deslizar en espacio → cursor"), systemImage: "arrow.left.and.right")
+                }
+                .onChange(of: spaceCursor) { v in BrocolisKeyboardPrefs.spaceCursor = v }
                 Toggle(isOn: $autoCapitalize) {
                     Label(loc("Majuscule automatique", "Auto-capitalization", "Mayúscula automática"), systemImage: "textformat")
                 }
@@ -985,8 +1074,36 @@ struct KeyboardPrefsView: View {
                 }
                 .onChange(of: doubleSpace) { v in BrocolisKeyboardPrefs.doubleSpacePeriod = v }
             }
+
+            Section(loc("Mode d’emploi", "How to use", "Cómo se usa")) {
+                Label(loc("Envoyer : écris, puis 🔒 Chiffrer — le texte est remplacé chiffré sur place.", "Send: type, then 🔒 Encrypt — the text is replaced encrypted in place.", "Enviar: escribe y luego 🔒 Cifrar — el texto se reemplaza cifrado."), systemImage: "lock.fill")
+                Label(loc("Lire : copie le message reçu, puis 📋 Lire — il s’affiche en clair sur le clavier.", "Read: copy the message you got, then 📋 Read — it shows in clear on the keyboard.", "Leer: copia el mensaje recibido y luego 📋 Leer — se muestra en claro en el teclado."), systemImage: "doc.on.clipboard")
+                Label(loc("⚙️ sur le clavier : vibrations, son, disposition, taille, thème… sans quitter ton app.", "⚙️ on the keyboard: haptics, sound, layout, size, theme… without leaving your app.", "⚙️ en el teclado: vibración, sonido, distribución, tamaño, tema… sin salir de tu app."), systemImage: "gearshape")
+                Label(loc("Photos et vocaux chiffrés : dans l’app Brocolis ou Brocolis dans iMessage (iOS interdit le micro et les images aux claviers).", "Encrypted photos and voice: in the Brocolis app or Brocolis in iMessage (iOS forbids mic and images to keyboards).", "Fotos y audios cifrados: en la app Brocolis o Brocolis en iMessage (iOS prohíbe micrófono e imágenes a los teclados)."), systemImage: "photo.on.rectangle")
+            }
         }
         .navigationTitle(loc("Clavier", "Keyboard", "Teclado"))
         .navigationBarTitleDisplayMode(.inline)
+        .onChange(of: scenePhase) { phase in
+            // Retour des Réglages : le clavier vient peut-être d'être ajouté,
+            // et le menu ⚙️ du clavier a pu changer des réglages.
+            if phase == .active { reload() }
+        }
+        .onAppear(perform: reload)
+    }
+
+    private func reload() {
+        installed = Self.isInstalled()
+        haptics = BrocolisKeyboardPrefs.haptics
+        sound = BrocolisKeyboardPrefs.sound
+        layout = BrocolisKeyboardPrefs.layout
+        keySize = BrocolisKeyboardPrefs.keySize
+        theme = BrocolisKeyboardPrefs.theme
+        autoCapitalize = BrocolisKeyboardPrefs.autoCapitalize
+        doubleSpace = BrocolisKeyboardPrefs.doubleSpacePeriod
+        accents = BrocolisKeyboardPrefs.accentKeys
+        longAccents = BrocolisKeyboardPrefs.longPressAccents
+        spaceCursor = BrocolisKeyboardPrefs.spaceCursor
+        emojiKey = BrocolisKeyboardPrefs.emojiKey
     }
 }
