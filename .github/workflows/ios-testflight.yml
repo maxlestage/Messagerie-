@@ -71,8 +71,10 @@ jobs:
 
       - name: Numéro de build
         id: build
-        # Numéro monotone dérivé du run CI (décalé pour rester > builds manuels).
-        run: echo "number=$(( ${{ github.run_number }} + 1000 ))" >> "$GITHUB_OUTPUT"
+        # Numéro monotone dérivé du run CI, décalé de 10000 : toujours au-dessus
+        # des builds 1000+ déjà livrés ET des sorties Xcode Cloud (compteur
+        # Xcode Cloud réglé à 5000), pour que les deux ne se croisent jamais.
+        run: echo "number=$(( ${{ github.run_number }} + 10000 ))" >> "$GITHUB_OUTPUT"
 
       - name: Archive (signature cloud automatique)
         env:

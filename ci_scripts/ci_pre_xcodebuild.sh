@@ -24,7 +24,9 @@ if [ -z "$CI_BUILD_NUMBER" ]; then
   exit 0
 fi
 
-# (Inactif tant que ci_post_clone.sh arrête les archives Xcode Cloud.)
+# NB : Xcode Cloud impose en réalité son propre compteur au moment de la
+# livraison (réglé à 5000 dans App Store Connect → Xcode Cloud → Settings →
+# Build Number) ; GitHub Actions livre en 10000+.
 # On décale de +1000 pour rester au-dessus des anciens uploads faits par le
 # workflow GitHub Actions (qui utilisait github.run_number + 1000). Garde les
 # deux chemins de livraison sans collision de numéros.

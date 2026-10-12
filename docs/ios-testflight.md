@@ -42,7 +42,8 @@ Dépôt → **Settings → Secrets and variables → Actions → New repository 
 - **Manuellement** : onglet **Actions → iOS TestFlight → Run workflow**.
 
 Le **numéro de build** (`CURRENT_PROJECT_VERSION`) est dérivé du numéro de run CI
-(`+1000`), donc monotone et sans collision. Le **numéro de version** affiché
+(`+10000`), donc monotone et toujours au-dessus des sorties Xcode Cloud (compteur
+réglé à 5000, voir [XCODE_CLOUD.md](XCODE_CLOUD.md)). Le **numéro de version** affiché
 (`MARKETING_VERSION`, ex. `1.0`) reste géré dans le projet Xcode : incrémente-le
 dans Xcode pour une nouvelle version App Store, puis tague.
 
