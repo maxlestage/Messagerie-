@@ -154,9 +154,21 @@ pub fn granted_tier_from_list(raw: &str, user: &str) -> &'static str {
 /// Palier offert à un appareil : par son identifiant (`BROCOLIS_PRO_IDS`) ou
 /// par l'e-mail Apple qui lui est rattaché (`BROCOLIS_PRO_EMAILS`). Les listes
 /// sont relues à chaque appel : retirer une entrée retire l'accès.
-async fn granted_tier(store: &Store, user: &str) -> (&'static str, Option<String>) {
+async fn granted_tier(
+    store: &Store,
+    user: &str,
+    ticket: Option<&str>,
+) -> (&'static str, Option<String>) {
     let ids = std::env::var("BROCOLIS_PRO_IDS").unwrap_or_default();
-    let email = store.linked_email(user).await.ok().flatten();
+    let mut email = store.linked_email(user).await.ok().flatten();
+    // Après un redémarrage, la mémoire est vide : le ticket signé que l'app
+    // renvoie rétablit le lien appareil → e-mail.
+    if email.is_none() {
+        if let Some(from_ticket) = ticket.and_then(|t| apple_signin::ticket_email(t, user)) {
+            let _ = store.link_email(user, &from_ticket).await;
+            email = Some(from_ticket);
+        }
+    }
     if granted_tier_from_list(&ids, user) == "pro" {
         return ("pro", email);
     }
@@ -174,7 +186,8 @@ async fn get_plan(req: Request) -> Response {
     let Some(user) = user_id(&req) else {
         return text(401, "x-user-id requis");
     };
-    let (tier, email) = granted_tier(store(&req), &user).await;
+    let ticket = req.header("x-brocolis-grant").map(str::to_owned);
+    let (tier, email) = granted_tier(store(&req), &user, ticket.as_deref()).await;
     res::json(json!({ "tier": tier, "email": email }))
 }
 
@@ -218,7 +231,9 @@ async fn post_plan_apple(req: Request) -> Response {
         eprintln!("[plan/apple] enregistrement impossible : {}", describe(&e));
         return res::send_status(500);
     }
-    res::json(json!({ "tier": "pro", "email": email }))
+    // Le ticket permet à l'app de rétablir l'accès après un redémarrage.
+    let ticket = apple_signin::issue_ticket(&user, &email);
+    res::json(json!({ "tier": "pro", "email": email, "ticket": ticket }))
 }
 
 /// DELETE /v1/plan/apple — détache l'e-mail de cet appareil.
@@ -227,7 +242,7 @@ async fn delete_plan_apple(req: Request) -> Response {
         return text(401, "x-user-id requis");
     };
     let _ = store(&req).unlink_email(&user).await;
-    let (tier, _) = granted_tier(store(&req), &user).await;
+    let (tier, _) = granted_tier(store(&req), &user, None).await;
     res::json(json!({ "tier": tier, "email": null }))
 }
 

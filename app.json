@@ -42,6 +42,11 @@
       "description": "Accès Pro offerts : e-mails (séparés par des virgules) prouvés par « Se connecter avec Apple ».",
       "required": false
     },
+    "BROCOLIS_GRANT_SECRET": {
+      "description": "Clé qui signe les tickets d'accès offert (n'importe quelle longue chaîne secrète, à ne jamais changer). Sans elle, la clé APNs sert de clé ; sans les deux, l'accès offert par e-mail se perd à chaque redémarrage.",
+      "generator": "secret",
+      "required": false
+    },
     "BROCOLIS_PRO_IDS": {
       "description": "Accès Pro offerts : identifiants d'appareil (séparés par des virgules).",
       "required": false

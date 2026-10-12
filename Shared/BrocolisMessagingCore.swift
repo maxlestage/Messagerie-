@@ -426,7 +426,22 @@ struct BrocolisMessagingClient {
     private func grantStatus(from data: Data) -> GrantStatus? {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let tier = json["tier"] as? String else { return nil }
+        // Ticket signé renvoyé par « Se connecter avec Apple » : on le garde
+        // pour le rendre au serveur, qui oublie tout à chaque redémarrage.
+        if let ticket = json["ticket"] as? String, !ticket.isEmpty {
+            UserDefaults.standard.set(ticket, forKey: Self.grantTicketKey)
+        }
         return GrantStatus(tierName: tier, email: json["email"] as? String)
+    }
+
+    /// Où l'app garde le ticket d'accès offert.
+    private static let grantTicketKey = "brocolis.grantTicket"
+
+    /// Ajoute le ticket d'accès offert, s'il y en a un, à une requête.
+    private func attachGrantTicket(_ req: inout URLRequest) {
+        if let ticket = UserDefaults.standard.string(forKey: Self.grantTicketKey) {
+            req.setValue(ticket, forHTTPHeaderField: "X-Brocolis-Grant")
+        }
     }
 
     /// GET /v1/plan — accès offert (`BROCOLIS_PRO_IDS` ou e-mail Apple listé
@@ -438,6 +453,7 @@ struct BrocolisMessagingClient {
     func fetchGrant() async -> GrantStatus? {
         var req = URLRequest(url: baseURL.appendingPathComponent("v1/plan"))
         req.setValue(deviceId, forHTTPHeaderField: "X-User-Id")
+        attachGrantTicket(&req)
         guard let (data, resp) = try? await URLSession.shared.data(for: req),
               let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode)
         else { return nil }
@@ -470,6 +486,7 @@ struct BrocolisMessagingClient {
         var req = URLRequest(url: baseURL.appendingPathComponent("v1/plan/apple"))
         req.httpMethod = "DELETE"
         req.setValue(deviceId, forHTTPHeaderField: "X-User-Id")
+        UserDefaults.standard.removeObject(forKey: Self.grantTicketKey)
         guard let (data, resp) = try? await URLSession.shared.data(for: req),
               let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode)
         else { return nil }
