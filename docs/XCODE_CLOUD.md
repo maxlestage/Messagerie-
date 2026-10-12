@@ -5,12 +5,29 @@ sur les runners GitHub Actions), ce qui **contourne le blocage des runners
 macOS** rencontré sur GitHub. Ce dépôt contient déjà tout ce qui doit y être ;
 la création du workflow, elle, se fait dans Xcode / App Store Connect.
 
+## Deux chaînes, deux rôles
+
+| | À chaque poussée | Pour une sortie |
+|---|---|---|
+| **GitHub Actions** (`ios-testflight.yml`) | tests iOS puis **TestFlight**, builds **10000+** | — |
+| **Xcode Cloud** | compile et **teste**, sans archiver | workflow **« Release »** (démarrage manuel) ou tag → TestFlight / App Store |
+
+À régler une fois dans App Store Connect → Brocolis → Xcode Cloud :
+
+1. **Workflow par défaut** : action **Test** (au lieu d'Archive), pas de
+   post-action TestFlight.
+2. **Workflow « Release »** : copie du précédent, Start Conditions → **Manual**,
+   action **Archive**, post-action **TestFlight** et/ou **App Store**.
+3. **Settings → Build Number** : prochain numéro **5000**. Xcode Cloud impose
+   son propre compteur à la livraison (le script `ci_pre_xcodebuild.sh` n'y
+   change rien) ; 5000+ reste sous les 10000+ de GitHub, sans jamais croiser.
+
 ## Ce qui est déjà prêt dans le dépôt
 
 | Élément | Rôle |
 |---|---|
 | `project.yml` | Spéc **XcodeGen** : régénère `Brocolis.xcodeproj` de façon déclarative. |
-| `ci_scripts/ci_post_clone.sh` | Point d'accroche exécuté par Xcode Cloud après le clone (aucune dépendance à installer). |
+| `ci_scripts/ci_post_clone.sh` | Exécuté après le clone : **arrête toute archive** sauf depuis un tag, un workflow nommé « Release » / « App Store », ou avec `BROCOLIS_XCODE_CLOUD_UPLOAD=1`. |
 | `ci_scripts/ci_pre_xcodebuild.sh` | Force un **numéro de build monotone** (`CI_BUILD_NUMBER + 1000`) avant chaque archive — sans lui, TestFlight rejette les doublons `1.0 (1)` et « rien ne s'actualise ». |
 | `Brocolis.xcodeproj/.../Brocolis.xcscheme` | **Scheme partagé** (requis par Xcode Cloud) qui inclut la cible de tests `BrocolisTests`. |
 
