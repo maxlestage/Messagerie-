@@ -36,7 +36,7 @@ if [ "$CI_XCODEBUILD_ACTION" = "archive" ]; then
   if [ -n "$CI_TAG" ] || [ "$release" = 1 ] || [ "$BROCOLIS_XCODE_CLOUD_UPLOAD" = "1" ]; then
     echo "Archive Xcode Cloud autorisée (workflow « $CI_WORKFLOW », tag « $CI_TAG »)."
   else
-    echo "error: TestFlight est livré par GitHub Actions (builds 1000+) — archive Xcode Cloud arrêtée."
+    echo "error: TestFlight est livré par GitHub Actions (builds 10000+) — archive Xcode Cloud arrêtée."
     echo "error: Pour ce workflow, remplace l'action Archive par Test (ou nomme-le « Release » pour livrer)."
     exit 1
   fi
