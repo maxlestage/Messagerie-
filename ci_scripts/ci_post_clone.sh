@@ -17,18 +17,29 @@ set -e
 
 echo "── ci_post_clone : Brocolis 🥦 ──"
 
-# Une seule chaîne livre sur TestFlight : GitHub Actions (ios-testflight.yml),
-# après les tests iOS, avec des numéros de build 1000+. Xcode Cloud, lui,
-# impose son propre compteur (100, 101…) quoi que dise ci_pre_xcodebuild.sh :
-# ses builds arrivaient sur TestFlight avec des numéros PLUS PETITS que ceux
-# de GitHub et se mélangeaient aux bons. On arrête donc ici toute archive
-# Xcode Cloud (= tout envoi TestFlight). Les builds/tests Xcode Cloud sans
-# archive continuent. Pour lui rendre la main : variable d'environnement
-# BROCOLIS_XCODE_CLOUD_UPLOAD=1 dans le workflow Xcode Cloud.
-if [ "$CI_XCODEBUILD_ACTION" = "archive" ] && [ "$BROCOLIS_XCODE_CLOUD_UPLOAD" != "1" ]; then
-  echo "error: Livraison TestFlight faite par GitHub Actions (builds 1000+) — archive Xcode Cloud arrêtée."
-  echo "error: Désactive ce workflow dans App Store Connect → Xcode Cloud pour ne plus recevoir cet échec."
-  exit 1
+# Deux chaînes, chacune son rôle :
+#  - GitHub Actions (ios-testflight.yml) livre TestFlight automatiquement, après
+#    les tests iOS, avec des numéros de build 1000+.
+#  - Xcode Cloud compile et teste à chaque poussée (actions build/test/analyze),
+#    mais n'ARCHIVE pas : Xcode Cloud impose son propre compteur (100, 101…),
+#    plus petit que celui de GitHub, et ses envois se mélangeaient aux bons sur
+#    TestFlight.
+# Xcode Cloud archive quand même (envoi TestFlight / App Store) si :
+#  - le build part d'un tag (CI_TAG, ex. v1.0.5) ;
+#  - ou le nom du workflow contient « Release » ou « App Store » ;
+#  - ou BROCOLIS_XCODE_CLOUD_UPLOAD=1 dans les variables du workflow.
+if [ "$CI_XCODEBUILD_ACTION" = "archive" ]; then
+  case "$CI_WORKFLOW" in
+    *Release*|*release*|*"App Store"*|*"app store"*) release=1 ;;
+    *) release=0 ;;
+  esac
+  if [ -n "$CI_TAG" ] || [ "$release" = 1 ] || [ "$BROCOLIS_XCODE_CLOUD_UPLOAD" = "1" ]; then
+    echo "Archive Xcode Cloud autorisée (workflow « $CI_WORKFLOW », tag « $CI_TAG »)."
+  else
+    echo "error: TestFlight est livré par GitHub Actions (builds 1000+) — archive Xcode Cloud arrêtée."
+    echo "error: Pour ce workflow, remplace l'action Archive par Test (ou nomme-le « Release » pour livrer)."
+    exit 1
+  fi
 fi
 
 echo "Aucune dépendance externe à installer."
