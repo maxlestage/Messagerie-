@@ -303,37 +303,71 @@ final class KeyboardViewController: UIInputViewController {
         }
     }
 
+    /// Couleurs du clavier d'Apple : touches blanches (grises en sombre),
+    /// touches de fonction gris-bleu.
+    private static let appleKey = UIColor { $0.userInterfaceStyle == .dark
+        ? UIColor(white: 0.42, alpha: 1) : .white }
+    private static let appleSpecial = UIColor { $0.userInterfaceStyle == .dark
+        ? UIColor(white: 0.27, alpha: 1) : UIColor(red: 0.67, green: 0.70, blue: 0.74, alpha: 1) }
+    private static let brocoliKey = UIColor { $0.userInterfaceStyle == .dark
+        ? UIColor(red: 0.16, green: 0.30, blue: 0.18, alpha: 1) : UIColor(red: 0.97, green: 1.0, blue: 0.95, alpha: 1) }
+    private static let brocoliSpecial = UIColor { $0.userInterfaceStyle == .dark
+        ? UIColor(red: 0.10, green: 0.42, blue: 0.20, alpha: 1) : UIColor(red: 0.62, green: 0.82, blue: 0.60, alpha: 1) }
+
+    private var keyColor: UIColor {
+        BrocolisKeyboardPrefs.theme == .brocoli ? Self.brocoliKey : Self.appleKey
+    }
+
     private func style(_ b: UIButton, special: Bool, highlighted: Bool = false) {
         let brocoli = BrocolisKeyboardPrefs.theme == .brocoli
         b.setTitleColor(.label, for: .normal)
         b.tintColor = .label
         if highlighted {
-            b.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.35)
-        } else if brocoli {
-            b.backgroundColor = special
-                ? UIColor.systemGreen.withAlphaComponent(0.28)
-                : UIColor { $0.userInterfaceStyle == .dark
-                    ? UIColor(red: 0.16, green: 0.30, blue: 0.18, alpha: 1)
-                    : UIColor(red: 0.97, green: 1.0, blue: 0.95, alpha: 1) }
+            b.backgroundColor = keyColor
+        } else if special {
+            b.backgroundColor = brocoli ? Self.brocoliSpecial : Self.appleSpecial
         } else {
-            b.backgroundColor = special ? .tertiarySystemFill : .systemBackground
+            b.backgroundColor = keyColor
         }
-        b.layer.cornerRadius = 6
+        b.layer.cornerRadius = 5
         b.layer.shadowColor = UIColor.black.cgColor
-        b.layer.shadowOpacity = 0.25
+        b.layer.shadowOpacity = 0.3
         b.layer.shadowOffset = CGSize(width: 0, height: 1)
         b.layer.shadowRadius = 0
     }
 
+    /// Symboles d'Apple pour les touches de fonction.
+    private func symbol(for key: String) -> String? {
+        switch key {
+        case "⇧": return capsLock ? "capslock.fill" : (shifted && page == .letters ? "shift.fill" : "shift")
+        case "⌫": return "delete.left"
+        case "🌐": return "globe"
+        default: return nil
+        }
+    }
+
     private func keyButton(_ key: String) -> UIButton {
-        let b = UIButton(type: .system)
-        b.setTitle(label(for: key), for: .normal)
+        let b = UIButton(type: .custom)
         b.accessibilityIdentifier = key
         let special = Self.specialKeys.contains(key)
+        if let name = symbol(for: key) {
+            b.setImage(UIImage(systemName: name, withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .regular)), for: .normal)
+        } else {
+            b.setTitle(key == "⏎" ? loc("retour", "return", "intro") : label(for: key), for: .normal)
+        }
         b.titleLabel?.font = special || key == "espace"
-            ? .systemFont(ofSize: 16, weight: .medium)
-            : .systemFont(ofSize: page == .emoji ? 26 : 22)
-        style(b, special: special, highlighted: key == "⇧" && shifted && page == .letters)
+            ? .systemFont(ofSize: 16, weight: .regular)
+            : .systemFont(ofSize: page == .emoji ? 26 : 23, weight: .regular)
+        style(b, special: special, highlighted: key == "⇧" && (shifted || capsLock) && page == .letters)
+        // Aperçu (« miniature ») de la touche au-dessus du doigt, comme chez Apple.
+        if !special, key != "espace" {
+            b.addTarget(self, action: #selector(showPreview(_:)), for: [.touchDown, .touchDragEnter])
+            b.addTarget(self, action: #selector(hidePreview), for: [.touchUpInside, .touchUpOutside, .touchDragExit, .touchCancel])
+        } else {
+            // Touches de fonction : elles s'assombrissent sous le doigt.
+            b.addTarget(self, action: #selector(pressDown(_:)), for: [.touchDown, .touchDragEnter])
+            b.addTarget(self, action: #selector(pressUp(_:)), for: [.touchUpInside, .touchUpOutside, .touchDragExit, .touchCancel])
+        }
         if key == "🌐" {
             b.addTarget(self, action: #selector(handleInputModeList(from:with:)), for: .allTouchEvents)
         } else if key == "⌫" {
@@ -393,12 +427,38 @@ final class KeyboardViewController: UIInputViewController {
         }
     }
 
+    // MARK: Aperçu des touches
+
+    private let preview = KeyPreview()
+
+    @objc private func showPreview(_ sender: UIButton) {
+        guard let host = background, let text = sender.title(for: .normal) else { return }
+        if preview.superview == nil {
+            host.addSubview(preview)
+        }
+        preview.show(text: text, keyFrame: sender.convert(sender.bounds, to: host),
+                     in: host.bounds, color: keyColor, emoji: page == .emoji)
+    }
+
+    @objc private func hidePreview() {
+        preview.isHidden = true
+    }
+
+    @objc private func pressDown(_ sender: UIButton) {
+        sender.alpha = 0.55
+    }
+
+    @objc private func pressUp(_ sender: UIButton) {
+        UIView.animate(withDuration: 0.12) { sender.alpha = 1 }
+    }
+
     // MARK: Appui long → accents
 
     @objc private func keyLongPressed(_ g: UILongPressGestureRecognizer) {
         guard g.state == .began, let b = g.view as? UIButton,
               let key = b.accessibilityIdentifier,
               let options = Self.accents[key.lowercased()] else { return }
+        hidePreview()
         feedback()
         let upper = page == .letters && shifted
         accentBar.arrangedSubviews.forEach { $0.removeFromSuperview() }
@@ -758,4 +818,68 @@ final class KeyboardViewController: UIInputViewController {
 /// Fond du clavier : déclare le clic sonore d'iOS (« Clics du clavier »).
 final class KeyboardBackground: UIInputView, UIInputViewAudioFeedback {
     var enableInputClicksWhenVisible: Bool { true }
+}
+
+/// La bulle d'aperçu d'Apple : la touche s'élargit vers le haut et montre la
+/// lettre en grand, au-dessus du doigt.
+final class KeyPreview: UIView {
+    private let shape = CAShapeLayer()
+    private let label = UILabel()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        isHidden = true
+        layer.addSublayer(shape)
+        shape.shadowColor = UIColor.black.cgColor
+        shape.shadowOpacity = 0.3
+        shape.shadowRadius = 2
+        shape.shadowOffset = CGSize(width: 0, height: 1)
+        label.textAlignment = .center
+        label.textColor = .label
+        addSubview(label)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func show(text: String, keyFrame key: CGRect, in area: CGRect, color: UIColor, emoji: Bool) {
+        let bubbleW = max(key.width + 20, 46)
+        let bubbleH = max(key.height * 1.15, 48)
+        let neck: CGFloat = 10
+        let total = CGRect(x: key.midX - bubbleW / 2, y: key.minY - bubbleH - neck + 4,
+                           width: bubbleW, height: bubbleH + neck - 4 + key.height)
+        // Reste dans le clavier (iOS ne laisse pas dessiner au-dessus).
+        var f = total
+        f.origin.x = min(max(f.minX, area.minX + 1), area.maxX - f.width - 1)
+        f.origin.y = max(f.minY, area.minY)
+        frame = f
+
+        let bubble = CGRect(x: 0, y: 0, width: f.width, height: bubbleH)
+        let stem = CGRect(x: key.minX - f.minX, y: f.height - key.height, width: key.width, height: key.height)
+        let path = UIBezierPath(roundedRect: bubble, cornerRadius: 8)
+        path.append(UIBezierPath(roundedRect: stem, cornerRadius: 5))
+        // Le cou qui relie la bulle à la touche.
+        let neckPath = UIBezierPath()
+        neckPath.move(to: CGPoint(x: bubble.minX, y: bubble.maxY - 8))
+        neckPath.addLine(to: CGPoint(x: bubble.maxX, y: bubble.maxY - 8))
+        neckPath.addLine(to: CGPoint(x: stem.maxX, y: stem.minY + 6))
+        neckPath.addLine(to: CGPoint(x: stem.minX, y: stem.minY + 6))
+        neckPath.close()
+        path.append(neckPath)
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        shape.frame = CGRect(origin: .zero, size: f.size)
+        shape.path = path.cgPath
+        shape.shadowPath = path.cgPath
+        shape.fillColor = color.resolvedColor(with: traitCollection).cgColor
+        CATransaction.commit()
+
+        label.text = text
+        label.font = .systemFont(ofSize: emoji ? 40 : 34, weight: .regular)
+        label.frame = bubble.insetBy(dx: 2, dy: 4)
+        isHidden = false
+        superview?.bringSubviewToFront(self)
+    }
+
 }
