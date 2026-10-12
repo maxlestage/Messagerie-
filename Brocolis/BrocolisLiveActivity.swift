@@ -77,6 +77,9 @@ enum BrocolisLiveActivity {
                 let hex = tokenData.map { String(format: "%02x", $0) }.joined()
                 UserDefaults(suiteName: BrocolisKeyStore.appGroup)?
                     .set(hex, forKey: pushTokenDefaultsKey)
+                // Nouveau token : le serveur doit le connaître pour mettre le
+                // compteur à jour quand l'app est fermée.
+                await BrocolisPush.subscribeLiveActivity()
             }
         }
     }
@@ -88,6 +91,16 @@ enum BrocolisLiveActivity {
         }
     }
     #endif
+
+    /// Depuis quand la Live Activity tourne (`nil` sans Live Activity).
+    static var activeSince: Date? {
+        #if canImport(ActivityKit)
+        if #available(iOS 16.1, *) {
+            return Activity<BrocolisActivityAttributes>.activities.first?.contentState.since
+        }
+        #endif
+        return nil
+    }
 
     /// Un (ou plusieurs) message(s) viennent d'arriver : le 🥦 devient un vrai
     /// indicateur de messagerie — compteur de non-lus + « de X · il y a … ».
@@ -145,6 +158,25 @@ enum BrocolisPush {
             }
             try? await Task.sleep(nanoseconds: 1_500_000_000)
         }
+    }
+
+    /// Abonne la Live Activity de cet appareil à toutes les conversations de
+    /// ses clés : c'est le serveur qui la met à jour à chaque message reçu,
+    /// même app fermée. À rappeler au lancement, au retour au premier plan et
+    /// quand le push token change (le serveur garde tout en mémoire et oublie
+    /// les abonnements à chaque redémarrage).
+    static func subscribeLiveActivity() async {
+        guard MessagingPrefs.isConfigured,
+              let base = URL(string: MessagingPrefs.serverURL),
+              let token = BrocolisKeyStore.liveActivityPushToken, !token.isEmpty
+        else { return }
+        let ids = BrocolisKeyStore.keys.compactMap {
+            BrocolisMessagingClient.conversationId(forKeyBase64: $0.base64)
+        }
+        guard !ids.isEmpty else { return }
+        let client = BrocolisMessagingClient(baseURL: base, deviceId: MessagingPrefs.deviceId)
+        await client.subscribeLiveActivity(token: token, conversationIds: ids,
+                                           since: BrocolisLiveActivity.activeSince)
     }
 
     /// Notifie chaque correspondant appairé : déclenche une mise à jour de sa

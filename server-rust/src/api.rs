@@ -12,6 +12,7 @@ use vitesse::sse::{Event, KeepAlive};
 use crate::apns::Apns;
 use crate::apple_signin::{self, AppleKeys, VerifyError};
 use crate::broadcast::Broadcaster;
+use crate::live::{content_state, LiveSubscriptions};
 use crate::rendezvous::Rendezvous;
 use crate::store::{describe, Message, Store};
 
@@ -37,6 +38,10 @@ fn rdv(req: &Request) -> &Rendezvous {
 
 fn bc(req: &Request) -> &Broadcaster {
     req.state::<Arc<Broadcaster>>()
+}
+
+fn live(req: &Request) -> &'static Arc<LiveSubscriptions> {
+    req.state::<Arc<LiveSubscriptions>>()
 }
 
 fn user_id(req: &Request) -> Option<String> {
@@ -76,6 +81,7 @@ pub fn routes(app: &mut App) {
     app.get("/v1/messages", get_messages);
     app.post("/v1/read", post_read);
     app.get("/v1/stream", stream);
+    app.post("/v1/live", live_subscribe);
     // Accès offerts
     app.get("/v1/plan", get_plan);
     app.post("/v1/plan/apple", post_plan_apple);
@@ -342,6 +348,17 @@ async fn post_message(req: Request) -> Response {
             if let Ok(json) = serde_json::to_string(&out) {
                 bc(&req).publish(conv, json);
             }
+            // Live Activity des correspondants : compteur de non-lus, même app
+            // fermée.
+            let followers = live(&req).followers(conv, &sender);
+            if !followers.is_empty() {
+                let (store, live, push) = (req.state::<Arc<Store>>(), live(&req), req.state::<Push>());
+                tokio::spawn(async move {
+                    for (user, _) in followers {
+                        refresh_live_activity(store, live, push, &user).await;
+                    }
+                });
+            }
             res::status(201).json(&out)
         }
         Err(e) => storage_error("insert message", &e),
@@ -430,6 +447,13 @@ async fn post_read(req: Request) -> Response {
             // Accusé de lecture en temps réel (l'expéditeur verra « Lu »).
             let event = json!({ "type": "read", "reader": user, "upTo": up_to });
             bc(&req).publish(conv, event.to_string());
+            // Lu ici (ou sur un autre appareil) : le compteur de la Live
+            // Activity de ce lecteur retombe.
+            if live(&req).of(&user).is_some() {
+                let (store, live, push) = (req.state::<Arc<Store>>(), live(&req), req.state::<Push>());
+                let user = user.clone();
+                tokio::spawn(async move { refresh_live_activity(store, live, push, &user).await });
+            }
             res::json(json!({ "ok": true }))
         }
         Err(e) => {
@@ -552,6 +576,71 @@ async fn conversations_get(req: Request) -> Response {
         })
         .collect();
     res::json(out)
+}
+
+// ── Live Activity tenue à jour par le serveur ────────────────────────────────
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LiveBody {
+    token: String,
+    conversation_ids: Vec<String>,
+    #[serde(default)]
+    since: Option<i64>,
+}
+
+/// POST /v1/live — abonne la Live Activity de l'appelant (push token APNs) à
+/// ses conversations : le serveur la met à jour à chaque message reçu ou lu.
+async fn live_subscribe(req: Request) -> Response {
+    let Some(user) = user_id(&req) else {
+        return text(401, "x-user-id requis");
+    };
+    let body: LiveBody = match req.json().await {
+        Ok(b) => b,
+        Err(e) => return e.into_response(),
+    };
+    let token = body.token.trim();
+    if token.is_empty() || !token.chars().all(|c| c.is_ascii_hexdigit()) || token.len() > 400 {
+        return json_error(400, "token (hexadécimal) requis");
+    }
+    // Seulement les conversations auxquelles l'appelant a droit.
+    let store = store(&req);
+    let mut conversations = Vec::new();
+    for conv in body.conversation_ids.iter().map(|c| c.trim()).filter(|c| !c.is_empty()).take(200) {
+        if can_access(store, conv, &user).await {
+            conversations.push(conv.to_string());
+        }
+    }
+    let since = body.since.unwrap_or_else(|| chrono::Utc::now().timestamp());
+    let count = conversations.len();
+    live(&req).subscribe(&user, token, since, conversations);
+    res::json(json!({ "ok": true, "conversations": count, "push": req.state::<Push>().0.is_some() }))
+}
+
+/// Recalcule les non-lus de `user` sur toutes ses conversations suivies et
+/// pousse le nouvel état à sa Live Activity. Sans APNs configuré : rien.
+pub async fn refresh_live_activity(store: &Store, live: &LiveSubscriptions, push: &Push, user: &str) {
+    let (Some(apns), Some(reg)) = (push.0.as_ref(), live.of(user)) else {
+        return;
+    };
+    let mut unread = 0;
+    let mut last: Option<String> = None;
+    for conv in &reg.conversations {
+        if let Ok((n, at)) = store.unread(conv, user).await {
+            unread += n;
+            last = last.max(at);
+        }
+    }
+    let last_at = last
+        .and_then(|at| chrono::DateTime::parse_from_rfc3339(&at).ok())
+        .map(|at| at.timestamp());
+    let state = content_state(reg.since, unread, last_at);
+    match apns.send_live_activity(&reg.token, "update", &state, None).await {
+        // Token périmé : la Live Activity est finie, on l'oublie.
+        Ok(400) | Ok(410) => live.forget(user, &reg.token),
+        Ok(_) => {}
+        Err(e) => eprintln!("[live] APNs : {e}"),
+    }
 }
 
 // ── Rendez-vous X25519 (relais de clés publiques, éphémère) ───────────────────
