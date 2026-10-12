@@ -28,6 +28,8 @@ final class KeyboardViewController: UIInputViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        // Les réglages ont pu changer dans l'app depuis la dernière fois.
+        applyPrefs()
         refreshState()
     }
 
@@ -47,9 +49,35 @@ final class KeyboardViewController: UIInputViewController {
     private var capsLock = false
     private var deleteTimer: Timer?
     private var lastSpaceAt: Date?
+    private var keysHeight: NSLayoutConstraint?
+    private var haptic: UIImpactFeedbackGenerator?
+
+    /// Recharge les choix faits dans l'app (vibrations, disposition, taille…).
+    private func applyPrefs() {
+        let size = BrocolisKeyboardPrefs.keySize.height
+        keysHeight?.constant = 4 * size + 3 * 8
+        switch BrocolisKeyboardPrefs.haptics {
+        case .off: haptic = nil
+        case .light: haptic = UIImpactFeedbackGenerator(style: .light)
+        case .medium: haptic = UIImpactFeedbackGenerator(style: .medium)
+        case .strong: haptic = UIImpactFeedbackGenerator(style: .heavy)
+        }
+        haptic?.prepare()
+        if !BrocolisKeyboardPrefs.autoCapitalize, !capsLock { shifted = false }
+        buildKeys()
+        autoShift()
+    }
+
+    /// Retour d'une touche : vibration et clic, selon les réglages. (iOS ne
+    /// laisse vibrer un clavier que s'il a l'accès complet.)
+    private func feedback() {
+        haptic?.impactOccurred()
+        haptic?.prepare()
+        if BrocolisKeyboardPrefs.sound { UIDevice.current.playInputClick() }
+    }
 
     private func setupUI() {
-        let bg = UIInputView(frame: .zero, inputViewStyle: .keyboard)
+        let bg = KeyboardBackground(frame: .zero, inputViewStyle: .keyboard)
         bg.translatesAutoresizingMaskIntoConstraints = false
 
         // Zone de lecture : affiche le message reçu EN CLAIR, sur le clavier,
@@ -86,7 +114,8 @@ final class KeyboardViewController: UIInputViewController {
         keysStack.spacing = 8
         keysStack.distribution = .fillEqually
         keysStack.translatesAutoresizingMaskIntoConstraints = false
-        keysStack.heightAnchor.constraint(equalToConstant: 4 * 42 + 3 * 8).isActive = true
+        keysHeight = keysStack.heightAnchor.constraint(equalToConstant: 4 * BrocolisKeyboardPrefs.keySize.height + 3 * 8)
+        keysHeight?.isActive = true
         buildKeys()
 
         let stack = UIStackView(arrangedSubviews: [readout, row, statusLabel, keysStack])
@@ -126,27 +155,48 @@ final class KeyboardViewController: UIInputViewController {
     // MARK: Touches (AZERTY)
 
     private var rows: [[String]] {
+        let accents = BrocolisKeyboardPrefs.accentKeys
+        func bottom(_ left: String, _ a: String, _ b: String) -> [String] {
+            accents ? [left, "🌐", a, "espace", b, "⏎"] : [left, "🌐", "espace", "⏎"]
+        }
         switch page {
         case .letters:
-            return [
-                ["a", "z", "e", "r", "t", "y", "u", "i", "o", "p"],
-                ["q", "s", "d", "f", "g", "h", "j", "k", "l", "m"],
-                ["⇧", "w", "x", "c", "v", "b", "n", "'", "⌫"],
-                ["123", "🌐", "é", "espace", "è", "⏎"],
-            ]
+            switch BrocolisKeyboardPrefs.layout {
+            case .azerty:
+                return [
+                    ["a", "z", "e", "r", "t", "y", "u", "i", "o", "p"],
+                    ["q", "s", "d", "f", "g", "h", "j", "k", "l", "m"],
+                    ["⇧", "w", "x", "c", "v", "b", "n", "'", "⌫"],
+                    bottom("123", "é", "è"),
+                ]
+            case .qwerty:
+                return [
+                    ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"],
+                    ["a", "s", "d", "f", "g", "h", "j", "k", "l", "'"],
+                    ["⇧", "z", "x", "c", "v", "b", "n", "m", "⌫"],
+                    bottom("123", "é", "è"),
+                ]
+            case .qwertz:
+                return [
+                    ["q", "w", "e", "r", "t", "z", "u", "i", "o", "p"],
+                    ["a", "s", "d", "f", "g", "h", "j", "k", "l", "'"],
+                    ["⇧", "y", "x", "c", "v", "b", "n", "m", "⌫"],
+                    bottom("123", "é", "è"),
+                ]
+            }
         case .numbers:
             return [
                 ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"],
                 ["-", "/", ":", ";", "(", ")", "€", "&", "@", "\""],
                 ["#+=", ".", ",", "?", "!", "à", "ç", "ù", "⌫"],
-                ["ABC", "🌐", "ê", "espace", "â", "⏎"],
+                bottom("ABC", "ê", "â"),
             ]
         case .symbols:
             return [
                 ["[", "]", "{", "}", "#", "%", "^", "*", "+", "="],
                 ["_", "\\", "|", "~", "<", ">", "$", "£", "·", "«"],
                 ["123", "»", "…", "ô", "î", "ï", "ë", "œ", "⌫"],
-                ["ABC", "🌐", "û", "espace", "ü", "⏎"],
+                bottom("ABC", "û", "ü"),
             ]
         }
     }
@@ -216,7 +266,7 @@ final class KeyboardViewController: UIInputViewController {
 
     @objc private func keyTapped(_ sender: UIButton) {
         guard let key = sender.accessibilityIdentifier else { return }
-        UIDevice.current.playInputClick()
+        feedback()
         switch key {
         case "123": page = .numbers; buildKeys()
         case "#+=": page = .symbols; buildKeys()
@@ -225,7 +275,8 @@ final class KeyboardViewController: UIInputViewController {
         case "espace":
             // Double espace → « . », comme le clavier d'Apple.
             let before = textDocumentProxy.documentContextBeforeInput ?? ""
-            if let last = lastSpaceAt, Date().timeIntervalSince(last) < 0.4,
+            if BrocolisKeyboardPrefs.doubleSpacePeriod,
+               let last = lastSpaceAt, Date().timeIntervalSince(last) < 0.4,
                before.hasSuffix(" "), before.dropLast().last?.isLetter == true || before.dropLast().last?.isNumber == true {
                 textDocumentProxy.deleteBackward()
                 textDocumentProxy.insertText(". ")
@@ -245,6 +296,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     @objc private func shiftTapped(_ sender: UIButton, event: UIEvent) {
+        feedback()
         if let touch = event.allTouches?.first, touch.tapCount == 2 {
             capsLock = true
             shifted = true
@@ -259,7 +311,7 @@ final class KeyboardViewController: UIInputViewController {
 
     @objc private func deleteDown() {
         textDocumentProxy.deleteBackward()
-        UIDevice.current.playInputClick()
+        feedback()
         deleteTimer?.invalidate()
         // Maintenu : efface en continu après un court délai.
         deleteTimer = Timer.scheduledTimer(withTimeInterval: 0.45, repeats: false) { [weak self] _ in
@@ -277,7 +329,7 @@ final class KeyboardViewController: UIInputViewController {
 
     /// Majuscule automatique en début de champ et après . ! ?
     private func autoShift() {
-        guard page == .letters, !capsLock else { return }
+        guard page == .letters, !capsLock, BrocolisKeyboardPrefs.autoCapitalize else { return }
         let before = textDocumentProxy.documentContextBeforeInput ?? ""
         let trimmed = before.trimmingCharacters(in: .whitespaces)
         let want = before.isEmpty || before.hasSuffix("\n")
@@ -455,4 +507,9 @@ final class KeyboardViewController: UIInputViewController {
         }
         return true
     }
+}
+
+/// Fond du clavier : déclare le clic sonore d'iOS (« Clics du clavier »).
+final class KeyboardBackground: UIInputView, UIInputViewAudioFeedback {
+    var enableInputClicksWhenVisible: Bool { true }
 }
