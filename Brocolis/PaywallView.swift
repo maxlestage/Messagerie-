@@ -82,13 +82,13 @@ struct PaywallView: View {
                        "You've reached your \(BrocolisPlan.freeKeyLimit) free keys.",
                        "Has alcanzado tus \(BrocolisPlan.freeKeyLimit) claves gratuitas.")
         case .photo:
-            text = loc("Envoyer une photo chiffrée demande Brocolis+.",
-                       "Sending an encrypted photo needs Brocolis+.",
-                       "Enviar una foto cifrada requiere Brocolis+.")
+            text = loc("Envoyer une photo chiffrée demande Brocolis Pro.",
+                       "Sending an encrypted photo needs Brocolis Pro.",
+                       "Enviar una foto cifrada requiere Brocolis Pro.")
         case .voiceNote:
-            text = loc("Envoyer un message vocal chiffré demande Brocolis+.",
-                       "Sending an encrypted voice note needs Brocolis+.",
-                       "Enviar una nota de voz cifrada requiere Brocolis+.")
+            text = loc("Envoyer un message vocal chiffré demande Brocolis Pro.",
+                       "Sending an encrypted voice note needs Brocolis Pro.",
+                       "Enviar una nota de voz cifrada requiere Brocolis Pro.")
         case .keyExpiry:
             text = loc("Faire expirer une clé automatiquement demande Brocolis+.",
                        "Automatic key expiry needs Brocolis+.",

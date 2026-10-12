@@ -330,7 +330,7 @@ struct WatchFeedState {
 
 // MARK: - Client réseau (ne transporte que du chiffré)
 
-/// Parle à `messagerie-api`. Chiffre/déchiffre avec une clé Brocolis ; le
+/// Parle au serveur Brocolis. Chiffre/déchiffre avec une clé Brocolis ; le
 /// serveur ne voit que des jetons `[[BROCOLIS:v1:…]]`.
 struct BrocolisMessagingClient {
     let baseURL: URL
