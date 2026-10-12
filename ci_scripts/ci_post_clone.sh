@@ -16,6 +16,21 @@
 set -e
 
 echo "── ci_post_clone : Brocolis 🥦 ──"
+
+# Une seule chaîne livre sur TestFlight : GitHub Actions (ios-testflight.yml),
+# après les tests iOS, avec des numéros de build 1000+. Xcode Cloud, lui,
+# impose son propre compteur (100, 101…) quoi que dise ci_pre_xcodebuild.sh :
+# ses builds arrivaient sur TestFlight avec des numéros PLUS PETITS que ceux
+# de GitHub et se mélangeaient aux bons. On arrête donc ici toute archive
+# Xcode Cloud (= tout envoi TestFlight). Les builds/tests Xcode Cloud sans
+# archive continuent. Pour lui rendre la main : variable d'environnement
+# BROCOLIS_XCODE_CLOUD_UPLOAD=1 dans le workflow Xcode Cloud.
+if [ "$CI_XCODEBUILD_ACTION" = "archive" ] && [ "$BROCOLIS_XCODE_CLOUD_UPLOAD" != "1" ]; then
+  echo "error: Livraison TestFlight faite par GitHub Actions (builds 1000+) — archive Xcode Cloud arrêtée."
+  echo "error: Désactive ce workflow dans App Store Connect → Xcode Cloud pour ne plus recevoir cet échec."
+  exit 1
+fi
+
 echo "Aucune dépendance externe à installer."
 echo "Xcode : $(xcodebuild -version 2>/dev/null | tr '\n' ' ' || echo 'indisponible')"
 

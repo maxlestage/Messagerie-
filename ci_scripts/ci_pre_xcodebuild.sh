@@ -24,6 +24,7 @@ if [ -z "$CI_BUILD_NUMBER" ]; then
   exit 0
 fi
 
+# (Inactif tant que ci_post_clone.sh arrête les archives Xcode Cloud.)
 # On décale de +1000 pour rester au-dessus des anciens uploads faits par le
 # workflow GitHub Actions (qui utilisait github.run_number + 1000). Garde les
 # deux chemins de livraison sans collision de numéros.
