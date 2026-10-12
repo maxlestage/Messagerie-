@@ -579,3 +579,39 @@ async fn the_stream_delivers_messages_and_read_receipts() {
     assert_eq!(events[1]["reader"], "alice");
     assert_eq!(events[1]["upTo"], posted["seq"]);
 }
+
+/// L'app abonne sa Live Activity à ses conversations : seulement celles
+/// auxquelles elle a droit, avec un token hexadécimal.
+#[tokio::test]
+async fn live_activity_subscription() {
+    let svc = services().await;
+    let client = TestClient::new(app(&svc, None, Arc::new(Site::load())));
+    let private = create_conv(&client, "alice", json!([{ "id": "alice" }, { "id": "bob" }])).await;
+
+    let res = client
+        .post("/v1/live")
+        .header("x-user-id", "carol")
+        .json(&json!({ "token": "a1b2c3", "conversationIds": ["scellee", private], "since": 1000 }))
+        .await;
+    assert_eq!(res.status(), 200);
+    let body: Value = res.json();
+    assert_eq!(body["conversations"], 1, "pas la conversation privée d'Alice et Bob");
+    assert_eq!(body["push"], false, "APNs non configuré dans les tests");
+    let reg = svc.live.of("carol").unwrap();
+    assert_eq!(reg.since, 1000);
+    assert!(reg.conversations.contains("scellee"));
+
+    // Bob poste dans la conversation scellée : Carol en est abonnée.
+    assert_eq!(svc.live.followers("scellee", "bob").len(), 1);
+    post_msg(&client, "bob", "scellee", "m1", "X").await;
+    assert_eq!(svc.store.unread("scellee", "carol").await.unwrap().0, 1);
+
+    let res = client
+        .post("/v1/live")
+        .header("x-user-id", "carol")
+        .json(&json!({ "token": "pas-hexa!", "conversationIds": ["x"] }))
+        .await;
+    assert_eq!(res.status(), 400);
+    let res = client.post("/v1/live").json(&json!({ "token": "ab", "conversationIds": [] })).await;
+    assert_eq!(res.status(), 401);
+}

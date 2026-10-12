@@ -13,6 +13,7 @@ pub mod api;
 pub mod apns;
 pub mod apple_signin;
 pub mod broadcast;
+pub mod live;
 pub mod rendezvous;
 pub mod store;
 
@@ -26,6 +27,7 @@ use crate::api::{Push, Started};
 use crate::apns::Apns;
 use crate::apple_signin::AppleKeys;
 use crate::broadcast::Broadcaster;
+use crate::live::LiveSubscriptions;
 use crate::rendezvous::Rendezvous;
 use crate::store::Store;
 
@@ -35,6 +37,7 @@ pub struct Services {
     pub store: Arc<Store>,
     pub broadcaster: Arc<Broadcaster>,
     pub rendezvous: Arc<Rendezvous>,
+    pub live: Arc<LiveSubscriptions>,
 }
 
 impl Services {
@@ -43,6 +46,7 @@ impl Services {
             store: Arc::new(store),
             broadcaster: Arc::new(Broadcaster::default()),
             rendezvous: Arc::new(Rendezvous::new(max_peers)),
+            live: Arc::new(LiveSubscriptions::default()),
         }
     }
 }
@@ -61,6 +65,7 @@ pub fn app(services: &Services, push: Option<Apns>, site: Arc<Site>) -> App {
     app.state(services.store.clone());
     app.state(services.broadcaster.clone());
     app.state(services.rendezvous.clone());
+    app.state(services.live.clone());
     app.state(Push(push));
     app.state(AppleKeys::default());
     app.state(Started(Instant::now()));

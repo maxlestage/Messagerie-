@@ -53,6 +53,7 @@
 		2000000000000000000B0022 /* BrocolisTransform.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0003 /* BrocolisTransform.swift */; };
 		2000000000000000000B0023 /* BrocolisKeyboard.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0022 /* BrocolisKeyboard.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		2000000000000000000B0029 /* MessagesViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0027 /* MessagesViewController.swift */; };
+		2000000000000000000B0205 /* BrocolisPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0104 /* BrocolisPlan.swift */; };
 		2000000000000000000B002A /* BrocolisCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0001 /* BrocolisCrypto.swift */; };
 		2000000000000000000B002B /* BrocolisKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0002 /* BrocolisKeyStore.swift */; };
 		2000000000000000000B002C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0028 /* Assets.xcassets */; };
@@ -731,6 +732,7 @@
 				2000000000000000000B0029 /* MessagesViewController.swift in Sources */,
 				2000000000000000000B002A /* BrocolisCrypto.swift in Sources */,
 				2000000000000000000B002B /* BrocolisKeyStore.swift in Sources */,
+				2000000000000000000B0205 /* BrocolisPlan.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

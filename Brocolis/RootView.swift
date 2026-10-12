@@ -113,10 +113,14 @@ struct RootView: View {
             .navigationTitle("Brocolis 🥦")
             .onAppear {
                 purgeIfNeeded()
+                Task { await BrocolisPush.subscribeLiveActivity() }
                 if router.openPairing { showPairing = true; router.openPairing = false }
             }
             .onChange(of: scenePhase) { phase in
-                if phase == .active { purgeIfNeeded() }
+                if phase == .active {
+                    purgeIfNeeded()
+                    Task { await BrocolisPush.subscribeLiveActivity() }
+                }
             }
             .onChange(of: router.openPairing) { open in
                 if open { showPairing = true; router.openPairing = false }

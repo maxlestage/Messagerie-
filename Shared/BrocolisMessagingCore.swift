@@ -493,6 +493,19 @@ struct BrocolisMessagingClient {
         return grantStatus(from: data)
     }
 
+    /// POST /v1/live — abonne la Live Activity de cet appareil aux
+    /// conversations données : le serveur la met à jour lui-même (compteur de
+    /// non-lus, heure du dernier message) à chaque message reçu, même app
+    /// fermée. Ne part que des identifiants de conversation opaques et le push
+    /// token : rien de lisible.
+    func subscribeLiveActivity(token: String, conversationIds: [String], since: Date?) async {
+        var req = request("v1/live", method: "POST")
+        var body: [String: Any] = ["token": token, "conversationIds": conversationIds]
+        if let since { body["since"] = Int(since.timeIntervalSince1970) }
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        _ = try? await URLSession.shared.data(for: req)
+    }
+
     /// Accusé de lecture : signale qu'on a lu jusqu'à `upTo`.
     func markRead(conversationId: String, upTo: UInt64) async {
         var req = request("v1/read", method: "POST")

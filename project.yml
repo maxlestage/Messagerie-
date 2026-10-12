@@ -121,6 +121,7 @@ targets:
       - path: BrocolisiMessage
       - path: Shared/BrocolisCrypto.swift
       - path: Shared/BrocolisKeyStore.swift
+      - path: Shared/BrocolisPlan.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: rs.brocolis.messagerie.imessage

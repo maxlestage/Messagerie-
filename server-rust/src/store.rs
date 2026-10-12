@@ -291,6 +291,25 @@ impl Store {
         }
     }
 
+    /// Les messages d'une conversation que `user` n'a pas encore lus (envoyés
+    /// par les autres, après son curseur de lecture), et l'heure du dernier.
+    pub async fn unread(&self, conv: &str, user: &str) -> Result<(u64, Option<String>)> {
+        let cursor = ReadCursor::find(&self.db, read_key(conv, user))
+            .await?
+            .map_or(0, |c| c.up_to);
+        let pending = Message::query()
+            .filter(
+                Message::CONVERSATION_ID.eq(conv)
+                    & Message::SEQ.gt(cursor)
+                    & Message::SENDER_ID.ne(user),
+            )
+            .columns(Message::SENT_AT)
+            .all(&self.db)
+            .await?;
+        let last = pending.iter().max().cloned();
+        Ok((pending.len() as u64, last))
+    }
+
     // ── Conversations ───────────────────────────────────────────────────────
 
     pub async fn conversation(&self, id: &str) -> Result<Option<Conversation>> {
@@ -473,6 +492,24 @@ mod tests {
             let (left, _) = store.messages("c", 0, 10).await?;
             assert_eq!(left.last().unwrap().msg_id, "m3", "le plus récent reste");
             assert!(left.iter().all(|m| m.msg_id != "m0"), "le plus vieux part");
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn unread_counts_only_what_others_sent_after_the_cursor() {
+        run(async {
+            let store = Store::in_memory(1 << 30).await?;
+            let (a, _) = store.post_message("c", "m1", "bob", "X").await?;
+            store.post_message("c", "m2", "alice", "Y").await?;
+            store.post_message("c", "m3", "bob", "Z").await?;
+            let (n, last) = store.unread("c", "alice").await?;
+            assert_eq!(n, 2, "les deux messages de Bob");
+            assert!(last.is_some());
+            store.mark_read("c", "alice", a.seq).await?;
+            assert_eq!(store.unread("c", "alice").await?.0, 1);
+            assert_eq!(store.unread("c", "bob").await?.0, 1, "celui d'Alice");
+            assert_eq!(store.unread("autre", "alice").await?, (0, None));
             Ok(())
         });
     }
