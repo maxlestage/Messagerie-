@@ -2,8 +2,8 @@
 //  KeyboardViewController.swift
 //  Brocolis 🥦 — Clavier (extension clavier personnalisé)
 //
-//  Un clavier « action » : tu tapes ton message avec ton clavier habituel, tu
-//  bascules sur Brocolis (🌐) et tu touches « Chiffrer » → le texte du champ est
+//  Un vrai clavier AZERTY (lettres, chiffres, accents) avec une barre Brocolis :
+//  tu écris ton message, tu touches « Chiffrer » → le texte du champ est
 //  remplacé chiffré DIRECTEMENT, sur place, sans rien copier. « Déchiffrer »
 //  fait l'inverse sur un brouillon. Marche dans toutes les apps qui ont un champ
 //  de saisie (WhatsApp, iMessage, Notes…).
@@ -33,49 +33,65 @@ final class KeyboardViewController: UIInputViewController {
 
     override func textDidChange(_ textInput: UITextInput?) {
         refreshState()
+        autoShift()
     }
 
     // MARK: UI
+
+    /// Les touches du clavier, reconstruites à chaque changement de page
+    /// (lettres / chiffres / symboles) ou de majuscule.
+    private let keysStack = UIStackView()
+    private enum Page { case letters, numbers, symbols }
+    private var page: Page = .letters
+    private var shifted = true
+    private var capsLock = false
+    private var deleteTimer: Timer?
+    private var lastSpaceAt: Date?
 
     private func setupUI() {
         let bg = UIInputView(frame: .zero, inputViewStyle: .keyboard)
         bg.translatesAutoresizingMaskIntoConstraints = false
 
         // Zone de lecture : affiche le message reçu EN CLAIR, sur le clavier,
-        // sans quitter l'app. Lecture seule, défilable pour les longs messages.
+        // sans quitter l'app. Cachée tant qu'il n'y a rien à lire, pour laisser
+        // la place aux touches.
         readout.font = .preferredFont(forTextStyle: .body)
         readout.isEditable = false
         readout.isScrollEnabled = true
         readout.backgroundColor = .systemBackground
         readout.layer.cornerRadius = 10
-        readout.textContainerInset = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
+        readout.textContainerInset = UIEdgeInsets(top: 6, left: 8, bottom: 6, right: 8)
         readout.translatesAutoresizingMaskIntoConstraints = false
-        readout.heightAnchor.constraint(greaterThanOrEqualToConstant: 64).isActive = true
+        readout.heightAnchor.constraint(equalToConstant: 72).isActive = true
         showReadout("", placeholder: true)
 
-        statusLabel.font = .preferredFont(forTextStyle: .footnote)
+        statusLabel.font = .preferredFont(forTextStyle: .caption1)
         statusLabel.textColor = .secondaryLabel
         statusLabel.numberOfLines = 2
         statusLabel.textAlignment = .center
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        let globe = makeButton(title: "🌐", action: #selector(nextKeyboard))
-        globe.titleLabel?.font = .systemFont(ofSize: 22)
         let read = makeButton(title: loc("📋 Lire", "📋 Read", "📋 Leer"), action: #selector(readClipboardTapped))
         let encrypt = makeButton(title: loc("🔒 Chiffrer", "🔒 Encrypt", "🔒 Cifrar"), action: #selector(encryptTapped))
         let decrypt = makeButton(title: loc("🔓 Déchiffrer", "🔓 Decrypt", "🔓 Descifrar"), action: #selector(decryptTapped))
         actionButtons = [read, encrypt, decrypt]
 
-        let row = UIStackView(arrangedSubviews: [globe, read, encrypt, decrypt])
+        let row = UIStackView(arrangedSubviews: [read, encrypt, decrypt])
         row.axis = .horizontal
-        row.distribution = .fillProportionally
-        row.spacing = 8
+        row.distribution = .fillEqually
+        row.spacing = 6
         row.translatesAutoresizingMaskIntoConstraints = false
-        globe.widthAnchor.constraint(equalToConstant: 48).isActive = true
 
-        let stack = UIStackView(arrangedSubviews: [readout, statusLabel, row])
+        keysStack.axis = .vertical
+        keysStack.spacing = 8
+        keysStack.distribution = .fillEqually
+        keysStack.translatesAutoresizingMaskIntoConstraints = false
+        keysStack.heightAnchor.constraint(equalToConstant: 4 * 42 + 3 * 8).isActive = true
+        buildKeys()
+
+        let stack = UIStackView(arrangedSubviews: [readout, row, statusLabel, keysStack])
         stack.axis = .vertical
-        stack.spacing = 10
+        stack.spacing = 6
         stack.translatesAutoresizingMaskIntoConstraints = false
 
         view.addSubview(bg)
@@ -87,26 +103,189 @@ final class KeyboardViewController: UIInputViewController {
             bg.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             bg.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
-            stack.topAnchor.constraint(equalTo: bg.topAnchor, constant: 12),
-            stack.leadingAnchor.constraint(equalTo: bg.leadingAnchor, constant: 12),
-            stack.trailingAnchor.constraint(equalTo: bg.trailingAnchor, constant: -12),
-            stack.bottomAnchor.constraint(equalTo: bg.bottomAnchor, constant: -12),
-
-            view.heightAnchor.constraint(greaterThanOrEqualToConstant: 210),
+            stack.topAnchor.constraint(equalTo: bg.topAnchor, constant: 6),
+            stack.leadingAnchor.constraint(equalTo: bg.leadingAnchor, constant: 4),
+            stack.trailingAnchor.constraint(equalTo: bg.trailingAnchor, constant: -4),
+            stack.bottomAnchor.constraint(equalTo: bg.bottomAnchor, constant: -4),
         ])
     }
 
     private func makeButton(title: String, action: Selector) -> UIButton {
         let b = UIButton(type: .system)
         b.setTitle(title, for: .normal)
-        b.titleLabel?.font = .preferredFont(forTextStyle: .headline)
+        b.titleLabel?.font = .preferredFont(forTextStyle: .subheadline)
         b.titleLabel?.adjustsFontSizeToFitWidth = true
-        b.titleLabel?.minimumScaleFactor = 0.7
+        b.titleLabel?.minimumScaleFactor = 0.6
         b.backgroundColor = .secondarySystemBackground
-        b.layer.cornerRadius = 10
-        b.contentEdgeInsets = UIEdgeInsets(top: 12, left: 10, bottom: 12, right: 10)
+        b.layer.cornerRadius = 8
+        b.contentEdgeInsets = UIEdgeInsets(top: 8, left: 6, bottom: 8, right: 6)
         b.addTarget(self, action: action, for: .touchUpInside)
         return b
+    }
+
+    // MARK: Touches (AZERTY)
+
+    private var rows: [[String]] {
+        switch page {
+        case .letters:
+            return [
+                ["a", "z", "e", "r", "t", "y", "u", "i", "o", "p"],
+                ["q", "s", "d", "f", "g", "h", "j", "k", "l", "m"],
+                ["⇧", "w", "x", "c", "v", "b", "n", "'", "⌫"],
+                ["123", "🌐", "é", "espace", "è", "⏎"],
+            ]
+        case .numbers:
+            return [
+                ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"],
+                ["-", "/", ":", ";", "(", ")", "€", "&", "@", "\""],
+                ["#+=", ".", ",", "?", "!", "à", "ç", "ù", "⌫"],
+                ["ABC", "🌐", "ê", "espace", "â", "⏎"],
+            ]
+        case .symbols:
+            return [
+                ["[", "]", "{", "}", "#", "%", "^", "*", "+", "="],
+                ["_", "\\", "|", "~", "<", ">", "$", "£", "·", "«"],
+                ["123", "»", "…", "ô", "î", "ï", "ë", "œ", "⌫"],
+                ["ABC", "🌐", "û", "espace", "ü", "⏎"],
+            ]
+        }
+    }
+
+    private func buildKeys() {
+        keysStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        for keys in rows {
+            let line = UIStackView()
+            line.axis = .horizontal
+            line.spacing = 5
+            line.distribution = .fill
+            for key in keys {
+                if key == "🌐" && !needsInputModeSwitchKey { continue }
+                let b = keyButton(key)
+                line.addArrangedSubview(b)
+                // Une touche = 1/10e de la rangée (1,4 pour les touches de
+                // fonction) ; espace prend le reste.
+                if key == "espace" { continue }
+                let wide = ["⇧", "⌫", "123", "ABC", "#+=", "⏎"].contains(key)
+                let w = b.widthAnchor.constraint(equalTo: line.widthAnchor, multiplier: wide ? 0.14 : 0.1, constant: -4.5)
+                w.priority = .defaultHigh
+                w.isActive = true
+            }
+            keysStack.addArrangedSubview(line)
+        }
+    }
+
+    private func label(for key: String) -> String {
+        switch key {
+        case "espace": return loc("espace", "space", "espacio")
+        case "⇧": return capsLock ? "⇪" : "⇧"
+        default:
+            return page == .letters && shifted && key.count == 1 ? key.uppercased() : key
+        }
+    }
+
+    private func keyButton(_ key: String) -> UIButton {
+        let b = UIButton(type: .system)
+        b.setTitle(label(for: key), for: .normal)
+        b.accessibilityIdentifier = key
+        let special = ["⇧", "⌫", "123", "ABC", "#+=", "🌐", "⏎"].contains(key)
+        b.titleLabel?.font = special || key == "espace"
+            ? .systemFont(ofSize: 16, weight: .medium)
+            : .systemFont(ofSize: 22)
+        b.setTitleColor(.label, for: .normal)
+        b.tintColor = .label
+        let highlighted = key == "⇧" && shifted && page == .letters
+        b.backgroundColor = highlighted ? .systemGreen.withAlphaComponent(0.35)
+            : special ? .tertiarySystemFill : .systemBackground
+        b.layer.cornerRadius = 6
+        b.layer.shadowColor = UIColor.black.cgColor
+        b.layer.shadowOpacity = 0.25
+        b.layer.shadowOffset = CGSize(width: 0, height: 1)
+        b.layer.shadowRadius = 0
+        if key == "🌐" {
+            b.addTarget(self, action: #selector(handleInputModeList(from:with:)), for: .allTouchEvents)
+        } else if key == "⌫" {
+            b.addTarget(self, action: #selector(deleteDown), for: .touchDown)
+            b.addTarget(self, action: #selector(deleteUp), for: [.touchUpInside, .touchUpOutside, .touchCancel])
+        } else if key == "⇧" {
+            b.addTarget(self, action: #selector(shiftTapped(_:event:)), for: .touchUpInside)
+        } else {
+            b.addTarget(self, action: #selector(keyTapped(_:)), for: .touchUpInside)
+        }
+        return b
+    }
+
+    @objc private func keyTapped(_ sender: UIButton) {
+        guard let key = sender.accessibilityIdentifier else { return }
+        UIDevice.current.playInputClick()
+        switch key {
+        case "123": page = .numbers; buildKeys()
+        case "#+=": page = .symbols; buildKeys()
+        case "ABC": page = .letters; buildKeys()
+        case "⏎": textDocumentProxy.insertText("\n")
+        case "espace":
+            // Double espace → « . », comme le clavier d'Apple.
+            let before = textDocumentProxy.documentContextBeforeInput ?? ""
+            if let last = lastSpaceAt, Date().timeIntervalSince(last) < 0.4,
+               before.hasSuffix(" "), before.dropLast().last?.isLetter == true || before.dropLast().last?.isNumber == true {
+                textDocumentProxy.deleteBackward()
+                textDocumentProxy.insertText(". ")
+                lastSpaceAt = nil
+            } else {
+                textDocumentProxy.insertText(" ")
+                lastSpaceAt = Date()
+            }
+            autoShift()
+        default:
+            textDocumentProxy.insertText(label(for: key))
+            if page == .letters, shifted, !capsLock {
+                shifted = false
+                buildKeys()
+            }
+        }
+    }
+
+    @objc private func shiftTapped(_ sender: UIButton, event: UIEvent) {
+        if let touch = event.allTouches?.first, touch.tapCount == 2 {
+            capsLock = true
+            shifted = true
+        } else if capsLock {
+            capsLock = false
+            shifted = false
+        } else {
+            shifted.toggle()
+        }
+        buildKeys()
+    }
+
+    @objc private func deleteDown() {
+        textDocumentProxy.deleteBackward()
+        UIDevice.current.playInputClick()
+        deleteTimer?.invalidate()
+        // Maintenu : efface en continu après un court délai.
+        deleteTimer = Timer.scheduledTimer(withTimeInterval: 0.45, repeats: false) { [weak self] _ in
+            self?.deleteTimer = Timer.scheduledTimer(withTimeInterval: 0.08, repeats: true) { _ in
+                self?.textDocumentProxy.deleteBackward()
+            }
+        }
+    }
+
+    @objc private func deleteUp() {
+        deleteTimer?.invalidate()
+        deleteTimer = nil
+        autoShift()
+    }
+
+    /// Majuscule automatique en début de champ et après . ! ?
+    private func autoShift() {
+        guard page == .letters, !capsLock else { return }
+        let before = textDocumentProxy.documentContextBeforeInput ?? ""
+        let trimmed = before.trimmingCharacters(in: .whitespaces)
+        let want = before.isEmpty || before.hasSuffix("\n")
+            || (before.hasSuffix(" ") && [".", "!", "?"].contains(trimmed.last.map(String.init) ?? ""))
+        if want != shifted {
+            shifted = want
+            buildKeys()
+        }
     }
 
     // MARK: État
@@ -114,7 +293,7 @@ final class KeyboardViewController: UIInputViewController {
     private func refreshState() {
         guard hasFullAccess else {
             setEnabled(false)
-            statusLabel.text = loc("⚠️ Active « Accès complet » pour ce clavier\n(Réglages → Général → Clavier → Brocolis 🥦)", "⚠️ Enable « Full Access » for this keyboard\n(Settings → General → Keyboard → Brocolis 🥦)", "⚠️ Activa « Acceso completo » para este teclado\n(Ajustes → General → Teclado → Brocolis 🥦)")
+            statusLabel.text = loc("Pour chiffrer : Réglages → Général → Clavier → Claviers → Brocolis 🥦 → « Accès complet »", "To encrypt: Settings → General → Keyboard → Keyboards → Brocolis 🥦 → « Full Access »", "Para cifrar: Ajustes → General → Teclado → Teclados → Brocolis 🥦 → « Acceso completo »")
             return
         }
         guard BrocolisKeyStore.isActive else {
@@ -128,7 +307,7 @@ final class KeyboardViewController: UIInputViewController {
             return
         }
         setEnabled(true)
-        statusLabel.text = loc("Lire un reçu : copie-le, touche « Lire ». Envoyer : tape, puis « Chiffrer ».", "Read a message you got: copy it, tap « Read ». Send: type, then « Encrypt ».", "Leer un mensaje recibido: cópialo, toca « Leer ». Enviar: escribe, luego « Cifrar ».")
+        statusLabel.text = loc("Écris ton message puis « Chiffrer ». Reçu : copie-le, puis « Lire ».", "Type your message, then « Encrypt ». Got one: copy it, then « Read ».", "Escribe tu mensaje y luego « Cifrar ». Recibido: cópialo y luego « Leer ».")
     }
 
     /// Affiche du texte (ou un mode d'emploi) dans la zone de lecture.
@@ -136,7 +315,9 @@ final class KeyboardViewController: UIInputViewController {
         if placeholder || text.isEmpty {
             readout.text = loc("Pour lire un message reçu : appui long dessus → Copier, puis reviens ici et touche « 📋 Lire » — il s’affiche en clair, sans quitter l’app.", "To read a message you got: long-press it → Copy, then come back here and tap « 📋 Read » — it shows in clear text, without leaving the app.", "Para leer un mensaje recibido: mantén pulsado → Copiar, luego vuelve aquí y toca « 📋 Leer » — se muestra en claro, sin salir de la app.")
             readout.textColor = .secondaryLabel
+            readout.isHidden = true
         } else {
+            readout.isHidden = false
             readout.text = text
             readout.textColor = .label
             readout.setContentOffset(.zero, animated: false)
