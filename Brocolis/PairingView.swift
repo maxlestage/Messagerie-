@@ -11,6 +11,7 @@
 
 import SwiftUI
 import CryptoKit
+import CoreImage.CIFilterBuiltins
 
 struct PairingView: View {
     @State private var code = ""
@@ -18,6 +19,8 @@ struct PairingView: View {
     @State private var fingerprint: String? = BrocolisKeyStore.pairingFingerprint
     @State private var isWorking = false
     @State private var task: Task<Void, Never>?
+    /// Les participants vus dans le salon (clés publiques seulement), en direct.
+    @State private var roomPeers: [PairingPeer] = []
 
     private let codeAlphabet = Array("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
 
@@ -66,6 +69,67 @@ struct PairingView: View {
                 }
             }
             .listRowBackground(Color.brocoliCard)
+
+            // Le code en QR : l'appareil photo de l'autre téléphone ouvre le
+            // salon en direct sur le site, avec le code déjà rempli.
+            if !trimmedCode.isEmpty, let qr = qrImage(for: salonURL) {
+                Section {
+                    VStack(spacing: 10) {
+                        Image(uiImage: qr)
+                            .interpolation(.none)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 180, height: 180)
+                            .padding(10)
+                            .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
+                        Text(trimmedCode.uppercased())
+                            .font(.system(.title2, design: .monospaced).weight(.bold))
+                        ShareLink(item: salonURL,
+                                  message: Text(loc("Mon code Brocolis 🥦 : \(trimmedCode.uppercased())",
+                                                    "My Brocolis 🥦 code: \(trimmedCode.uppercased())",
+                                                    "Mi código Brocolis 🥦: \(trimmedCode.uppercased())"))) {
+                            Label(loc("Partager le code", "Share the code", "Compartir el código"),
+                                  systemImage: "square.and.arrow.up")
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                    .frame(maxWidth: .infinity)
+                } footer: {
+                    Text(loc("Fais scanner ce QR ou partage le code : ton correspondant saisit le même code dans son app.",
+                             "Have them scan this QR or share the code: your contact enters the same code in their app.",
+                             "Haz escanear este QR o comparte el código: tu contacto introduce el mismo código en su app."))
+                }
+                .listRowBackground(Color.brocoliCard)
+            }
+
+            // Le salon en direct : qui a déjà publié sa clé publique sous ce code.
+            if isWorking || !roomPeers.isEmpty {
+                Section(loc("Dans le salon", "In the room", "En la sala")) {
+                    if roomPeers.isEmpty {
+                        HStack(spacing: 10) {
+                            ProgressView()
+                            Text(loc("On guette les arrivées…", "Watching for arrivals…", "Vigilando las llegadas…"))
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        ForEach(roomPeers, id: \.peerId) { peer in
+                            HStack(spacing: 10) {
+                                Text("🥦")
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(loc("Participant", "Participant", "Participante") + " · " + String(peer.peerId.prefix(6)))
+                                        .font(.subheadline.weight(.semibold))
+                                    Text(loc("clé publique", "public key", "clave pública") + " : " + String(peer.pub.prefix(14)) + "…")
+                                        .font(.caption.monospaced())
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .transition(.move(edge: .leading).combined(with: .opacity))
+                        }
+                    }
+                }
+                .animation(.spring(response: 0.4, dampingFraction: 0.8), value: roomPeers.map(\.peerId))
+                .listRowBackground(Color.brocoliCard)
+            }
 
             Section {
                 actionButton(title: loc("Appairer à deux", "Pair one-to-one", "Emparejar entre dos"), systemImage: "person.2.fill") {
@@ -170,6 +234,35 @@ struct PairingView: View {
         String((0..<length).map { _ in codeAlphabet.randomElement()! })
     }
 
+    // MARK: QR et salon
+
+    private var trimmedCode: String {
+        code.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// La page « Salon » du site, servie par le serveur, avec le code rempli.
+    private var salonURL: URL {
+        let lang = Locale.current.language.languageCode?.identifier ?? "fr"
+        let site = ["fr", "en", "es"].contains(lang) ? lang : "fr"
+        let encoded = trimmedCode.uppercased()
+            .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        return URL(string: "\(BrocolisKeyStore.serverURL)/\(site)/salon/?code=\(encoded)")
+            ?? URL(string: BrocolisKeyStore.serverURL)!
+    }
+
+    private func qrImage(for url: URL) -> UIImage? {
+        let filter = CIFilter.qrCodeGenerator()
+        filter.message = Data(url.absoluteString.utf8)
+        filter.correctionLevel = "M"
+        guard let output = filter.outputImage?.transformed(by: CGAffineTransform(scaleX: 8, y: 8)),
+              let cg = CIContext().createCGImage(output, from: output.extent) else { return nil }
+        return UIImage(cgImage: cg)
+    }
+
+    @MainActor private func showPeers(_ peers: [PairingPeer], excluding myPub: String) {
+        roomPeers = peers.filter { $0.pub != myPub }
+    }
+
     // MARK: Orchestration
 
     private func run(_ body: @escaping () async throws -> Void) {
@@ -181,6 +274,7 @@ struct PairingView: View {
         }
         isWorking = true
         fingerprint = nil
+        roomPeers = []
         task = Task {
             do {
                 try await body()
@@ -214,6 +308,7 @@ struct PairingView: View {
         for _ in 0..<40 {
             if Task.isCancelled { return }
             let peers = try await client.fetch(code: code, peerId: peerId)
+            await showPeers(peers, excluding: myPub)
             if let peer = peers.first(where: { $0.pub != myPub }) {
                 let derived = try BrocolisKeyAgreement.derive(myPrivate: priv, peerPublicBase64: peer.pub)
                 BrocolisKeyStore.setPairingPeerIds([peer.peerId])
@@ -245,6 +340,7 @@ struct PairingView: View {
         for _ in 0..<30 {
             if Task.isCancelled { return }
             let peers = try await client.fetch(code: code, peerId: peerId)
+            await showPeers(peers, excluding: myPub)
             let newPeers = peers.filter { !wrappedTo.contains($0.peerId) && $0.pub != myPub }
             if !newPeers.isEmpty {
                 var items: [WrapItem] = []
@@ -271,7 +367,8 @@ struct PairingView: View {
         let peerId = UUID().uuidString
 
         update(loc("Publication de ta clé publique…", "Publishing your public key…", "Publicando tu clave pública…"))
-        _ = try await client.publish(code: code, peerId: peerId, pub: myPub)
+        let others = try await client.publish(code: code, peerId: peerId, pub: myPub)
+        await showPeers(others, excluding: myPub)
         update(loc("En attente de la clé du groupe…", "Waiting for the group key…", "Esperando la clave del grupo…"))
 
         for _ in 0..<60 {

@@ -5,7 +5,7 @@
 //  Messagerie LIVE, adossée à tes clés existantes. Ici, pas de copier-coller :
 //  tu choisis un correspondant PARMI TES CLÉS 🔑 (une clé = une personne), et tu
 //  discutes en clair dans l'app. Chaque message part chiffré (AES-256-GCM avec
-//  la clé de ce correspondant) vers l'API `messagerie-api` ; le serveur ne voit
+//  la clé de ce correspondant) vers le serveur Brocolis ; le serveur ne voit
 //  que du charabia. « En clair ici, illisible partout ailleurs. »
 //
 //  L'identifiant de conversation est DÉRIVÉ de la clé partagée (empreinte SHA-256) :
@@ -396,7 +396,7 @@ struct MessagingHomeView: View {
                         Label(loc("Configurer le serveur", "Configure the server", "Configurar el servidor"), systemImage: "network")
                     }
                 } footer: {
-                    locText("Renseigne l'URL de ton API `messagerie-api` (ex. `https://…`). Sans elle, impossible d'échanger des messages en direct.", "Enter the URL of your `messagerie-api` API (e.g. `https://…`). Without it, exchanging live messages is impossible.", "Introduce la URL de tu API `messagerie-api` (p. ej. `https://…`). Sin ella, es imposible intercambiar mensajes en directo.")
+                    locText("Renseigne l'URL du serveur Brocolis (ex. `https://…`). Sans elle, impossible d'échanger des messages en direct.", "Enter the Brocolis server URL (e.g. `https://…`). Without it, exchanging live messages is impossible.", "Introduce la URL del servidor Brocolis (p. ej. `https://…`). Sin ella, es imposible intercambiar mensajes en directo.")
                 }
                 .listRowBackground(Color.brocoliCard)
             }
@@ -441,7 +441,7 @@ struct MessagingHomeView: View {
             Button(loc("Enregistrer", "Save", "Guardar")) { MessagingPrefs.serverURL = serverURL }
             Button(loc("Annuler", "Cancel", "Cancelar"), role: .cancel) {}
         } message: {
-            Text(loc("URL de l'API messagerie-api (Rust/Actix).", "URL of the messagerie-api API (Rust/Actix).", "URL de la API messagerie-api (Rust/Actix)."))
+            Text(loc("URL du serveur Brocolis (Rust, Vitesse).", "URL of the Brocolis server (Rust, Vitesse).", "URL del servidor Brocolis (Rust, Vitesse)."))
         }
     }
 
