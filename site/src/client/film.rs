@@ -5,51 +5,33 @@
 //! canvas 2D hors écran (emoji, texte, contour), puis on y prélève des points
 //! colorés. Les particules volent d'un nuage à l'autre ; le pointeur les écarte.
 
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::rc::Rc;
 
-use gloo::render::{AnimationFrame, request_animation_frame};
 use js_sys::Float32Array;
 use wasm_bindgen::{JsCast, JsValue};
 use web_sys::{
-    CanvasRenderingContext2d, HtmlCanvasElement, HtmlElement, WebGl2RenderingContext as Gl,
-    WebGlProgram, WebGlShader,
+    CanvasRenderingContext2d, Element, HtmlCanvasElement, HtmlElement,
+    WebGl2RenderingContext as Gl, WebGlProgram, WebGlShader,
 };
-use yew::prelude::*;
 
-use crate::prefs::use_prefs;
+use super::{document, on_passive, reduced_motion, request_frame, root, window};
 
-/// Une étape du film : comment dessiner la forme, et la phrase qui l'accompagne.
+/// Une étape du film : comment dessiner la forme. Les phrases qui
+/// l'accompagnent sont dans le HTML (`[data-station]`), rendu par le serveur.
 struct Station {
     draw: fn(&CanvasRenderingContext2d, f64),
-    caption: &'static str,
 }
 
 const STATIONS: [Station; 6] = [
     Station {
         draw: draw_broccoli,
-        caption: "film.s0",
     },
-    Station {
-        draw: draw_bubble,
-        caption: "film.s1",
-    },
-    Station {
-        draw: draw_cipher,
-        caption: "film.s2",
-    },
-    Station {
-        draw: draw_keys,
-        caption: "film.s3",
-    },
-    Station {
-        draw: draw_watch,
-        caption: "film.s4",
-    },
-    Station {
-        draw: draw_finale,
-        caption: "film.s5",
-    },
+    Station { draw: draw_bubble },
+    Station { draw: draw_cipher },
+    Station { draw: draw_keys },
+    Station { draw: draw_watch },
+    Station { draw: draw_finale },
 ];
 
 /// Côté du canvas hors écran où l'on dessine chaque forme.
@@ -150,11 +132,7 @@ fn random() -> f32 {
 }
 
 fn sample_shape(station: &Station, n: usize) -> Option<Shape> {
-    let canvas: HtmlCanvasElement = gloo::utils::document()
-        .create_element("canvas")
-        .ok()?
-        .dyn_into()
-        .ok()?;
+    let canvas: HtmlCanvasElement = document().create_element("canvas").ok()?.dyn_into().ok()?;
     canvas.set_width(SAMPLE as u32);
     canvas.set_height(SAMPLE as u32);
     let ctx: CanvasRenderingContext2d = canvas.get_context("2d").ok()??.dyn_into().ok()?;
@@ -240,10 +218,7 @@ fn compile(gl: &Gl, kind: u32, src: &str) -> Option<WebGlShader> {
     {
         Some(shader)
     } else {
-        gloo::console::warn!(
-            "shader",
-            gl.get_shader_info_log(&shader).unwrap_or_default()
-        );
+        web_sys::console::warn_1(&gl.get_shader_info_log(&shader).unwrap_or_default().into());
         None
     }
 }
@@ -312,7 +287,7 @@ impl Engine {
         gl.use_program(Some(&prog));
 
         // Moins de grains sur petit écran : fluide sur téléphone.
-        let w = gloo::utils::window().inner_width().ok()?.as_f64()?;
+        let w = window().inner_width().ok()?.as_f64()?;
         let n = if w < 600.0 {
             4200
         } else if w < 1100.0 {
@@ -401,7 +376,7 @@ impl Engine {
     /// section épinglée dans la fenêtre. `None` si elle est hors écran.
     fn progress(&self) -> Option<f32> {
         let rect = self.section.get_bounding_client_rect();
-        let vh = gloo::utils::window().inner_height().ok()?.as_f64()?;
+        let vh = window().inner_height().ok()?.as_f64()?;
         if rect.bottom() < 0.0 || rect.top() > vh {
             return None;
         }
@@ -411,7 +386,7 @@ impl Engine {
     }
 
     fn resize(&self) -> (f32, f32) {
-        let dpr = gloo::utils::window().device_pixel_ratio().min(2.0);
+        let dpr = window().device_pixel_ratio().min(2.0);
         let w = self.canvas.client_width().max(1) as f64;
         let h = self.canvas.client_height().max(1) as f64;
         let (pw, ph) = ((w * dpr) as u32, (h * dpr) as u32);
@@ -437,9 +412,7 @@ impl Engine {
         let rect = self.section.get_bounding_client_rect();
         let under = rect.top() <= 40.0 && rect.bottom() >= 40.0;
         if under != self.under_nav {
-            if let Some(root) = gloo::utils::document().document_element() {
-                let _ = root.class_list().toggle_with_force("over-film", under);
-            }
+            let _ = root().class_list().toggle_with_force("over-film", under);
             self.under_nav = under;
         }
     }
@@ -462,11 +435,21 @@ impl Engine {
             for (k, el) in self.captions.iter().enumerate() {
                 let _ = el.class_list().toggle_with_force("on", k == caption);
             }
+            let _ = self
+                .section
+                .class_list()
+                .toggle_with_force("at-end", caption == last);
             if let Some(c) = &self.counter {
                 c.set_text_content(Some(&format!("{:02}", caption + 1)));
             }
             self.shown = Some(caption);
         }
+
+        // Fil de progression du film (`--film-p`, de 0 à 1).
+        let _ = self
+            .section
+            .style()
+            .set_property("--film-p", &format!("{:.4}", s / last as f32));
 
         let time = (time / 1000.0) as f32;
         let (a, b) = (&self.shapes[i], &self.shapes[j]);
@@ -521,111 +504,40 @@ impl Engine {
     }
 }
 
-fn prefers_reduced_motion() -> bool {
-    gloo::utils::window()
-        .match_media("(prefers-reduced-motion: reduce)")
+/// Démarre le film dans `section` (la section `#film` rendue par le serveur).
+/// Sans WebGL ou sans police d'emoji, les phrases s'affichent simplement.
+pub fn start(section: Element) {
+    let Some(canvas) = section
+        .query_selector(".film-canvas")
         .ok()
         .flatten()
-        .is_some_and(|m| m.matches())
-}
-
-#[function_component(Film)]
-pub fn film() -> Html {
-    let prefs = use_prefs();
-    let section = use_node_ref();
-    let canvas = use_node_ref();
-    let fallback = use_state_eq(|| false);
-
+        .and_then(|c| c.dyn_into::<HtmlCanvasElement>().ok())
+    else {
+        return;
+    };
+    let Ok(section_el) = section.clone().dyn_into::<HtmlElement>() else {
+        return;
+    };
+    let Some(engine) = Engine::new(canvas, section_el, reduced_motion()) else {
+        let _ = section.class_list().add_1("no-gl");
+        return;
+    };
+    let engine = Rc::new(RefCell::new(engine));
+    // Pointeur, en coordonnées de découpe (-1..1).
     {
-        let (section, canvas, fallback) = (section.clone(), canvas.clone(), fallback.clone());
-        use_effect_with((), move |_| {
-            let alive = Rc::new(Cell::new(true));
-            let handle: Rc<RefCell<Option<AnimationFrame>>> = Rc::new(RefCell::new(None));
-            let mut pointer_listener = None;
-
-            let engine = match (
-                canvas.cast::<HtmlCanvasElement>(),
-                section.cast::<HtmlElement>(),
-            ) {
-                (Some(c), Some(s)) => Engine::new(c, s, prefers_reduced_motion()),
-                _ => None,
+        let engine = engine.clone();
+        on_passive::<web_sys::PointerEvent>(&window(), "pointermove", move |e| {
+            let Ok(mut eng) = engine.try_borrow_mut() else {
+                return;
             };
-            match engine {
-                None => fallback.set(true),
-                Some(engine) => {
-                    let engine = Rc::new(RefCell::new(engine));
-
-                    // Pointeur, en coordonnées de découpe (-1..1).
-                    {
-                        let engine = engine.clone();
-                        pointer_listener = Some(gloo::events::EventListener::new(
-                            &gloo::utils::window(),
-                            "pointermove",
-                            move |e| {
-                                let Some(e) = e.dyn_ref::<web_sys::PointerEvent>() else {
-                                    return;
-                                };
-                                let Ok(mut eng) = engine.try_borrow_mut() else {
-                                    return;
-                                };
-                                let rect = eng.canvas.get_bounding_client_rect();
-                                let x = ((e.client_x() as f64 - rect.left()) / rect.width()) * 2.0
-                                    - 1.0;
-                                let y = 1.0
-                                    - ((e.client_y() as f64 - rect.top()) / rect.height()) * 2.0;
-                                eng.pointer = (x as f32, y as f32);
-                            },
-                        ));
-                    }
-
-                    // Boucle d'animation, arrêtée au démontage.
-                    fn tick(
-                        engine: Rc<RefCell<Engine>>,
-                        alive: Rc<Cell<bool>>,
-                        handle: Rc<RefCell<Option<AnimationFrame>>>,
-                    ) {
-                        let next = handle.clone();
-                        *handle.borrow_mut() = Some(request_animation_frame(move |time| {
-                            if !alive.get() {
-                                return;
-                            }
-                            engine.borrow_mut().frame(time);
-                            tick(engine, alive, next);
-                        }));
-                    }
-                    tick(engine, alive.clone(), handle.clone());
-                }
-            }
-
-            move || {
-                if let Some(root) = gloo::utils::document().document_element() {
-                    let _ = root.class_list().remove_1("over-film");
-                }
-                alive.set(false);
-                handle.borrow_mut().take();
-                drop(pointer_listener);
-            }
+            let rect = eng.canvas.get_bounding_client_rect();
+            let x = ((e.client_x() as f64 - rect.left()) / rect.width()) * 2.0 - 1.0;
+            let y = 1.0 - ((e.client_y() as f64 - rect.top()) / rect.height()) * 2.0;
+            eng.pointer = (x as f32, y as f32);
         });
     }
-
-    html! {
-        <section ref={section} class={classes!("film", fallback.then_some("no-gl"))}
-                 aria-label={prefs.t("film.label")} style={format!("--stations: {}", STATIONS.len())}>
-            <div class="film-stage">
-                <canvas ref={canvas} class="film-canvas" aria-hidden="true" />
-                <div class="film-fallback" aria-hidden="true">{ "🥦" }</div>
-                <div class="film-captions">
-                    { for STATIONS.iter().enumerate().map(|(i, s)| html! {
-                        <p class="film-line" data-station={i.to_string()}>
-                            { prefs.t(s.caption) }
-                        </p>
-                    }) }
-                </div>
-                <p class="film-count" aria-hidden="true">
-                    <b>{ "01" }</b><span>{ format!(" / {:02}", STATIONS.len()) }</span>
-                </p>
-                <p class="film-hint" aria-hidden="true">{ prefs.t("film.hint") }</p>
-            </div>
-        </section>
-    }
+    request_frame(move |time| {
+        engine.borrow_mut().frame(time);
+        true
+    });
 }

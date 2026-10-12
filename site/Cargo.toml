@@ -1,43 +1,66 @@
 [package]
 name = "brocolis-site"
-version = "2.0.0"
+version = "3.0.0"
 edition = "2024"
-rust-version = "1.85"
-description = "Vitrine Brocolis 🥦 messageries — Rust/WebAssembly avec Yew"
+rust-version = "1.88"
+description = "Vitrine Brocolis 🥦 messageries — écrite avec Active (rendu serveur + îlots WebAssembly), servie par Vitesse"
 publish = false
 
+# Crate indépendante : le serveur (`../server-rust`) en dépend pour rendre les
+# pages ; compilée en WebAssembly, elle devient le code du navigateur.
+[workspace]
+
+[lib]
+name = "brocolis_site"
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
-yew = { version = "0.23.0", features = ["csr"] }
-yew-router = "0.20.0"
-gloo = { version = "0.12.0", default-features = false, features = ["console", "events", "net", "render", "timers", "utils"] }
-wasm-bindgen = "0.2.129"
-wasm-bindgen-futures = "0.4.79"
-js-sys = "0.3.106"
-web-sys = { version = "0.3.106", features = [
+active = { git = "https://github.com/maxlestage/Active" }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# Les pages sont servies par Vitesse (routes ajoutées à l'app du serveur).
+vitesse = { git = "https://github.com/maxlestage/Vitesse", default-features = false }
+pulldown-cmark = { version = "0.13.4", default-features = false, features = ["html"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+active = { git = "https://github.com/maxlestage/Active", features = ["client"] }
+wasm-bindgen = "=0.2.129"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = [
+  "AbortController",
   "AbortSignal",
+  "AddEventListenerOptions",
   "CanvasRenderingContext2d",
   "CssStyleDeclaration",
   "Document",
   "DomRect",
   "DomTokenList",
   "Element",
+  "EventTarget",
+  "History",
+  "HtmlAnchorElement",
   "HtmlCanvasElement",
+  "HtmlDocument",
   "HtmlElement",
-  "HtmlInputElement",
   "ImageData",
   "IntersectionObserver",
   "IntersectionObserverEntry",
   "IntersectionObserverInit",
   "KeyboardEvent",
+  "Location",
   "MediaQueryList",
+  "MouseEvent",
   "Navigator",
   "NodeList",
   "Performance",
   "PointerEvent",
-  "RequestMode",
+  "RequestInit",
+  "Response",
   "ScrollBehavior",
-  "ScrollIntoViewOptions",
+  "ScrollToOptions",
   "Storage",
+  "TextMetrics",
   "WebGl2RenderingContext",
   "WebGlBuffer",
   "WebGlProgram",
@@ -45,11 +68,12 @@ web-sys = { version = "0.3.106", features = [
   "WebGlUniformLocation",
   "Window",
 ] }
-pulldown-cmark = { version = "0.13.4", default-features = false, features = ["html"] }
-serde = { version = "1.0.229", features = ["derive"] }
 
-[profile.release]
-opt-level = "z"
+# Le code du navigateur :
+# `cargo build --lib --target wasm32-unknown-unknown --profile wasm-release`.
+[profile.wasm-release]
+inherits = "release"
+opt-level = "s"
 lto = true
 codegen-units = 1
 panic = "abort"

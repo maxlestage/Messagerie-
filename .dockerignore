@@ -1,12 +1,10 @@
 .git
 **/node_modules
-site/dist
-site/target
-site/.expo
+**/target
+site/pkg
 Brocolis.xcodeproj
+android
 *.png
 *.jpeg
-# …mais on garde les assets de la vitrine pré-construite servie sur /site/.
-!server/public/**
-# Logo de la vitrine, recopié dans dist/ par Trunk.
-!site/public/photo.png
+# …mais on garde le logo du site.
+!site/assets/*.png

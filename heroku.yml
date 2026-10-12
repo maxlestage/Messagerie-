@@ -1,5 +1,5 @@
-# Heroku en mode CONTENEUR : construit le service messagerie RUST (Actix +
-# SeaORM) depuis le Dockerfile à la racine. (Ancien serveur Node supprimé.)
+# Heroku en mode CONTENEUR : construit le serveur Brocolis 🥦 (Vitesse +
+# Memoire + Active) depuis le Dockerfile à la racine. Aucun add-on requis.
 build:
   docker:
     web: Dockerfile
