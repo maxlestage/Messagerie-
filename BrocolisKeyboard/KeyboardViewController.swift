@@ -2,7 +2,9 @@
 //  KeyboardViewController.swift
 //  Brocolis 🥦 — Clavier (extension clavier personnalisé)
 //
-//  Un vrai clavier AZERTY (lettres, chiffres, accents) avec une barre Brocolis :
+//  Un vrai clavier (AZERTY, QWERTY ou QWERTZ ; chiffres, symboles, emojis,
+//  accents par appui long, curseur en glissant sur l'espace, menu ⚙️ de
+//  réglages rapides) avec une barre Brocolis :
 //  tu écris ton message, tu touches « Chiffrer » → le texte du champ est
 //  remplacé chiffré DIRECTEMENT, sur place, sans rien copier. « Déchiffrer »
 //  fait l'inverse sur un brouillon. Marche dans toutes les apps qui ont un champ
@@ -41,9 +43,12 @@ final class KeyboardViewController: UIInputViewController {
     // MARK: UI
 
     /// Les touches du clavier, reconstruites à chaque changement de page
-    /// (lettres / chiffres / symboles) ou de majuscule.
+    /// (lettres / chiffres / symboles / emojis / menu ⚙️) ou de majuscule.
     private let keysStack = UIStackView()
-    private enum Page { case letters, numbers, symbols }
+    /// Accents proposés par un appui long sur une lettre (cachée sinon).
+    private let accentBar = UIStackView()
+    private var background: KeyboardBackground?
+    private enum Page { case letters, numbers, symbols, emoji, menu }
     private var page: Page = .letters
     private var shifted = true
     private var capsLock = false
@@ -51,8 +56,9 @@ final class KeyboardViewController: UIInputViewController {
     private var lastSpaceAt: Date?
     private var keysHeight: NSLayoutConstraint?
     private var haptic: UIImpactFeedbackGenerator?
+    private var cursorPanCarry: CGFloat = 0
 
-    /// Recharge les choix faits dans l'app (vibrations, disposition, taille…).
+    /// Recharge les choix faits dans l'app ou dans le menu ⚙️.
     private func applyPrefs() {
         let size = BrocolisKeyboardPrefs.keySize.height
         keysHeight?.constant = 4 * size + 3 * 8
@@ -63,6 +69,16 @@ final class KeyboardViewController: UIInputViewController {
         case .strong: haptic = UIImpactFeedbackGenerator(style: .heavy)
         }
         haptic?.prepare()
+        switch BrocolisKeyboardPrefs.theme {
+        case .light: view.overrideUserInterfaceStyle = .light
+        case .dark: view.overrideUserInterfaceStyle = .dark
+        default: view.overrideUserInterfaceStyle = .unspecified
+        }
+        background?.backgroundColor = BrocolisKeyboardPrefs.theme == .brocoli
+            ? UIColor { $0.userInterfaceStyle == .dark
+                ? UIColor(red: 0.10, green: 0.20, blue: 0.12, alpha: 1)
+                : UIColor(red: 0.85, green: 0.94, blue: 0.80, alpha: 1) }
+            : nil
         if !BrocolisKeyboardPrefs.autoCapitalize, !capsLock { shifted = false }
         buildKeys()
         autoShift()
@@ -79,6 +95,7 @@ final class KeyboardViewController: UIInputViewController {
     private func setupUI() {
         let bg = KeyboardBackground(frame: .zero, inputViewStyle: .keyboard)
         bg.translatesAutoresizingMaskIntoConstraints = false
+        background = bg
 
         // Zone de lecture : affiche le message reçu EN CLAIR, sur le clavier,
         // sans quitter l'app. Cachée tant qu'il n'y a rien à lire, pour laisser
@@ -103,12 +120,25 @@ final class KeyboardViewController: UIInputViewController {
         let encrypt = makeButton(title: loc("🔒 Chiffrer", "🔒 Encrypt", "🔒 Cifrar"), action: #selector(encryptTapped))
         let decrypt = makeButton(title: loc("🔓 Déchiffrer", "🔓 Decrypt", "🔓 Descifrar"), action: #selector(decryptTapped))
         actionButtons = [read, encrypt, decrypt]
+        let menu = makeButton(title: "⚙️", action: #selector(menuTapped))
+        menu.widthAnchor.constraint(equalToConstant: 44).isActive = true
 
-        let row = UIStackView(arrangedSubviews: [read, encrypt, decrypt])
+        let actions = UIStackView(arrangedSubviews: [read, encrypt, decrypt])
+        actions.axis = .horizontal
+        actions.distribution = .fillEqually
+        actions.spacing = 6
+        let row = UIStackView(arrangedSubviews: [actions, menu])
         row.axis = .horizontal
-        row.distribution = .fillEqually
         row.spacing = 6
         row.translatesAutoresizingMaskIntoConstraints = false
+
+        accentBar.axis = .horizontal
+        accentBar.spacing = 6
+        accentBar.distribution = .fillEqually
+        accentBar.isHidden = true
+        let accentHeight = accentBar.heightAnchor.constraint(equalToConstant: 40)
+        accentHeight.priority = .defaultHigh
+        accentHeight.isActive = true
 
         keysStack.axis = .vertical
         keysStack.spacing = 8
@@ -118,7 +148,7 @@ final class KeyboardViewController: UIInputViewController {
         keysHeight?.isActive = true
         buildKeys()
 
-        let stack = UIStackView(arrangedSubviews: [readout, row, statusLabel, keysStack])
+        let stack = UIStackView(arrangedSubviews: [readout, row, statusLabel, accentBar, keysStack])
         stack.axis = .vertical
         stack.spacing = 6
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -152,12 +182,38 @@ final class KeyboardViewController: UIInputViewController {
         return b
     }
 
-    // MARK: Touches (AZERTY)
+    // MARK: Touches
+
+    private static let emojis: [[String]] = [
+        ["😀", "😂", "😍", "🥰", "😘", "😉", "😎", "🤔"],
+        ["👍", "🙏", "👏", "🔥", "❤️", "💚", "🎉", "✨"],
+        ["🥦", "🔒", "🔑", "😢", "😡", "😴", "🤫", "👋"],
+    ]
+
+    private static let accents: [String: [String]] = [
+        "a": ["à", "â", "ä", "æ", "á"],
+        "e": ["é", "è", "ê", "ë", "€"],
+        "i": ["î", "ï", "í", "ì"],
+        "o": ["ô", "ö", "œ", "ó", "ò"],
+        "u": ["ù", "û", "ü", "ú"],
+        "c": ["ç", "ć", "č"],
+        "y": ["ÿ", "ý"],
+        "n": ["ñ", "ń"],
+        "s": ["ß", "ś", "š"],
+        "'": ["’", "«", "»", "\""],
+    ]
 
     private var rows: [[String]] {
         let accents = BrocolisKeyboardPrefs.accentKeys
+        let emoji = BrocolisKeyboardPrefs.emojiKey
         func bottom(_ left: String, _ a: String, _ b: String) -> [String] {
-            accents ? [left, "🌐", a, "espace", b, "⏎"] : [left, "🌐", "espace", "⏎"]
+            var r = [left, "🌐"]
+            if emoji { r.append("😀") }
+            if accents { r.append(a) }
+            r.append("espace")
+            if accents { r.append(b) }
+            r.append("⏎")
+            return r
         }
         switch page {
         case .letters:
@@ -198,25 +254,39 @@ final class KeyboardViewController: UIInputViewController {
                 ["123", "»", "…", "ô", "î", "ï", "ë", "œ", "⌫"],
                 bottom("ABC", "û", "ü"),
             ]
+        case .emoji:
+            return Self.emojis + [["ABC", "🌐", "espace", "⌫"]]
+        case .menu:
+            return []
         }
     }
 
+    private static let wideKeys: Set<String> = ["⇧", "⌫", "123", "ABC", "#+=", "⏎"]
+    private static let specialKeys: Set<String> = ["⇧", "⌫", "123", "ABC", "#+=", "🌐", "⏎", "😀"]
+
     private func buildKeys() {
         keysStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        if page == .menu {
+            buildMenu()
+            return
+        }
         for keys in rows {
             let line = UIStackView()
             line.axis = .horizontal
             line.spacing = 5
-            line.distribution = .fill
-            for key in keys {
-                if key == "🌐" && !needsInputModeSwitchKey { continue }
+            let shown = keys.filter { $0 != "🌐" || needsInputModeSwitchKey }
+            // Une rangée sans touche de largeur variable (emojis) : parts égales.
+            let uniform = !shown.contains("espace") && !shown.contains { Self.wideKeys.contains($0) }
+            line.distribution = uniform ? .fillEqually : .fill
+            for key in shown {
                 let b = keyButton(key)
                 line.addArrangedSubview(b)
                 // Une touche = 1/10e de la rangée (1,4 pour les touches de
                 // fonction) ; espace prend le reste.
-                if key == "espace" { continue }
-                let wide = ["⇧", "⌫", "123", "ABC", "#+=", "⏎"].contains(key)
-                let w = b.widthAnchor.constraint(equalTo: line.widthAnchor, multiplier: wide ? 0.14 : 0.1, constant: -4.5)
+                if uniform || key == "espace" { continue }
+                let w = b.widthAnchor.constraint(equalTo: line.widthAnchor,
+                                                 multiplier: Self.wideKeys.contains(key) ? 0.14 : 0.1,
+                                                 constant: -4.5)
                 w.priority = .defaultHigh
                 w.isActive = true
             }
@@ -233,24 +303,37 @@ final class KeyboardViewController: UIInputViewController {
         }
     }
 
-    private func keyButton(_ key: String) -> UIButton {
-        let b = UIButton(type: .system)
-        b.setTitle(label(for: key), for: .normal)
-        b.accessibilityIdentifier = key
-        let special = ["⇧", "⌫", "123", "ABC", "#+=", "🌐", "⏎"].contains(key)
-        b.titleLabel?.font = special || key == "espace"
-            ? .systemFont(ofSize: 16, weight: .medium)
-            : .systemFont(ofSize: 22)
+    private func style(_ b: UIButton, special: Bool, highlighted: Bool = false) {
+        let brocoli = BrocolisKeyboardPrefs.theme == .brocoli
         b.setTitleColor(.label, for: .normal)
         b.tintColor = .label
-        let highlighted = key == "⇧" && shifted && page == .letters
-        b.backgroundColor = highlighted ? .systemGreen.withAlphaComponent(0.35)
-            : special ? .tertiarySystemFill : .systemBackground
+        if highlighted {
+            b.backgroundColor = UIColor.systemGreen.withAlphaComponent(0.35)
+        } else if brocoli {
+            b.backgroundColor = special
+                ? UIColor.systemGreen.withAlphaComponent(0.28)
+                : UIColor { $0.userInterfaceStyle == .dark
+                    ? UIColor(red: 0.16, green: 0.30, blue: 0.18, alpha: 1)
+                    : UIColor(red: 0.97, green: 1.0, blue: 0.95, alpha: 1) }
+        } else {
+            b.backgroundColor = special ? .tertiarySystemFill : .systemBackground
+        }
         b.layer.cornerRadius = 6
         b.layer.shadowColor = UIColor.black.cgColor
         b.layer.shadowOpacity = 0.25
         b.layer.shadowOffset = CGSize(width: 0, height: 1)
         b.layer.shadowRadius = 0
+    }
+
+    private func keyButton(_ key: String) -> UIButton {
+        let b = UIButton(type: .system)
+        b.setTitle(label(for: key), for: .normal)
+        b.accessibilityIdentifier = key
+        let special = Self.specialKeys.contains(key)
+        b.titleLabel?.font = special || key == "espace"
+            ? .systemFont(ofSize: 16, weight: .medium)
+            : .systemFont(ofSize: page == .emoji ? 26 : 22)
+        style(b, special: special, highlighted: key == "⇧" && shifted && page == .letters)
         if key == "🌐" {
             b.addTarget(self, action: #selector(handleInputModeList(from:with:)), for: .allTouchEvents)
         } else if key == "⌫" {
@@ -261,16 +344,27 @@ final class KeyboardViewController: UIInputViewController {
         } else {
             b.addTarget(self, action: #selector(keyTapped(_:)), for: .touchUpInside)
         }
+        if key == "espace", BrocolisKeyboardPrefs.spaceCursor {
+            b.addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(spacePanned(_:))))
+        }
+        if page == .letters || page == .numbers, BrocolisKeyboardPrefs.longPressAccents,
+           Self.accents[key.lowercased()] != nil {
+            let press = UILongPressGestureRecognizer(target: self, action: #selector(keyLongPressed(_:)))
+            press.minimumPressDuration = 0.35
+            b.addGestureRecognizer(press)
+        }
         return b
     }
 
     @objc private func keyTapped(_ sender: UIButton) {
         guard let key = sender.accessibilityIdentifier else { return }
         feedback()
+        hideAccents()
         switch key {
         case "123": page = .numbers; buildKeys()
         case "#+=": page = .symbols; buildKeys()
         case "ABC": page = .letters; buildKeys()
+        case "😀": page = .emoji; buildKeys()
         case "⏎": textDocumentProxy.insertText("\n")
         case "espace":
             // Double espace → « . », comme le clavier d'Apple.
@@ -287,12 +381,161 @@ final class KeyboardViewController: UIInputViewController {
             }
             autoShift()
         default:
-            textDocumentProxy.insertText(label(for: key))
-            if page == .letters, shifted, !capsLock {
-                shifted = false
-                buildKeys()
-            }
+            insert(label(for: key))
         }
+    }
+
+    private func insert(_ text: String) {
+        textDocumentProxy.insertText(text)
+        if page == .letters, shifted, !capsLock {
+            shifted = false
+            buildKeys()
+        }
+    }
+
+    // MARK: Appui long → accents
+
+    @objc private func keyLongPressed(_ g: UILongPressGestureRecognizer) {
+        guard g.state == .began, let b = g.view as? UIButton,
+              let key = b.accessibilityIdentifier,
+              let options = Self.accents[key.lowercased()] else { return }
+        feedback()
+        let upper = page == .letters && shifted
+        accentBar.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        for option in [key] + options {
+            let text = upper ? option.uppercased() : option
+            let o = UIButton(type: .system)
+            o.setTitle(text, for: .normal)
+            o.accessibilityIdentifier = text
+            o.titleLabel?.font = .systemFont(ofSize: 22)
+            style(o, special: false, highlighted: option != key && option == options.first)
+            o.addTarget(self, action: #selector(accentTapped(_:)), for: .touchUpInside)
+            accentBar.addArrangedSubview(o)
+        }
+        statusLabel.isHidden = true
+        accentBar.isHidden = false
+    }
+
+    @objc private func accentTapped(_ sender: UIButton) {
+        guard let text = sender.accessibilityIdentifier else { return }
+        feedback()
+        hideAccents()
+        insert(text)
+    }
+
+    private func hideAccents() {
+        guard !accentBar.isHidden else { return }
+        accentBar.isHidden = true
+        statusLabel.isHidden = false
+    }
+
+    // MARK: Glisser sur l'espace → curseur
+
+    @objc private func spacePanned(_ g: UIPanGestureRecognizer) {
+        let step: CGFloat = 12
+        switch g.state {
+        case .began:
+            cursorPanCarry = 0
+        case .changed:
+            cursorPanCarry += g.translation(in: g.view).x
+            g.setTranslation(.zero, in: g.view)
+            while abs(cursorPanCarry) >= step {
+                let dir = cursorPanCarry > 0 ? 1 : -1
+                textDocumentProxy.adjustTextPosition(byCharacterOffset: dir)
+                cursorPanCarry -= CGFloat(dir) * step
+                haptic?.impactOccurred(intensity: 0.4)
+            }
+        default:
+            cursorPanCarry = 0
+            autoShift()
+        }
+    }
+
+    // MARK: Menu ⚙️ (réglages sans quitter le clavier)
+
+    @objc private func menuTapped() {
+        feedback()
+        hideAccents()
+        page = page == .menu ? .letters : .menu
+        buildKeys()
+    }
+
+    private func onOff(_ v: Bool) -> String { v ? loc("oui", "on", "sí") : loc("non", "off", "no") }
+
+    private func buildMenu() {
+        let p = BrocolisKeyboardPrefs.self
+        let items: [[(String, String)]] = [
+            [("haptics", "📳 " + loc("Vibrations", "Haptics", "Vibración") + " : " + p.haptics.title),
+             ("sound", "🔊 " + loc("Son", "Sound", "Sonido") + " : " + onOff(p.sound))],
+            [("layout", "⌨️ " + p.layout.title),
+             ("size", "🔠 " + p.keySize.title)],
+            [("theme", "🎨 " + p.theme.title),
+             ("emoji", "😀 " + loc("Emojis", "Emoji", "Emojis") + " : " + onOff(p.emojiKey))],
+            [("cursor", "↔︎ " + loc("Curseur", "Cursor", "Cursor") + " : " + onOff(p.spaceCursor)),
+             ("done", "✓ " + loc("Terminé", "Done", "Listo"))],
+            [("recipient", "🔑 " + loc("Chiffrer pour", "Encrypt for", "Cifrar para") + " : " + recipientName)],
+        ]
+        for pair in items {
+            let line = UIStackView()
+            line.axis = .horizontal
+            line.spacing = 6
+            line.distribution = .fillEqually
+            for (id, title) in pair {
+                let b = UIButton(type: .system)
+                b.setTitle(title, for: .normal)
+                b.accessibilityIdentifier = id
+                b.titleLabel?.font = .systemFont(ofSize: 15, weight: .medium)
+                b.titleLabel?.adjustsFontSizeToFitWidth = true
+                b.titleLabel?.minimumScaleFactor = 0.6
+                style(b, special: id == "done")
+                b.addTarget(self, action: #selector(menuItemTapped(_:)), for: .touchUpInside)
+                line.addArrangedSubview(b)
+            }
+            keysStack.addArrangedSubview(line)
+        }
+        statusLabel.text = loc("Touche un réglage pour le changer. Tout le reste : app Brocolis → Clavier.", "Tap a setting to change it. Everything else: Brocolis app → Keyboard.", "Toca un ajuste para cambiarlo. Lo demás: app Brocolis → Teclado.")
+    }
+
+    @objc private func menuItemTapped(_ sender: UIButton) {
+        typealias P = BrocolisKeyboardPrefs
+        switch sender.accessibilityIdentifier {
+        case "haptics": P.haptics = P.cycle(P.haptics)
+        case "sound": P.sound.toggle()
+        case "layout": P.layout = P.cycle(P.layout)
+        case "size": P.keySize = P.cycle(P.keySize)
+        case "theme": P.theme = P.cycle(P.theme)
+        case "emoji": P.emojiKey.toggle()
+        case "cursor": P.spaceCursor.toggle()
+        case "recipient": nextRecipient()
+        default:
+            page = .letters
+            refreshState()
+        }
+        applyPrefs()
+        feedback()
+    }
+
+    /// Pour qui « Chiffrer » chiffre : la clé choisie, ou plusieurs
+    /// destinataires réglés dans l'app.
+    private var recipientName: String {
+        guard hasFullAccess else { return loc("accès complet requis", "full access needed", "acceso completo necesario") }
+        let named = BrocolisKeyStore.encryptionNamedKeys()
+        switch named.count {
+        case 0: return loc("aucune clé", "no key", "ninguna clave")
+        case 1: return named[0].name
+        default: return loc("\(named.count) personnes", "\(named.count) people", "\(named.count) personas")
+        }
+    }
+
+    /// Passe à la clé suivante (un seul destinataire), sans ouvrir l'app.
+    private func nextRecipient() {
+        guard hasFullAccess else { return }
+        let keys = BrocolisKeyStore.keys
+        guard !keys.isEmpty else { return }
+        let current = BrocolisKeyStore.recipientKeyIds.count > 1 ? nil : BrocolisKeyStore.selectedKey?.id
+        let i = keys.firstIndex { $0.id == current }.map { ($0 + 1) % keys.count } ?? 0
+        BrocolisKeyStore.selectKey(keys[i].id)
+        BrocolisKeyStore.setRecipientKeyIds([])
     }
 
     @objc private func shiftTapped(_ sender: UIButton, event: UIEvent) {
@@ -312,6 +555,7 @@ final class KeyboardViewController: UIInputViewController {
     @objc private func deleteDown() {
         textDocumentProxy.deleteBackward()
         feedback()
+        hideAccents()
         deleteTimer?.invalidate()
         // Maintenu : efface en continu après un court délai.
         deleteTimer = Timer.scheduledTimer(withTimeInterval: 0.45, repeats: false) { [weak self] _ in
@@ -343,6 +587,8 @@ final class KeyboardViewController: UIInputViewController {
     // MARK: État
 
     private func refreshState() {
+        // Le menu ⚙️ garde sa ligne d'aide.
+        guard page != .menu else { return }
         guard hasFullAccess else {
             setEnabled(false)
             statusLabel.text = loc("Pour chiffrer : Réglages → Général → Clavier → Claviers → Brocolis 🥦 → « Accès complet »", "To encrypt: Settings → General → Keyboard → Keyboards → Brocolis 🥦 → « Full Access »", "Para cifrar: Ajustes → General → Teclado → Teclados → Brocolis 🥦 → « Acceso completo »")
@@ -359,7 +605,7 @@ final class KeyboardViewController: UIInputViewController {
             return
         }
         setEnabled(true)
-        statusLabel.text = loc("Écris ton message puis « Chiffrer ». Reçu : copie-le, puis « Lire ».", "Type your message, then « Encrypt ». Got one: copy it, then « Read ».", "Escribe tu mensaje y luego « Cifrar ». Recibido: cópialo y luego « Leer ».")
+        statusLabel.text = loc("🔑 Pour \(recipientName) (⚙️ pour changer). Reçu : copie-le, puis « Lire ».", "🔑 For \(recipientName) (⚙️ to change). Got one: copy it, then « Read ».", "🔑 Para \(recipientName) (⚙️ para cambiar). Recibido: cópialo y luego « Leer ».")
     }
 
     /// Affiche du texte (ou un mode d'emploi) dans la zone de lecture.
