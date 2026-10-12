@@ -43,10 +43,9 @@ add-on Heroku. C'est simple et rapide, avec une conséquence à garder en tête 
 - **Un redémarrage efface les messages en transit.** Ils sont déjà sur les
   téléphones (le serveur n'est qu'un relais d'une semaine au plus), et le
   curseur `seq` continue de monter : les clients reprennent sans trou.
-- **Les e-mails Apple rattachés** (`POST /v1/plan/apple`) disparaissent aussi au
-  redémarrage : la personne retouche « Se connecter avec Apple ». Pour un accès
-  offert qui ne dépend de rien, préférer `BROCOLIS_PRO_IDS` (identifiant
-  d'appareil, relu à chaque requête).
+- **Les e-mails Apple rattachés** (`POST /v1/plan/apple`) survivent grâce à un
+  ticket signé (`BROCOLIS_GRANT_SECRET`, sinon la clé APNs) que l'app garde et
+  renvoie : le serveur retrouve le lien sans rien stocker.
 - **Sur Heroku, le disque d'un dyno est effacé à chaque redémarrage** (au moins
   une fois par jour) : `MEMOIRE_PATH` n'y aide qu'en cas de plantage du
   processus. Sur une machine à disque durable (VPS, volume Fly.io, Render

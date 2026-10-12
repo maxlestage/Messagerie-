@@ -47,7 +47,8 @@ retirer sans risque : le serveur ne lit plus `DATABASE_URL` ni `REDIS_URL`.
 | `MAX_PEERS` | Participants max. par code de rendez-vous | `16` |
 | `MEMOIRE_PATH` | Fichier où Memoire garde aussi les données (disque durable seulement) | — |
 | `APNS_KEY_P8`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_BUNDLE_ID`, `APNS_ENV` | Push Live Activity | — |
-| `BROCOLIS_PRO_IDS`, `BROCOLIS_PRO_EMAILS` | Accès offerts ([guide](acces-offerts.md)) | — |
+| `BROCOLIS_PRO_IDS`, `BROCOLIS_PRO_EMAILS` | Accès offerts ([guide](acces-offerts.md)) ; e-mails séparés par virgules, espaces ou retours à la ligne | — |
+| `BROCOLIS_GRANT_SECRET` | Signe le ticket que l'app garde pour retrouver son accès offert après un redémarrage (sinon : la clé APNs) | — |
 
 ```bash
 heroku config:set -a brocolis-serveur \
@@ -117,6 +118,11 @@ dynos.
 - **Messages disparus après un redémarrage** : normal, ils ne vivent qu'en
   mémoire (ils sont déjà sur les téléphones). Les clients reprennent sans trou :
   le curseur `seq` continue de monter d'un démarrage à l'autre.
-- **Accès Pro offert par e-mail perdu après un redémarrage** : retoucher « Se
-  connecter avec Apple » dans l'app, ou lister l'appareil dans
-  `BROCOLIS_PRO_IDS` (qui ne dépend d'aucune donnée gardée).
+- **Accès Pro offert par e-mail perdu après un redémarrage** : vérifier que
+  `BROCOLIS_GRANT_SECRET` (ou la clé APNs) est défini — l'app renvoie alors son
+  ticket signé et l'accès revient tout seul — puis retoucher une fois « Se
+  connecter avec Apple » pour recevoir ce ticket.
+- **Un e-mail listé reste « Gratuit »** : avec « Masquer mon adresse e-mail »,
+  Apple transmet une adresse `…@privaterelay.appleid.com` ; c'est elle qu'il
+  faut lister (elle s'affiche dans l'app après la connexion), ou se reconnecter
+  en choisissant « Partager mon adresse e-mail ».

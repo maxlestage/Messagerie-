@@ -89,16 +89,61 @@ pub fn verify_with_keys(token: &str, keys: &[Jwk], audience: &str) -> Result<Str
     }
 }
 
-/// `true` si `email` figure dans la liste (séparée par des virgules), sans
-/// tenir compte de la casse ni des espaces. Une entrée vide n'ouvre rien.
+/// `true` si `email` figure dans la liste, sans tenir compte de la casse. Les
+/// entrées sont séparées par des virgules, des points-virgules, des espaces ou
+/// des retours à la ligne (une liste collée dans l'interface Heroku depuis un
+/// téléphone en contient souvent). Une entrée vide n'ouvre rien.
 pub fn email_in_list(raw: &str, email: &str) -> bool {
     let email = email.trim();
     if email.is_empty() {
         return false;
     }
-    raw.split(',')
+    raw.split(|c: char| c == ',' || c == ';' || c.is_whitespace())
         .map(str::trim)
         .any(|entry| !entry.is_empty() && entry.eq_ignore_ascii_case(email))
+}
+
+/// La clé qui signe les tickets d'accès offert : `BROCOLIS_GRANT_SECRET`, sinon
+/// la clé APNs (déjà secrète et stable). `None` : pas de ticket.
+fn ticket_secret() -> Option<Vec<u8>> {
+    ["BROCOLIS_GRANT_SECRET", "APNS_KEY_P8"]
+        .iter()
+        .find_map(|k| std::env::var(k).ok().filter(|v| !v.trim().is_empty()))
+        .map(|v| format!("brocolis-grant-v1:{}", v.trim()).into_bytes())
+}
+
+#[derive(serde::Serialize, Deserialize)]
+struct Ticket {
+    sub: String,
+    email: String,
+}
+
+/// Un ticket signé « cet appareil a prouvé cet e-mail Apple ». L'app le garde
+/// et le renvoie (`X-Brocolis-Grant`) : l'accès offert survit aux redémarrages
+/// du serveur, qui ne garde rien sur disque. Sans durée de vie : c'est la liste
+/// `BROCOLIS_PRO_EMAILS`, relue à chaque requête, qui ouvre ou retire l'accès.
+pub fn issue_ticket(user: &str, email: &str) -> Option<String> {
+    issue_ticket_with(&ticket_secret()?, user, email)
+}
+
+fn issue_ticket_with(secret: &[u8], user: &str, email: &str) -> Option<String> {
+    let claims = Ticket { sub: user.to_owned(), email: email.to_lowercase() };
+    let key = jsonwebtoken::EncodingKey::from_secret(secret);
+    jsonwebtoken::encode(&jsonwebtoken::Header::new(Algorithm::HS256), &claims, &key).ok()
+}
+
+/// L'e-mail d'un ticket valide émis pour `user` (et pour lui seul).
+pub fn ticket_email(ticket: &str, user: &str) -> Option<String> {
+    ticket_email_with(&ticket_secret()?, ticket, user)
+}
+
+fn ticket_email_with(secret: &[u8], ticket: &str, user: &str) -> Option<String> {
+    let mut validation = Validation::new(Algorithm::HS256);
+    validation.required_spec_claims.clear();
+    validation.validate_exp = false;
+    let key = DecodingKey::from_secret(secret);
+    let data = jsonwebtoken::decode::<Ticket>(ticket.trim(), &key, &validation).ok()?;
+    (data.claims.sub == user && !user.is_empty()).then_some(data.claims.email)
 }
 
 /// Clés publiques d'Apple, mises en cache une heure (et rechargées si un jeton
@@ -282,5 +327,18 @@ mod tests {
         assert!(!email_in_list("a@x.fr,,", ""));
         assert!(!email_in_list("", "max@icloud.com"));
         assert!(!email_in_list("max@icloud.com.evil", "max@icloud.com"));
+        // Retours à la ligne, points-virgules, espaces : tout sépare.
+        assert!(email_in_list("maxlestage@icloud.com,\nclement67114@gmail.com", "clement67114@gmail.com"));
+        assert!(email_in_list("a@x.fr\nb@y.fr", "b@y.fr"));
+        assert!(email_in_list("a@x.fr; b@y.fr", "B@Y.fr"));
+    }
+
+    #[test]
+    fn tickets_are_bound_to_their_device_and_secret() {
+        let t = issue_ticket_with(b"s3cret", "device-1", "Max@iCloud.com").unwrap();
+        assert_eq!(ticket_email_with(b"s3cret", &t, "device-1").as_deref(), Some("max@icloud.com"));
+        assert_eq!(ticket_email_with(b"s3cret", &t, "device-2"), None, "autre appareil");
+        assert_eq!(ticket_email_with(b"autre", &t, "device-1"), None, "autre clé");
+        assert_eq!(ticket_email_with(b"s3cret", "n'importe-quoi", "device-1"), None);
     }
 }

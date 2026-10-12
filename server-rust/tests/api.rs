@@ -346,10 +346,9 @@ async fn pairing_and_group_key_relay() {
 /// détacher l'appareil le retire. Seul ce test touche à ces variables.
 #[tokio::test]
 async fn plan_follows_the_linked_apple_email() {
-    let services = services().await;
-    let client = TestClient::new(app(&services, None, Arc::new(Site::load())));
-    services
-        .store
+    let svc = services().await;
+    let client = TestClient::new(app(&svc, None, Arc::new(Site::load())));
+    svc.store
         .link_email("device-1", "max@icloud.com")
         .await
         .unwrap();
@@ -384,6 +383,55 @@ async fn plan_follows_the_linked_apple_email() {
         .await
         .json();
     assert_eq!(v["email"], Value::Null);
+
+    // Redémarrage du serveur : mémoire vide, mais l'app renvoie son ticket.
+    std::env::set_var("BROCOLIS_GRANT_SECRET", "secret-de-test");
+    std::env::set_var(
+        "BROCOLIS_PRO_EMAILS",
+        "maxlestage@icloud.com,\nclement67114@gmail.com",
+    );
+    let ticket =
+        brocolis_messagerie::apple_signin::issue_ticket("device-3", "clement67114@gmail.com")
+            .unwrap();
+    let restarted = TestClient::new(app(&services().await, None, Arc::new(Site::load())));
+    let v: Value = restarted
+        .get("/v1/plan")
+        .header("x-user-id", "device-3")
+        .await
+        .json();
+    assert_eq!(v["tier"], "free", "sans ticket, rien ne survit");
+    let v: Value = restarted
+        .get("/v1/plan")
+        .header("x-user-id", "device-3")
+        .header("x-brocolis-grant", ticket.as_str())
+        .await
+        .json();
+    assert_eq!(v["tier"], "pro", "le ticket rétablit l'accès");
+    assert_eq!(v["email"], "clement67114@gmail.com");
+    // Le lien est de nouveau en mémoire : plus besoin du ticket.
+    let v: Value = restarted
+        .get("/v1/plan")
+        .header("x-user-id", "device-3")
+        .await
+        .json();
+    assert_eq!(v["tier"], "pro");
+    // Un ticket volé ne sert pas sur un autre appareil.
+    let v: Value = restarted
+        .get("/v1/plan")
+        .header("x-user-id", "device-4")
+        .header("x-brocolis-grant", ticket.as_str())
+        .await
+        .json();
+    assert_eq!(v["tier"], "free");
+    // Retiré de la liste : le ticket n'ouvre plus rien.
+    std::env::set_var("BROCOLIS_PRO_EMAILS", "maxlestage@icloud.com");
+    let v: Value = restarted
+        .get("/v1/plan")
+        .header("x-user-id", "device-3")
+        .await
+        .json();
+    assert_eq!(v["tier"], "free");
+    std::env::remove_var("BROCOLIS_GRANT_SECRET");
     std::env::remove_var("BROCOLIS_PRO_EMAILS");
 
     // Un jeton Apple illisible est refusé (401) sans rien enregistrer.
