@@ -1,0 +1,29 @@
+name: Réglage Xcode Cloud
+
+# Applique scripts/xcode_cloud_setup.py avec la clé App Store Connect des
+# secrets (la même que iOS TestFlight). Se lance quand le script change, ou à
+# la main (Actions → Réglage Xcode Cloud → Run workflow).
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - scripts/xcode_cloud_setup.py
+      - .github/workflows/xcode-cloud-setup.yml
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install 'pyjwt[crypto]==2.9.0'
+      - name: Workflows Xcode Cloud → « Release » manuel
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: python scripts/xcode_cloud_setup.py
