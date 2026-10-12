@@ -1,4 +1,5 @@
-//! Rendu du README (Markdown → HTML) avec pulldown-cmark.
+//! Rendu du README (Markdown → HTML) avec pulldown-cmark, une fois au
+//! démarrage du serveur.
 //!
 //! - Les liens relatifs (LICENSE, site/, docs/…) pointent vers le dépôt GitHub,
 //!   les images relatives vers leur version brute.
@@ -7,9 +8,7 @@
 
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd, html};
 
-use crate::config::REPO_URL;
-
-const RAW_URL: &str = "https://raw.githubusercontent.com/maxlestage/Messagerie-/master";
+use crate::{RAW_URL, REPO_URL};
 
 fn is_absolute(href: &str) -> bool {
     let lower = href.to_ascii_lowercase();

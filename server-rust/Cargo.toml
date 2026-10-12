@@ -1,32 +1,36 @@
 [package]
 name = "brocolis-messagerie"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
-description = "API messagerie Brocolis 🥦 en Rust (Actix-web + SeaORM). Ne stocke que du chiffré."
+rust-version = "1.88"
+description = "Serveur Brocolis 🥦 : API de messagerie chiffrée et rendez-vous X25519 (Vitesse), données en mémoire (Memoire), site (Active). Ne stocke que du chiffré."
 license = "UNLICENSED"
+publish = false
 
-# Portage Rust du serveur Node (server/). En PARALLÈLE : la prod reste le Node
-# tant que ce service n'est pas prouvé. Cœur d'abord (messagerie + Postgres) ;
-# rendez-vous X25519, SSE, APNs et Redis à porter ensuite.
+# Tout le serveur est dans la bibliothèque (testable sans ouvrir de port) ; le
+# binaire ne fait que la démarrer.
+[lib]
+name = "brocolis_messagerie"
+path = "src/lib.rs"
+
+[[bin]]
+name = "brocolis-messagerie"
+path = "src/main.rs"
 
 [dependencies]
-actix-web = "4"
-actix-files = "0.6"
+# Le framework web (façon Express) : routes, SSE, CORS, fichiers statiques.
+vitesse = { git = "https://github.com/maxlestage/Vitesse", default-features = false }
+# Les données, en mémoire : ni Postgres ni Redis.
+memoire-orm = { git = "https://github.com/maxlestage/Memoire" }
+# Le site, écrit avec Active : ses pages sont rendues par ce serveur.
+brocolis-site = { path = "../site" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
-async-stream = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-chrono = { version = "0.4", features = ["clock"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 uuid = { version = "1", features = ["v4"] }
 jsonwebtoken = "9"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "http2"] }
-redis = { version = "0.27", default-features = false, features = ["tokio-comp", "tokio-rustls-comp"] }
-futures-util = "0.3"
-sea-orm = { version = "1.1", default-features = false, features = [
-    "sqlx-postgres",
-    "runtime-tokio-rustls",
-    "macros",
-] }
 
 [dev-dependencies]
 # Tests de « Se connecter avec Apple » : paire RSA générée à la volée.
@@ -43,4 +47,5 @@ opt-level = 3
 lto = true
 codegen-units = 1
 opt-level = 3
-panic = "abort"
+# Pas de `panic = "abort"` : Vitesse change une panique en réponse 500, le
+# serveur reste debout.

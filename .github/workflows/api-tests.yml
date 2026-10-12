@@ -1,19 +1,24 @@
 name: API tests
 
-# Compile et teste l'API de messagerie chiffrée (Rust + Actix-web). Tourne quand
-# server-rust/ change.
+# Compile et teste le serveur Brocolis (Vitesse + Memoire, avec les pages du
+# site Active). Plus de Postgres jetable : les données sont en mémoire, les
+# tests d'intégration tournent partout. Tourne quand server-rust/ ou site/
+# change (le serveur rend les pages du site).
 on:
   # Économie de minutes Actions (dépôt privé) : on ne lance QU'UNE fois par
-  # changement — sur les PR, et sur master après merge. Plus de double run
-  # (push + pull_request) sur chaque push de branche.
+  # changement — sur les PR, et sur master après merge.
   push:
     branches: [master]
     paths:
       - 'server-rust/**'
+      - 'site/**'
+      - 'README.md'
       - '.github/workflows/api-tests.yml'
   pull_request:
     paths:
       - 'server-rust/**'
+      - 'site/**'
+      - 'README.md'
       - '.github/workflows/api-tests.yml'
   workflow_dispatch:
 
@@ -25,25 +30,7 @@ jobs:
   test:
     name: cargo test
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    # Postgres jetable : les tests d'intégration /v1/* tournent contre une vraie
-    # base (sinon ils se sautent proprement). TEST_DATABASE_URL les active.
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: brocolis
-          POSTGRES_PASSWORD: brocolis
-          POSTGRES_DB: brocolis
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U brocolis"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    env:
-      TEST_DATABASE_URL: postgres://brocolis:brocolis@localhost:5432/brocolis
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -52,7 +39,7 @@ jobs:
           workspaces: server-rust
       - name: Build
         working-directory: server-rust
-        run: cargo build --verbose
-      - name: Tests (unitaires + intégration Postgres)
+        run: cargo build --locked
+      - name: Tests (unitaires + intégration, flux SSE compris)
         working-directory: server-rust
-        run: cargo test --verbose
+        run: cargo test --locked

@@ -1,0 +1,57 @@
+{
+  "name": "Brocolis messagerie",
+  "description": "Serveur Brocolis 🥦 tout en Rust : API de messagerie chiffrée et rendez-vous X25519 (Vitesse), données en mémoire (Memoire), site animé (Active). Aucun add-on : ni Postgres ni Redis.",
+  "stack": "container",
+  "env": {
+    "MESSAGE_RETENTION_DAYS": {
+      "description": "Rétention des messages (jours).",
+      "value": "7",
+      "required": false
+    },
+    "MAX_PEERS": {
+      "description": "Plafond de participants par code de rendez-vous.",
+      "value": "16",
+      "required": false
+    },
+    "MEMORY_BUDGET_MB": {
+      "description": "Taille maximale du chiffré gardé en mémoire (Mo). Au-delà, les plus vieux messages partent les premiers.",
+      "value": "200",
+      "required": false
+    },
+    "MEMOIRE_PATH": {
+      "description": "Facultatif : fichier où Memoire garde aussi les données (relu au démarrage). Ex. /app/data/brocolis.memoire. Vide = mémoire seulement. Sur Heroku, le disque d'un dyno est effacé à chaque redémarrage.",
+      "required": false
+    },
+    "APNS_KEY_P8": {
+      "description": "Clé APNs .p8 (PEM multi-lignes). Vide = push Live Activity désactivé (503).",
+      "required": false
+    },
+    "APNS_KEY_ID": {
+      "description": "Key ID de la clé APNs.",
+      "required": false
+    },
+    "APNS_TEAM_ID": {
+      "description": "Team ID Apple Developer.",
+      "required": false
+    },
+    "APNS_BUNDLE_ID": {
+      "description": "Bundle ID de l'app (ex. rs.brocolis.messagerie).",
+      "required": false
+    },
+    "BROCOLIS_PRO_EMAILS": {
+      "description": "Accès Pro offerts : e-mails (séparés par des virgules) prouvés par « Se connecter avec Apple ».",
+      "required": false
+    },
+    "BROCOLIS_PRO_IDS": {
+      "description": "Accès Pro offerts : identifiants d'appareil (séparés par des virgules).",
+      "required": false
+    },
+    "APNS_ENV": {
+      "description": "\"sandbox\" (builds development, défaut) ou \"production\".",
+      "value": "sandbox",
+      "required": false
+    }
+  },
+  "repository": "https://github.com/maxlestage/Messagerie-",
+  "logo": "https://raw.githubusercontent.com/maxlestage/Messagerie-/master/site/assets/photo.png"
+}
