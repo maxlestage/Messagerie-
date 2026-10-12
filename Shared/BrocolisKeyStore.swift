@@ -497,3 +497,91 @@ func loc(_ fr: String, _ en: String, _ es: String) -> String {
     default:   return en
     }
 }
+
+// MARK: - Réglages du clavier Brocolis
+
+/// Choix du clavier, réglés dans l'app et lus par l'extension clavier (App
+/// Group). Chaque valeur a un défaut sensé si rien n'a été choisi.
+enum BrocolisKeyboardPrefs {
+    enum Haptics: Int, CaseIterable, Identifiable {
+        case off, light, medium, strong
+        var id: Int { rawValue }
+        var title: String {
+            switch self {
+            case .off: return loc("Aucune", "None", "Ninguna")
+            case .light: return loc("Légères", "Light", "Ligeras")
+            case .medium: return loc("Moyennes", "Medium", "Medias")
+            case .strong: return loc("Fortes", "Strong", "Fuertes")
+            }
+        }
+    }
+
+    enum Layout: Int, CaseIterable, Identifiable {
+        case azerty, qwerty, qwertz
+        var id: Int { rawValue }
+        var title: String { ["AZERTY", "QWERTY", "QWERTZ"][rawValue] }
+    }
+
+    enum KeySize: Int, CaseIterable, Identifiable {
+        case compact, normal, large
+        var id: Int { rawValue }
+        var title: String {
+            switch self {
+            case .compact: return loc("Compactes", "Compact", "Compactas")
+            case .normal: return loc("Normales", "Normal", "Normales")
+            case .large: return loc("Grandes", "Large", "Grandes")
+            }
+        }
+        var height: CGFloat { [36, 42, 50][rawValue] }
+    }
+
+    private static var d: UserDefaults? { BrocolisKeyStore.sharedDefaults }
+
+    private static func int(_ key: String, _ fallback: Int) -> Int {
+        guard let d, d.object(forKey: key) != nil else { return fallback }
+        return d.integer(forKey: key)
+    }
+
+    private static func bool(_ key: String, _ fallback: Bool) -> Bool {
+        guard let d, d.object(forKey: key) != nil else { return fallback }
+        return d.bool(forKey: key)
+    }
+
+    static var haptics: Haptics {
+        get { Haptics(rawValue: int("kb_haptics", Haptics.light.rawValue)) ?? .light }
+        set { d?.set(newValue.rawValue, forKey: "kb_haptics") }
+    }
+
+    static var layout: Layout {
+        get { Layout(rawValue: int("kb_layout", Layout.azerty.rawValue)) ?? .azerty }
+        set { d?.set(newValue.rawValue, forKey: "kb_layout") }
+    }
+
+    static var keySize: KeySize {
+        get { KeySize(rawValue: int("kb_key_size", KeySize.normal.rawValue)) ?? .normal }
+        set { d?.set(newValue.rawValue, forKey: "kb_key_size") }
+    }
+
+    /// Clic sonore des touches (suit aussi le réglage « Clics du clavier » d'iOS).
+    static var sound: Bool {
+        get { bool("kb_sound", true) }
+        set { d?.set(newValue, forKey: "kb_sound") }
+    }
+
+    static var autoCapitalize: Bool {
+        get { bool("kb_autocap", true) }
+        set { d?.set(newValue, forKey: "kb_autocap") }
+    }
+
+    /// Double espace → « . ».
+    static var doubleSpacePeriod: Bool {
+        get { bool("kb_double_space", true) }
+        set { d?.set(newValue, forKey: "kb_double_space") }
+    }
+
+    /// Accents (é è / ê â / û ü) sur la rangée du bas.
+    static var accentKeys: Bool {
+        get { bool("kb_accents", true) }
+        set { d?.set(newValue, forKey: "kb_accents") }
+    }
+}
