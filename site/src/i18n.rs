@@ -1,10 +1,8 @@
 //! Dictionnaire FR / EN / ES. Une table par langue : la même clé doit exister
-//! dans les trois (vérifié par les tests en bas du fichier).
+//! dans les trois (vérifié par les tests en bas du fichier). Partagé par le
+//! serveur (rendu des pages) et le navigateur (îlots).
 
-use serde::{Deserialize, Serialize};
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Lang {
     Fr,
     En,
@@ -22,9 +20,43 @@ impl Lang {
         }
     }
 
+    /// Une langue exacte (`fr`, `en`, `es`), comme dans les adresses.
+    pub fn parse(code: &str) -> Option<Lang> {
+        Lang::ALL.into_iter().find(|l| l.code() == code)
+    }
+
+    /// Une langue d'après le début d'un code (`en-GB` → anglais).
     pub fn from_code(code: &str) -> Option<Lang> {
-        let code = code.to_ascii_lowercase();
+        let code = code.trim().to_ascii_lowercase();
         Lang::ALL.into_iter().find(|l| code.starts_with(l.code()))
+    }
+
+    /// La langue préférée d'un en-tête `Accept-Language`, le français sinon.
+    pub fn pick(accept_language: &str) -> Lang {
+        let mut best: Option<(f32, Lang)> = None;
+        for part in accept_language.split(',') {
+            let mut it = part.split(';');
+            let Some(lang) = it.next().and_then(Lang::from_code) else {
+                continue;
+            };
+            let q = it
+                .find_map(|p| p.trim().strip_prefix("q="))
+                .and_then(|q| q.parse::<f32>().ok())
+                .unwrap_or(1.0);
+            if best.is_none_or(|(bq, _)| q > bq) {
+                best = Some((q, lang));
+            }
+        }
+        best.map_or(Lang::Fr, |(_, l)| l)
+    }
+
+    /// Pour Open Graph (`fr_FR`…).
+    pub fn og_locale(self) -> &'static str {
+        match self {
+            Lang::Fr => "fr_FR",
+            Lang::En => "en_US",
+            Lang::Es => "es_ES",
+        }
     }
 
     fn table(self) -> &'static [(&'static str, &'static str)] {
@@ -35,14 +67,11 @@ impl Lang {
         }
     }
 
-    /// Texte traduit ; retombe sur le français, puis sur la clé elle-même.
+    /// Texte traduit ; retombe sur le français, puis sur « … ».
     pub fn t(self, key: &str) -> &'static str {
         lookup(self.table(), key)
             .or_else(|| lookup(FR, key))
-            .unwrap_or_else(|| {
-                gloo::console::warn!("clé i18n manquante", key.to_string());
-                "…"
-            })
+            .unwrap_or("…")
     }
 }
 
@@ -50,21 +79,20 @@ fn lookup(table: &'static [(&'static str, &'static str)], key: &str) -> Option<&
     table.iter().find(|(k, _)| *k == key).map(|(_, v)| *v)
 }
 
-#[cfg(test)]
-const BROCOLIS_LINK: &str = r#"<a href="https://maxlestage.github.io/brocolis/" target="_blank" rel="noopener noreferrer">brocolis</a>"#;
-
-macro_rules! tagline {
-    ($pre:literal, $post:literal) => {
-        concat!(
-            $pre,
-            r#"<a href="https://maxlestage.github.io/brocolis/" target="_blank" rel="noopener noreferrer">brocolis</a>"#,
-            $post
-        )
-    };
-}
+/// Les mots qui défilent dans « Marche dans … » (noms propres, non traduits).
+pub const APPS: [&str; 6] = [
+    "WhatsApp",
+    "iMessage",
+    "Messenger",
+    "Signal",
+    "Notes",
+    "Telegram",
+];
 
 #[rustfmt::skip]
 const FR: &[(&str, &str)] = &[
+    ("skip", "Aller au contenu"),
+    ("top", "Revenir en haut"),
     ("film.label", "Comment ça marche"),
     ("film.hint", "Fais défiler ↓"),
     ("film.s0", "Un secret, ça se garde."),
@@ -81,7 +109,8 @@ const FR: &[(&str, &str)] = &[
     ("hero.badge", "iPhone · Apple Watch · Live Activity"),
     ("hero.title", "Tes messageries,"),
     ("hero.titleAccent", "chiffrées à la carte."),
-    ("hero.tagline", tagline!("Chiffrement sélectif pour tes messageries — bâti sur ", ".")),
+    ("hero.tagline", "Chiffrement sélectif pour tes messageries — bâti sur "),
+    ("works.label", "Marche dans"),
     ("cta.repo", "Voir le dépôt"),
     ("cta.brocolis", "Projet brocolis"),
     ("cta.server", "Serveur 🛰️"),
@@ -107,6 +136,24 @@ const FR: &[(&str, &str)] = &[
     ("stat.kex.d", "appairage"),
     ("stat.server", "0 octet"),
     ("stat.server.d", "en clair côté serveur"),
+    ("demo.kicker", "Essaie"),
+    ("demo.title", "Ce que tu écris, ce que voit l'app"),
+    ("demo.note", "Écris un message et entoure tes secrets de ((doubles parenthèses)) : ils deviennent des jetons illisibles, le reste reste en clair."),
+    ("demo.input", "Ton message"),
+    ("demo.default", "On se retrouve ((à 20h devant le ciné)) ? Le code de la porte : ((4813))."),
+    ("demo.plain", "Sur ton téléphone"),
+    ("demo.wire", "Ce qui part dans WhatsApp"),
+    ("demo.all", "Tout chiffrer"),
+    ("demo.tokens", "jetons"),
+    ("demo.disclaimer", "Démonstration visuelle : ces jetons sont tirés au hasard. Le vrai chiffrement (AES-256-GCM) se fait dans l'app, sur ton téléphone, avec ta clé."),
+    ("flow.kicker", "Appairage"),
+    ("flow.title", "La clé secrète ne voyage jamais"),
+    ("flow.note", "Chaque téléphone dépose sa clé publique dans le salon, récupère celle de l'autre, puis calcule seul la même clé secrète (X25519)."),
+    ("flow.me", "Ton iPhone"),
+    ("flow.them", "Son téléphone"),
+    ("flow.server", "Le salon"),
+    ("flow.pub", "clé publique"),
+    ("flow.secret", "même clé secrète, calculée sur place"),
     ("features.title", "Tout ce qu'il faut, rien de plus"),
     ("features.note", "Brocolis se glisse dans les apps que tu utilises déjà et ne chiffre que ce que tu choisis."),
     ("feat.graft.t", "Se greffe sur tes apps"),
@@ -145,10 +192,10 @@ const FR: &[(&str, &str)] = &[
     ("plan.pro.f3", "Tout ce qu’offre Brocolis+"),
     ("doc.title", "Documentation"),
     ("doc.note", "Le README du dépôt (en français)."),
-    ("doc.loading", "Chargement du README…"),
-    ("doc.unavailable", "README indisponible — voir le dépôt."),
+    ("doc.more", "Tout lire ↓"),
+    ("doc.less", "Replier ↑"),
     ("server.title", "Serveur de rendez-vous"),
-    ("server.note", "L'espace dédié qui héberge l'API d'appairage… et cette vitrine."),
+    ("server.note", "L'espace dédié qui héberge l'API d'appairage, la messagerie chiffrée… et cette vitrine."),
     ("server.status", "État"),
     ("server.checking", "Vérification…"),
     ("server.online", "En ligne"),
@@ -157,9 +204,25 @@ const FR: &[(&str, &str)] = &[
     ("server.address", "Adresse"),
     ("server.open", "Ouvrir le serveur"),
     ("server.recheck", "Re-vérifier"),
+    ("server.chart", "Latence des dernières mesures"),
+    ("server.live", "En direct"),
+    ("server.stat.messages", "messages chiffrés en transit"),
+    ("server.stat.conversations", "conversations actives"),
+    ("server.stat.rooms", "salons de rendez-vous ouverts"),
+    ("server.stat.listeners", "connexions temps réel"),
+    ("server.stat.bytes", "de chiffré en mémoire"),
+    ("server.stat.uptime", "en ligne depuis"),
+    ("server.memory", "Pas de base de données : les messages chiffrés vivent en mémoire, une semaine au plus. Un redémarrage du serveur les efface — ils sont déjà sur vos téléphones."),
+    ("server.stack", "Sous le capot"),
+    ("server.stack.vitesse", "le serveur web, rapide comme son nom (Rust, façon Express)"),
+    ("server.stack.memoire", "les données, en mémoire : ni Postgres ni Redis"),
+    ("server.stack.active", "ce site, rendu par le serveur et animé en WebAssembly"),
     ("server.api", "Points d'accès"),
     ("server.api.pair", "échange des clés publiques (appairage)"),
     ("server.api.wrap", "distribution de la clé de groupe (chiffrée)"),
+    ("server.api.messages", "messages chiffrés : envoi, historique paginé"),
+    ("server.api.stream", "flux temps réel (Server-Sent Events)"),
+    ("server.api.stats", "chiffres publics (ceux de cette page)"),
     ("server.api.health", "état du service"),
     ("server.privacy", "Le serveur ne voit que des clés publiques et des blobs chiffrés, jamais la clé secrète ni les messages."),
     ("back", "← Retour à l'accueil"),
@@ -177,12 +240,16 @@ const FR: &[(&str, &str)] = &[
     ("salon.codePlaceholder", "ex. 4813"),
     ("salon.view", "Voir le salon"),
     ("salon.refreshing", "actualisation…"),
+    ("salon.live", "en direct"),
     ("salon.peers", "Participants"),
     ("salon.empty", "Personne dans ce salon pour l'instant."),
+    ("salon.waiting", "On guette les arrivées…"),
     ("salon.pub", "clé publique"),
     ("salon.errorTitle", "Salon injoignable"),
-    ("salon.errorCors", "Le serveur n'est pas joignable depuis ce navigateur (souvent : CORS quand la page n'est pas servie par le serveur lui-même). Réessaie depuis le site hébergé par le serveur, ou vérifie qu'il tourne."),
+    ("salon.errorCors", "Le serveur n'est pas joignable depuis ce navigateur. Vérifie ta connexion, ou réessaie dans un instant."),
     ("salon.privacy", "Le serveur ne voit que des clés publiques et des jetons chiffrés. Aucune clé secrète, aucun message en clair."),
+    ("nf.title", "Page introuvable"),
+    ("nf.text", "Cette page s'est chiffrée toute seule. Même nous n'avons pas la clé."),
     ("license.title", "Licence"),
     ("license.note", "Texte de la licence :"),
     ("license.viewFile", "Voir le fichier LICENSE complet →"),
@@ -211,12 +278,14 @@ POURRA ÊTRE TENU RESPONSABLE D'UN QUELCONQUE DOMMAGE, DIRECT OU INDIRECT,
 DÉCOULANT DE L'UTILISATION OU DE L'IMPOSSIBILITÉ D'UTILISER CE LOGICIEL.
 UTILISATION À VOS PROPRES RISQUES."),
     ("footer.tagline", "Brocolis messageries 🥦 — chiffrement sélectif pour tes messageries. Le contenu de cette page reflète le README du dépôt."),
-    ("footer.stack", "Site écrit en Rust 🦀 et compilé en WebAssembly avec Yew."),
+    ("footer.stack", "Site écrit en Rust 🦀 avec Active, servi par Vitesse, données en mémoire avec Memoire."),
     ("footer.credit", "Conçu et développé par Maxime Nathan Lestage"),
 ];
 
 #[rustfmt::skip]
 const EN: &[(&str, &str)] = &[
+    ("skip", "Skip to content"),
+    ("top", "Back to top"),
     ("film.label", "How it works"),
     ("film.hint", "Scroll ↓"),
     ("film.s0", "A secret should stay one."),
@@ -233,7 +302,8 @@ const EN: &[(&str, &str)] = &[
     ("hero.badge", "iPhone · Apple Watch · Live Activity"),
     ("hero.title", "Your messaging apps,"),
     ("hero.titleAccent", "encrypted your way."),
-    ("hero.tagline", tagline!("Selective encryption for your messaging apps — built on ", ".")),
+    ("hero.tagline", "Selective encryption for your messaging apps — built on "),
+    ("works.label", "Works in"),
     ("cta.repo", "View the repo"),
     ("cta.brocolis", "brocolis project"),
     ("cta.server", "Server 🛰️"),
@@ -259,6 +329,24 @@ const EN: &[(&str, &str)] = &[
     ("stat.kex.d", "pairing"),
     ("stat.server", "0 bytes"),
     ("stat.server.d", "of plaintext on the server"),
+    ("demo.kicker", "Try it"),
+    ("demo.title", "What you write, what the app sees"),
+    ("demo.note", "Type a message and wrap your secrets in ((double parentheses)): they turn into unreadable tokens, the rest stays plain."),
+    ("demo.input", "Your message"),
+    ("demo.default", "Meet you ((at 8pm outside the cinema))? The door code is ((4813))."),
+    ("demo.plain", "On your phone"),
+    ("demo.wire", "What goes out through WhatsApp"),
+    ("demo.all", "Encrypt everything"),
+    ("demo.tokens", "tokens"),
+    ("demo.disclaimer", "Visual demo: these tokens are random. The real encryption (AES-256-GCM) happens in the app, on your phone, with your key."),
+    ("flow.kicker", "Pairing"),
+    ("flow.title", "The secret key never travels"),
+    ("flow.note", "Each phone drops its public key in the room, picks up the other one, then computes the very same secret key on its own (X25519)."),
+    ("flow.me", "Your iPhone"),
+    ("flow.them", "Their phone"),
+    ("flow.server", "The room"),
+    ("flow.pub", "public key"),
+    ("flow.secret", "same secret key, computed on the spot"),
     ("features.title", "Everything you need, nothing more"),
     ("features.note", "Brocolis slips into the apps you already use and only encrypts what you choose."),
     ("feat.graft.t", "Hooks into your apps"),
@@ -297,10 +385,10 @@ const EN: &[(&str, &str)] = &[
     ("plan.pro.f3", "Everything in Brocolis+"),
     ("doc.title", "Documentation"),
     ("doc.note", "The repository README (in French)."),
-    ("doc.loading", "Loading README…"),
-    ("doc.unavailable", "README unavailable — see the repository."),
+    ("doc.more", "Read it all ↓"),
+    ("doc.less", "Fold it back ↑"),
     ("server.title", "Rendezvous server"),
-    ("server.note", "The dedicated space hosting the pairing API… and this very site."),
+    ("server.note", "The dedicated space hosting the pairing API, the encrypted messaging… and this very site."),
     ("server.status", "Status"),
     ("server.checking", "Checking…"),
     ("server.online", "Online"),
@@ -309,9 +397,25 @@ const EN: &[(&str, &str)] = &[
     ("server.address", "Address"),
     ("server.open", "Open the server"),
     ("server.recheck", "Check again"),
+    ("server.chart", "Latency of the latest checks"),
+    ("server.live", "Live"),
+    ("server.stat.messages", "encrypted messages in transit"),
+    ("server.stat.conversations", "active conversations"),
+    ("server.stat.rooms", "open pairing rooms"),
+    ("server.stat.listeners", "real-time connections"),
+    ("server.stat.bytes", "of ciphertext in memory"),
+    ("server.stat.uptime", "online for"),
+    ("server.memory", "No database: encrypted messages live in memory, for a week at most. A server restart wipes them — they are already on your phones."),
+    ("server.stack", "Under the hood"),
+    ("server.stack.vitesse", "the web server, as fast as its name (Rust, Express-style)"),
+    ("server.stack.memoire", "the data, in memory: no Postgres, no Redis"),
+    ("server.stack.active", "this site, rendered by the server and animated in WebAssembly"),
     ("server.api", "Endpoints"),
     ("server.api.pair", "public-key exchange (pairing)"),
     ("server.api.wrap", "group-key distribution (encrypted)"),
+    ("server.api.messages", "encrypted messages: sending, paginated history"),
+    ("server.api.stream", "real-time stream (Server-Sent Events)"),
+    ("server.api.stats", "public figures (the ones on this page)"),
     ("server.api.health", "service health"),
     ("server.privacy", "The server only ever sees public keys and encrypted blobs — never the secret key or your messages."),
     ("back", "← Back to home"),
@@ -329,12 +433,16 @@ const EN: &[(&str, &str)] = &[
     ("salon.codePlaceholder", "e.g. 4813"),
     ("salon.view", "View room"),
     ("salon.refreshing", "refreshing…"),
+    ("salon.live", "live"),
     ("salon.peers", "Participants"),
     ("salon.empty", "Nobody in this room yet."),
+    ("salon.waiting", "Watching for arrivals…"),
     ("salon.pub", "public key"),
     ("salon.errorTitle", "Room unreachable"),
-    ("salon.errorCors", "The server isn't reachable from this browser (often CORS when the page isn't served by the server itself). Try from the site hosted by the server, or check it's running."),
+    ("salon.errorCors", "The server can't be reached from this browser. Check your connection, or try again in a moment."),
     ("salon.privacy", "The server only sees public keys and encrypted tokens. No secret key, no plaintext message."),
+    ("nf.title", "Page not found"),
+    ("nf.text", "This page encrypted itself. Not even we have the key."),
     ("license.title", "License"),
     ("license.note", "License text:"),
     ("license.viewFile", "View the full LICENSE file →"),
@@ -361,12 +469,14 @@ AND FITNESS FOR A PARTICULAR PURPOSE. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
 ANY DAMAGE, DIRECT OR INDIRECT, ARISING FROM THE USE OF OR INABILITY TO USE THIS
 SOFTWARE. USE AT YOUR OWN RISK."),
     ("footer.tagline", "Brocolis messaging 🥦 — selective encryption for your messaging apps. This page mirrors the repository README."),
-    ("footer.stack", "Site written in Rust 🦀 and compiled to WebAssembly with Yew."),
+    ("footer.stack", "Site written in Rust 🦀 with Active, served by Vitesse, data in memory with Memoire."),
     ("footer.credit", "Designed and developed by Maxime Nathan Lestage"),
 ];
 
 #[rustfmt::skip]
 const ES: &[(&str, &str)] = &[
+    ("skip", "Ir al contenido"),
+    ("top", "Volver arriba"),
     ("film.label", "Cómo funciona"),
     ("film.hint", "Desplázate ↓"),
     ("film.s0", "Un secreto, se guarda."),
@@ -383,7 +493,8 @@ const ES: &[(&str, &str)] = &[
     ("hero.badge", "iPhone · Apple Watch · Live Activity"),
     ("hero.title", "Tus mensajerías,"),
     ("hero.titleAccent", "cifradas a la carta."),
-    ("hero.tagline", tagline!("Cifrado selectivo para tus mensajerías — basado en ", ".")),
+    ("hero.tagline", "Cifrado selectivo para tus mensajerías — basado en "),
+    ("works.label", "Funciona en"),
     ("cta.repo", "Ver el repositorio"),
     ("cta.brocolis", "Proyecto brocolis"),
     ("cta.server", "Servidor 🛰️"),
@@ -409,6 +520,24 @@ const ES: &[(&str, &str)] = &[
     ("stat.kex.d", "emparejamiento"),
     ("stat.server", "0 bytes"),
     ("stat.server.d", "en claro en el servidor"),
+    ("demo.kicker", "Pruébalo"),
+    ("demo.title", "Lo que escribes, lo que ve la app"),
+    ("demo.note", "Escribe un mensaje y rodea tus secretos con ((dobles paréntesis)): se vuelven tokens ilegibles, el resto queda en claro."),
+    ("demo.input", "Tu mensaje"),
+    ("demo.default", "¿Nos vemos ((a las 20h delante del cine))? El código de la puerta: ((4813))."),
+    ("demo.plain", "En tu teléfono"),
+    ("demo.wire", "Lo que sale por WhatsApp"),
+    ("demo.all", "Cifrar todo"),
+    ("demo.tokens", "tokens"),
+    ("demo.disclaimer", "Demostración visual: estos tokens son aleatorios. El cifrado real (AES-256-GCM) ocurre en la app, en tu teléfono, con tu clave."),
+    ("flow.kicker", "Emparejamiento"),
+    ("flow.title", "La clave secreta nunca viaja"),
+    ("flow.note", "Cada teléfono deja su clave pública en la sala, recoge la del otro y calcula por sí solo la misma clave secreta (X25519)."),
+    ("flow.me", "Tu iPhone"),
+    ("flow.them", "Su teléfono"),
+    ("flow.server", "La sala"),
+    ("flow.pub", "clave pública"),
+    ("flow.secret", "misma clave secreta, calculada allí mismo"),
     ("features.title", "Todo lo necesario, nada más"),
     ("features.note", "Brocolis se integra en las apps que ya usas y solo cifra lo que tú eliges."),
     ("feat.graft.t", "Se integra en tus apps"),
@@ -447,10 +576,10 @@ const ES: &[(&str, &str)] = &[
     ("plan.pro.f3", "Todo lo de Brocolis+"),
     ("doc.title", "Documentación"),
     ("doc.note", "El README del repositorio (en francés)."),
-    ("doc.loading", "Cargando README…"),
-    ("doc.unavailable", "README no disponible — consulta el repositorio."),
+    ("doc.more", "Leerlo todo ↓"),
+    ("doc.less", "Plegar ↑"),
     ("server.title", "Servidor de encuentro"),
-    ("server.note", "El espacio dedicado que aloja la API de emparejamiento… y este sitio."),
+    ("server.note", "El espacio dedicado que aloja la API de emparejamiento, la mensajería cifrada… y este sitio."),
     ("server.status", "Estado"),
     ("server.checking", "Comprobando…"),
     ("server.online", "En línea"),
@@ -459,9 +588,25 @@ const ES: &[(&str, &str)] = &[
     ("server.address", "Dirección"),
     ("server.open", "Abrir el servidor"),
     ("server.recheck", "Volver a comprobar"),
+    ("server.chart", "Latencia de las últimas mediciones"),
+    ("server.live", "En directo"),
+    ("server.stat.messages", "mensajes cifrados en tránsito"),
+    ("server.stat.conversations", "conversaciones activas"),
+    ("server.stat.rooms", "salas de encuentro abiertas"),
+    ("server.stat.listeners", "conexiones en tiempo real"),
+    ("server.stat.bytes", "de cifrado en memoria"),
+    ("server.stat.uptime", "en línea desde hace"),
+    ("server.memory", "Sin base de datos: los mensajes cifrados viven en memoria, una semana como mucho. Reiniciar el servidor los borra — ya están en vuestros teléfonos."),
+    ("server.stack", "Bajo el capó"),
+    ("server.stack.vitesse", "el servidor web, rápido como su nombre (Rust, al estilo Express)"),
+    ("server.stack.memoire", "los datos, en memoria: ni Postgres ni Redis"),
+    ("server.stack.active", "este sitio, renderizado por el servidor y animado en WebAssembly"),
     ("server.api", "Puntos de acceso"),
     ("server.api.pair", "intercambio de claves públicas (emparejamiento)"),
     ("server.api.wrap", "distribución de la clave de grupo (cifrada)"),
+    ("server.api.messages", "mensajes cifrados: envío, historial paginado"),
+    ("server.api.stream", "flujo en tiempo real (Server-Sent Events)"),
+    ("server.api.stats", "cifras públicas (las de esta página)"),
     ("server.api.health", "estado del servicio"),
     ("server.privacy", "El servidor solo ve claves públicas y blobs cifrados — nunca la clave secreta ni tus mensajes."),
     ("back", "← Volver al inicio"),
@@ -479,12 +624,16 @@ const ES: &[(&str, &str)] = &[
     ("salon.codePlaceholder", "p. ej. 4813"),
     ("salon.view", "Ver la sala"),
     ("salon.refreshing", "actualizando…"),
+    ("salon.live", "en directo"),
     ("salon.peers", "Participantes"),
     ("salon.empty", "Nadie en esta sala por ahora."),
+    ("salon.waiting", "Vigilando las llegadas…"),
     ("salon.pub", "clave pública"),
     ("salon.errorTitle", "Sala inaccesible"),
-    ("salon.errorCors", "El servidor no es accesible desde este navegador (a menudo CORS cuando la página no la sirve el propio servidor). Prueba desde el sitio alojado por el servidor, o comprueba que está activo."),
+    ("salon.errorCors", "No se puede contactar con el servidor desde este navegador. Comprueba tu conexión o vuelve a intentarlo en un momento."),
     ("salon.privacy", "El servidor solo ve claves públicas y tokens cifrados. Ninguna clave secreta, ningún mensaje en claro."),
+    ("nf.title", "Página no encontrada"),
+    ("nf.text", "Esta página se cifró sola. Ni siquiera nosotros tenemos la clave."),
     ("license.title", "Licencia"),
     ("license.note", "Texto de la licencia:"),
     ("license.viewFile", "Ver el archivo LICENSE completo →"),
@@ -511,7 +660,7 @@ ADECUACIÓN A UN FIN DETERMINADO. EN NINGÚN CASO EL AUTOR SERÁ RESPONSABLE DE
 NINGÚN DAÑO, DIRECTO O INDIRECTO, DERIVADO DEL USO O LA IMPOSIBILIDAD DE USAR
 ESTE SOFTWARE. ÚSALO BAJO TU PROPIA RESPONSABILIDAD."),
     ("footer.tagline", "Brocolis mensajería 🥦 — cifrado selectivo para tus mensajerías. Esta página refleja el README del repositorio."),
-    ("footer.stack", "Sitio escrito en Rust 🦀 y compilado a WebAssembly con Yew."),
+    ("footer.stack", "Sitio escrito en Rust 🦀 con Active, servido por Vitesse, datos en memoria con Memoire."),
     ("footer.credit", "Diseñado y desarrollado por Maxime Nathan Lestage"),
 ];
 
@@ -540,20 +689,27 @@ mod tests {
     #[test]
     fn language_codes_round_trip() {
         for l in Lang::ALL {
+            assert_eq!(Lang::parse(l.code()), Some(l));
             assert_eq!(Lang::from_code(l.code()), Some(l));
         }
         assert_eq!(Lang::from_code("en-GB"), Some(Lang::En));
         assert_eq!(Lang::from_code("de"), None);
+        assert_eq!(Lang::parse("en-GB"), None);
     }
 
     #[test]
-    fn tagline_links_to_brocolis() {
+    fn accept_language_picks_the_best_known_language() {
+        assert_eq!(Lang::pick("es-ES,es;q=0.9,en;q=0.8"), Lang::Es);
+        assert_eq!(Lang::pick("de-DE,de;q=0.9,en;q=0.5"), Lang::En);
+        assert_eq!(Lang::pick("de"), Lang::Fr);
+        assert_eq!(Lang::pick(""), Lang::Fr);
+        assert_eq!(Lang::pick("fr;q=0.2, en;q=0.9"), Lang::En);
+    }
+
+    #[test]
+    fn the_demo_text_has_secrets_to_encrypt() {
         for l in Lang::ALL {
-            assert!(
-                lookup(l.table(), "hero.tagline")
-                    .unwrap()
-                    .contains(BROCOLIS_LINK)
-            );
+            assert!(l.t("demo.default").contains("(("), "{l:?}");
         }
     }
 }

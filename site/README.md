@@ -1,38 +1,60 @@
-# Vitrine Brocolis 🥦 — Rust + WebAssembly (Yew)
+# Vitrine Brocolis 🥦 — Rust avec Active
 
-| Outil | Version |
+| Outil | Rôle |
 |---|---|
-| Rust (stable) | 1.99 — édition 2024 |
-| [Yew](https://yew.rs) | 0.23 (rendu côté client) |
-| yew-router | 0.20 (`HashRouter`) |
-| [Trunk](https://trunk-rs.github.io/trunk/) | 0.21.14 |
-| wasm-bindgen | 0.2.129 · wasm-opt (binaryen) version_133 |
-| pulldown-cmark | 0.13 (rendu du README) |
+| [Active](https://maxlestage.github.io/Active/) | pages rendues par le serveur (SEO complet), îlots hydratés en WebAssembly |
+| [Vitesse](https://maxlestage.github.io/Vitesse/) | le serveur qui sert les pages (dans `../server-rust`, à côté de l'API) |
+| wasm-bindgen 0.2.129 | le pont entre le WebAssembly et le navigateur |
+| pulldown-cmark 0.13 | le README du dépôt, rendu en HTML sur l'accueil |
+
+Le site est en français, anglais et espagnol (`/fr/`, `/en/`, `/es/`), avec
+quatre pages : accueil, Salon, Serveur, Licence. Sans WebAssembly, tout reste
+lisible : le contenu est dans le HTML.
+
+## Ce qui bouge
+
+- **rideau d'ouverture** (première page de la visite) : la marque se trace, un
+  compteur monte, le rideau se lève — en CSS, même sans WebAssembly ;
+- **pluie de chiffré** derrière le héros (canvas) : près du pointeur, les
+  caractères s'illuminent et des 🥦 apparaissent ;
+- **film de grains** (WebGL) : des milliers de particules se recomposent d'une
+  forme à l'autre au fil du défilement, avec son fil de progression ;
+- **démo** « ce que tu écris, ce que voit l'app » (îlot) : les `((secrets))`
+  se brouillent en jetons `[[BROCOLIS:v1:…]]` pendant la frappe ;
+- **schéma d'appairage** animé : les clés publiques voyagent, la clé secrète
+  apparaît des deux côtés sans passer par le fil ;
+- **salon en direct** (îlot) : radar, participants qui arrivent avec un visage
+  tiré de leur clé publique, lien partageable `?code=…` ;
+- **serveur en direct** (îlot) : latence et son graphique, chiffres publics qui
+  défilent, horloge « en ligne depuis » ;
+- titres qui se **déchiffrent**, mots qui montent, **compteurs** de prix,
+  bandeau qui défile, mots qui tournent, cartes **inclinées** avec reflet,
+  boutons **aimantés**, ondes au clic, **curseur**, barre de progression,
+  navigation qui se cache, **transitions entre pages**, **thème** qui s'ouvre en
+  cercle, **gerbe de 🥦** sur le logo, 404 qui « glitche ».
+
+Tout respecte `prefers-reduced-motion`.
 
 ## Lancer
 
 ```sh
 rustup target add wasm32-unknown-unknown
-cargo install --locked trunk   # ou le binaire des releases GitHub
-trunk serve                    # http://localhost:8080
-trunk build --release          # → dist/
-cargo test                     # dictionnaire FR/EN/ES, rendu Markdown
+cargo install wasm-bindgen-cli --version 0.2.129   # la version de Cargo.lock
+# 1. Le code du navigateur → site/pkg
+cargo build --lib --target wasm32-unknown-unknown --profile wasm-release
+wasm-bindgen --target web --no-typescript --out-dir pkg target/wasm32-unknown-unknown/wasm-release/brocolis_site.wasm
+# 2. Le serveur (API + pages), sur http://localhost:8788
+cd ../server-rust && cargo run
+cargo test   # ici : textes FR/EN/ES, adresses, démo, rendu de chaque page
 ```
-
-`index.html` recopie `../README.md` et `public/photo.png` dans `dist/`. Les
-chemins sont relatifs (`public_url = "./"`) : la même sortie sert sur le
-serveur Heroku (`/` et `/site/`) comme en local.
 
 ## Organisation
 
-- `src/app.rs` — routes (`#/`, `#/salon`, `#/serveur`, `#/license`), barre de
-  navigation, sélecteurs langue/thème, pied de page
-- `src/pages/` — accueil (héros, fonctionnalités, formules, README), Salon,
-  Serveur, Licence
-- `src/i18n.rs` — textes FR / EN / ES (les tests vérifient que les trois
-  langues ont les mêmes clés)
-- `src/prefs.rs` — langue et thème, mémorisés dans le localStorage
-- `src/markdown.rs` — README → HTML (liens relatifs vers GitHub, HTML brut
-  échappé)
-- `src/config.rs` — adresses (dépôt, serveur de rendez-vous)
-- `style.css` — thèmes vert / clair / sombre
+- `src/i18n.rs` — textes FR / EN / ES (les tests vérifient les mêmes clés)
+- `src/routes.rs` — les adresses, et la traduction des anciennes (`#/salon`…)
+- `src/islands.rs` — les îlots : démo, salon, état du serveur
+- `src/demo.rs` — la découpe `((secrets))` et les jetons factices de la démo
+- `src/server/` — rendu des pages (Active) et routes ajoutées à l'app Vitesse
+- `src/client/` — le code du navigateur : hydratation, animations, film WebGL,
+  pluie de chiffré, gerbe de 🥦, appels au serveur
+- `assets/` — feuille de style (thèmes vert / clair / sombre) et logo

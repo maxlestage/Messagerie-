@@ -5,17 +5,17 @@ Petite app iOS native (Swift) qui ajoute le **chiffrement sélectif de
 de messagerie existante** (WhatsApp, iMessage, Messenger, Notes…) via une
 **Action Extension** dans le menu **Partager**.
 
-> 🌐 **Site vitrine** : une vitrine en **Rust/WebAssembly avec Yew** (dans
-> [`site/`](site/)) qui rend ce README. Elle est **servie par le serveur de
-> rendez-vous lui-même**, sur la seconde page **`/site/`** :
-> <https://brocolis-serveur-839b43057467.herokuapp.com/site/>. Pas besoin d'un
-> hébergement séparé : une seule app Heroku sert l'API d'appairage **et** la
-> vitrine.
+> 🌐 **Site vitrine** : une vitrine en **Rust avec
+> [Active](https://maxlestage.github.io/Active/)** (dans [`site/`](site/)) qui
+> rend ce README, en français, anglais et espagnol. Les pages sont **rendues par
+> le serveur de rendez-vous lui-même** (SEO complet), et les parties vivantes —
+> démo de chiffrement, salon en direct, état du serveur, film de grains WebGL,
+> pluie de chiffré… — sont compilées en WebAssembly :
+> <https://brocolis-serveur-839b43057467.herokuapp.com/>. Une seule app Heroku
+> sert l'API d'appairage **et** la vitrine.
 >
-> Elle est reconstruite à chaque déploiement Heroku (étage `site` du
-> `Dockerfile`) ; la CI vérifie qu'elle compile. En local :
-> `cd site && trunk serve` (outils : `rustup target add wasm32-unknown-unknown`
-> puis Trunk), ou `trunk build --release` pour produire `site/dist/`.
+> Elle est reconstruite à chaque déploiement Heroku (`Dockerfile`) ; la CI
+> vérifie qu'elle compile. En local : voir [`site/README.md`](site/README.md).
 
 ## Pourquoi une extension (et pas un proxy en arrière-plan)
 
@@ -159,7 +159,9 @@ Plutôt que de copier-coller la clé symétrique, deux personnes peuvent
 3. L'app affiche une **empreinte de sécurité** : comparez-la de vive voix. Si
    elle est identique des deux côtés, personne n'a intercepté l'échange (MITM).
 
-Le serveur de messagerie est dans [`server-rust/`](server-rust/) (Rust · Actix + SeaORM) ;
+Le serveur de messagerie est dans [`server-rust/`](server-rust/) (Rust ·
+[Vitesse](https://maxlestage.github.io/Vitesse/), données en mémoire avec
+[Memoire](https://maxlestage.github.io/Memoire/) : ni Postgres ni Redis) ;
 l'instance de production tourne sur Heroku (URL ci-dessus, fixée en dur dans
 l'app). L'appairage active automatiquement Brocolis ; l'extension utilise
 ensuite la clé dérivée comme d'habitude.
@@ -285,7 +287,8 @@ BrocolisWatch/                # app Apple Watch (watchOS 9+, embarquée dans l'a
   WatchSyncReceiver.swift     # réception WatchConnectivity (clés + état actif)
   BrocolisWatch.entitlements
 BrocolisTests/                # tests XCTest (crypto, transform, accord de clé)
-server-rust/                  # serveur de messagerie chiffrée (Rust · Actix + SeaORM)
+server-rust/                  # serveur de messagerie chiffrée (Rust · Vitesse + Memoire, en mémoire)
+site/                         # vitrine (Rust · Active : rendu serveur + îlots WebAssembly)
 ```
 
 ## Lancer le projet
@@ -382,14 +385,15 @@ clé AES, clé dérivée utilisable pour chiffrer/déchiffrer, format d'empreint
 Cmd+U dans Xcode   (ou : xcodebuild test -scheme Brocolis -destination 'platform=iOS Simulator,name=iPhone 15')
 ```
 
-Le **serveur de rendez-vous** a ses propres tests Node (exécutables partout) —
-ils vérifient le flux d'appairage, que **les deux appareils dérivent une clé
-identique**, et l'**interopérabilité iPhone ↔ Android** (vecteurs officiels
-RFC 7748 / RFC 5869 / NIST GCM + flux croisé complet, voir
-`BrocolisTests/`) :
+Le **serveur** a ses propres tests Rust (exécutables partout, sans base de
+données) — appairage, clé de groupe, messagerie de bout en bout, pagination,
+contrôle d'accès, accusés de lecture, flux temps réel (SSE) et pages du site.
+L'**interopérabilité iPhone ↔ Android** (vecteurs officiels RFC 7748 / RFC 5869
+/ NIST GCM + flux croisé complet) est couverte par `BrocolisTests/` :
 
 ```
-cd server && npm test
+cd server-rust && cargo test
+cd site && cargo test
 ```
 
 ## Sécurité — limites

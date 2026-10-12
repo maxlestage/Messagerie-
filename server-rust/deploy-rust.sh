@@ -1,33 +1,28 @@
 #!/usr/bin/env bash
 #
-# Déploiement clé en main du service messagerie Rust sur une app Heroku DÉDIÉE.
-# Idempotent : crée l'app + les add-ons s'ils manquent, (re)configure l'APNs si
+# Déploiement clé en main du serveur Brocolis 🥦 (Vitesse + Memoire + Active)
+# sur Heroku. Idempotent : crée l'app si elle manque, (re)configure l'APNs si
 # fourni, puis build/release le conteneur et affiche les logs de boot.
-#
-# ⚠️ NE PAS viser l'app de PROD (serveur Node). Utilise une app séparée.
+# Aucun add-on : ni Postgres ni Redis, les données sont en mémoire.
 #
 # Usage :
-#   ./deploy-rust.sh [nom-app]                 # défaut : brocolis-rust
-#   APP=brocolis-rust ./deploy-rust.sh
+#   ./server-rust/deploy-rust.sh [nom-app]     # défaut : brocolis-serveur
+#   APP=brocolis-serveur ./server-rust/deploy-rust.sh
 #
 # APNs (optionnel — sans ça, /push/live-activity/update répond 503) :
 #   APNS_KEY_ID=... APNS_TEAM_ID=... APNS_BUNDLE_ID=rs.brocolis.messagerie \
-#   APNS_ENV=sandbox APNS_KEY_P8_FILE=./AuthKey_XXXX.p8 ./deploy-rust.sh
+#   APNS_ENV=sandbox APNS_KEY_P8_FILE=./AuthKey_XXXX.p8 ./server-rust/deploy-rust.sh
 #
 # Réglages facultatifs (env) :
-#   PG_PLAN (défaut heroku-postgresql:essential-0)
-#   REDIS_PLAN (défaut heroku-redis:mini)
-#   MESSAGE_RETENTION_DAYS, MAX_PEERS
+#   MESSAGE_RETENTION_DAYS, MAX_PEERS, MEMORY_BUDGET_MB
 #   SKIP_LOGS=1  pour ne pas suivre les logs à la fin.
 
 set -euo pipefail
 
-APP="${1:-${APP:-brocolis-rust}}"
-PG_PLAN="${PG_PLAN:-heroku-postgresql:essential-0}"
-REDIS_PLAN="${REDIS_PLAN:-heroku-redis:mini}"
+APP="${1:-${APP:-brocolis-serveur}}"
 
-# Ce script doit tourner depuis server-rust/ (là où est le Dockerfile).
-cd "$(dirname "$0")"
+# Le Dockerfile est à la racine du dépôt (il construit le site et le serveur).
+cd "$(dirname "$0")/.."
 
 say()  { printf '\n\033[1;32m▸ %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;33m! %s\033[0m\n' "$*"; }
@@ -40,7 +35,6 @@ heroku whoami >/dev/null 2>&1 || die "Pas connecté à Heroku : lance 'heroku lo
 docker info >/dev/null 2>&1 || die "Le démon Docker ne tourne pas."
 
 say "App cible : $APP"
-warn "Assure-toi que ce N'EST PAS l'app de prod (serveur Node)."
 
 # ── App (stack conteneur) ────────────────────────────────────────────────────
 if heroku apps:info -a "$APP" >/dev/null 2>&1; then
@@ -51,26 +45,16 @@ else
   heroku create "$APP" --stack container
 fi
 
-# ── Add-ons (idempotents) ────────────────────────────────────────────────────
+# Plus besoin de Postgres ni de Redis : on le signale s'il en reste.
 addons="$(heroku addons -a "$APP" 2>/dev/null || true)"
-
-if grep -q "heroku-postgresql" <<<"$addons"; then
-  say "Postgres déjà présent."
-else
-  say "Ajout de Postgres ($PG_PLAN)…"
-  heroku addons:create "$PG_PLAN" -a "$APP"
-fi
-
-if grep -qE "heroku-redis|heroku-key-value" <<<"$addons"; then
-  say "Redis / Key-Value déjà présent."
-else
-  say "Ajout de Redis ($REDIS_PLAN)…"
-  heroku addons:create "$REDIS_PLAN" -a "$APP"
+if grep -qE "heroku-postgresql|heroku-redis|heroku-key-value" <<<"$addons"; then
+  warn "Des add-ons Postgres/Redis sont encore attachés : le serveur ne s'en sert plus (heroku addons:destroy …)."
 fi
 
 # ── Variables de config ──────────────────────────────────────────────────────
 [ -n "${MESSAGE_RETENTION_DAYS:-}" ] && heroku config:set -a "$APP" "MESSAGE_RETENTION_DAYS=$MESSAGE_RETENTION_DAYS" >/dev/null
 [ -n "${MAX_PEERS:-}" ] && heroku config:set -a "$APP" "MAX_PEERS=$MAX_PEERS" >/dev/null
+[ -n "${MEMORY_BUDGET_MB:-}" ] && heroku config:set -a "$APP" "MEMORY_BUDGET_MB=$MEMORY_BUDGET_MB" >/dev/null
 
 # APNs : uniquement si les 3 identifiants + la clé .p8 sont fournis.
 if [ -n "${APNS_KEY_ID:-}" ] && [ -n "${APNS_TEAM_ID:-}" ] && [ -n "${APNS_BUNDLE_ID:-}" ] && [ -n "${APNS_KEY_P8_FILE:-}" ]; then
@@ -104,7 +88,7 @@ else
 fi
 
 say "Déployé : $URL"
-echo "   Attendu dans les logs : « à l'écoute », « APNs configuré » (si APNs), « Redis branché » (si REDIS_URL)."
+echo "   Attendu dans les logs : « Données en mémoire », « APNs configuré » (si APNs), « à l'écoute »."
 
 if [ "${SKIP_LOGS:-}" != "1" ]; then
   say "Logs (Ctrl-C pour quitter) :"

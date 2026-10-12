@@ -1,143 +1,122 @@
-# Déployer le service messagerie Rust sur Heroku
+# Déployer le serveur Brocolis 🥦 sur Heroku
 
-Ce guide déploie le service **Rust** (`server-rust/`, Actix + SeaORM) sur une
-**app Heroku DÉDIÉE**, séparée de la prod Node. La prod (app iOS → serveur Node)
-**n'est pas touchée** tant que tu ne bascules pas volontairement (voir la fin).
+Le serveur est **tout en Rust** et **sans add-on** :
 
-Le service ne relaie que du **chiffré**. Persistance **Postgres** native
-(rétention 7 jours), temps réel **SSE** + **Redis** (multi-dynos), push **APNs**.
+- [Vitesse](https://maxlestage.github.io/Vitesse/) pour le web : API de
+  messagerie chiffrée, rendez-vous X25519, flux temps réel (SSE), push APNs ;
+- [Memoire](https://maxlestage.github.io/Memoire/) pour les données, **en
+  mémoire** : ni Postgres ni Redis ;
+- [Active](https://maxlestage.github.io/Active/) pour le site, rendu par le
+  serveur et animé en WebAssembly.
 
-> **Tout-en-un** : le script `server-rust/deploy-rust.sh` enchaîne les étapes
-> 1 à 5 (création app + add-ons + config APNs + build/release + logs), de façon
-> idempotente. Ex. :
+Il ne relaie que du **chiffré**, une semaine au plus (`MESSAGE_RETENTION_DAYS`).
+
+> **Tout-en-un** : `server-rust/deploy-rust.sh` enchaîne les étapes ci-dessous
+> (création de l'app, config APNs, build/release du conteneur, vérification),
+> de façon idempotente :
 > ```bash
-> cd server-rust
-> ./deploy-rust.sh brocolis-rust
+> ./server-rust/deploy-rust.sh brocolis-serveur
 > # avec APNs :
 > APNS_KEY_ID=… APNS_TEAM_ID=… APNS_BUNDLE_ID=rs.brocolis.messagerie \
->   APNS_KEY_P8_FILE=./AuthKey_XXXX.p8 ./deploy-rust.sh brocolis-rust
+>   APNS_KEY_P8_FILE=./AuthKey_XXXX.p8 ./server-rust/deploy-rust.sh brocolis-serveur
 > ```
-> Les sections ci-dessous détaillent chaque étape (utile si tu préfères la main).
 
 ---
 
 ## 0. Prérequis
 
-- [CLI Heroku](https://devcenter.heroku.com/articles/heroku-cli) installée et `heroku login`.
-- Docker installé et lancé (pour `container:push`).
-- Depuis la racine du dépôt.
+- [CLI Heroku](https://devcenter.heroku.com/articles/heroku-cli) et `heroku login`.
+- Docker lancé (pour `container:push`), ou le déploiement par Git (`heroku.yml`).
 
----
-
-## 1. Créer l'app dédiée (stack conteneur)
+## 1. L'app (stack conteneur)
 
 ```bash
-heroku create brocolis-rust --stack container   # choisis ton nom d'app
+heroku create brocolis-serveur --stack container   # ou une app existante :
+heroku stack:set container -a brocolis-serveur
 ```
 
-## 2. Ajouter les add-ons
+**Aucun add-on à ajouter.** Si l'app avait encore Postgres ou Redis, on peut les
+retirer sans risque : le serveur ne lit plus `DATABASE_URL` ni `REDIS_URL`.
+
+## 2. Variables (toutes facultatives)
+
+| Variable | Rôle | Défaut |
+|---|---|---|
+| `MESSAGE_RETENTION_DAYS` | Rétention des messages chiffrés | `7` |
+| `MEMORY_BUDGET_MB` | Taille max. du chiffré en mémoire ; au-delà, les plus vieux partent | `200` |
+| `MAX_PEERS` | Participants max. par code de rendez-vous | `16` |
+| `MEMOIRE_PATH` | Fichier où Memoire garde aussi les données (disque durable seulement) | — |
+| `APNS_KEY_P8`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_BUNDLE_ID`, `APNS_ENV` | Push Live Activity | — |
+| `BROCOLIS_PRO_IDS`, `BROCOLIS_PRO_EMAILS` | Accès offerts ([guide](acces-offerts.md)) | — |
 
 ```bash
-# Postgres (persistance durable) → fournit DATABASE_URL
-heroku addons:create heroku-postgresql:essential-0 -a brocolis-rust
-
-# Key-Value / Redis (temps réel inter-dynos) → fournit REDIS_URL
-heroku addons:create heroku-redis:mini -a brocolis-rust
-```
-
-`DATABASE_URL` et `REDIS_URL` sont injectés automatiquement. Le service crée son
-schéma Postgres au démarrage (idempotent) et gère le TLS Heroku tout seul
-(Postgres `sslmode=require`, Redis `rediss://`).
-
-## 3. Variables APNs (Live Activity) — optionnel
-
-Sans elles, l'endpoint `/push/live-activity/update` répond simplement `503` ; le
-reste marche. Pour activer le push :
-
-```bash
-heroku config:set -a brocolis-rust \
-  APNS_KEY_ID=XXXXXXXXXX \
-  APNS_TEAM_ID=YYYYYYYYYY \
-  APNS_BUNDLE_ID=rs.brocolis.messagerie \
-  APNS_ENV=sandbox        # "production" pour une build App Store
-
+heroku config:set -a brocolis-serveur \
+  APNS_KEY_ID=XXXXXXXXXX APNS_TEAM_ID=YYYYYYYYYY \
+  APNS_BUNDLE_ID=rs.brocolis.messagerie APNS_ENV=sandbox
 # La clé .p8 est multi-lignes : garde les retours à la ligne.
-heroku config:set -a brocolis-rust APNS_KEY_P8="$(cat AuthKey_XXXXXXXXXX.p8)"
+heroku config:set -a brocolis-serveur APNS_KEY_P8="$(cat AuthKey_XXXXXXXXXX.p8)"
 ```
 
-Réglages facultatifs : `MESSAGE_RETENTION_DAYS` (défaut 7), `MAX_PEERS` (défaut 16).
+Sans APNs, `/push/live-activity/update` répond `503` ; tout le reste marche.
 
-## 4. Déployer (méthode recommandée : container:push)
+## 3. Déployer
 
-Isolé, n'utilise pas de `heroku.yml`, ne touche pas la prod :
+Par Git (Heroku lit `heroku.yml` puis construit le `Dockerfile` racine) :
 
 ```bash
-cd server-rust
-heroku container:push web -a brocolis-rust
-heroku container:release web -a brocolis-rust
+git push heroku master
 ```
 
-> La 1ʳᵉ build compile Rust + toutes les dépendances : compter quelques minutes.
-
-## 5. Vérifier le démarrage
+Ou en conteneur, depuis la racine du dépôt :
 
 ```bash
-heroku logs -a brocolis-rust --tail
+heroku container:push web -a brocolis-serveur
+heroku container:release web -a brocolis-serveur
 ```
 
-Tu dois voir :
+Le `Dockerfile` construit d'abord le code du navigateur (le site, compilé en
+WebAssembly, puis `wasm-bindgen`), ensuite le serveur. La première build
+compile toutes les dépendances : compter quelques minutes.
 
-```
-Messagerie Brocolis 🥦 (Rust/Actix) à l'écoute sur le port ...
-APNs configuré : mises à jour de Live Activity actives.   (si APNs configuré)
-Redis branché : temps réel inter-dynos actif.             (si REDIS_URL)
-```
-
-Test rapide :
+## 4. Vérifier
 
 ```bash
-curl https://brocolis-rust.herokuapp.com/health      # -> ok
-curl https://brocolis-rust.herokuapp.com/            # page d'accueil
+heroku logs -a brocolis-serveur --tail
 ```
 
-## 6. Tester avec l'app iOS (sans toucher la prod)
+On doit voir :
 
-Dans Brocolis, mets l'URL de test (`https://brocolis-rust.herokuapp.com`) comme
-serveur de messagerie, puis vérifie : appairage (`/pair`), envoi/réception,
-« Distribué / Lu », photo/vocal, et — si APNs configuré — la Live Activity.
+```
+Données en mémoire seulement (Memoire) : rien n'est écrit sur disque.
+APNs configuré : mises à jour de Live Activity actives.   (si APNs)
+Brocolis 🥦 (Vitesse + Memoire + Active) à l'écoute sur le port …
+```
 
----
+```bash
+curl https://brocolis-serveur.herokuapp.com/health    # -> ok
+curl https://brocolis-serveur.herokuapp.com/stats     # totaux publics (JSON)
+open https://brocolis-serveur.herokuapp.com/          # le site → /fr/, /en/ ou /es/
+```
 
-## 7. Bascule en prod (quand c'est validé)
+## 5. Les apps
 
-Deux options, au choix :
+Rien à changer côté iOS, Android ni montre : mêmes routes (`/pair`, `/wrap`,
+`/v1/messages`, `/v1/stream`, `/v1/read`, `/v1/conversations`, `/v1/plan`,
+`/push/live-activity/*`), mêmes corps JSON, mêmes codes de réponse.
 
-- **Simple** : garder deux apps et pointer l'app iOS (et le champ serveur) vers
-  l'URL Rust. Le Node reste dispo en secours.
-- **Remplacer** : faire du service Rust la nouvelle prod. Il faudra alors adapter
-  le `heroku.yml` **racine** et le déploiement de l'app de prod pour construire
-  `server-rust/Dockerfile` (ou migrer l'app de prod en `container:push` depuis
-  `server-rust/`). À faire **délibérément**, une fois le Rust éprouvé.
-
-> Astuce : migre les données en pointant la NOUVELLE app sur le MÊME add-on
-> Postgres si tu veux conserver l'historique, ou repars propre (rétention 7 j).
-
----
-
-## Monter en charge
-
-Pour scaler le serveur (dynos, plafond de connexions Postgres, PgBouncer, Redis
-inter-dynos, CDN pour la vitrine, partitionnement/sharding) : voir
-[SCALING.md](SCALING.md).
+**Un seul dyno web** : les données vivent dans le processus (voir
+[SCALING.md](SCALING.md)). Pour plus de capacité, un dyno plus gros, pas plus de
+dynos.
 
 ## Dépannage
 
-- **Boot qui plante sur Postgres / SSL** : le service force déjà `sslmode=require`
-  pour une URL distante. Si besoin, vérifie `heroku config:get DATABASE_URL`.
-- **Redis absent des logs** : sans `REDIS_URL`, c'est normal (temps réel
-  intra-dyno). Avec l'add-on, vérifie que `REDIS_URL` commence par `rediss://`.
-- **APNs 503** : configuration incomplète (une des 4 variables APNS_* manque ou
-  la clé .p8 est mal collée). `502` = APNs a refusé (mauvais topic/clé/token).
-- **La vitrine `/site/` renvoie 404** : l'image Docker construit la vitrine Yew
-  (étage `site`, Trunk) et la copie dans `PUBLIC_DIR` (`/app/public`). Un 404
-  veut dire que ce répertoire est vide ou que `PUBLIC_DIR` pointe ailleurs.
+- **APNs 503** : configuration incomplète (une des variables APNS_* manque, ou
+  la clé .p8 est mal collée). `502` = APNs a refusé (topic, clé ou token).
+- **Le site n'est pas animé** : le dossier `site/pkg` manque dans l'image
+  (étape WebAssembly du `Dockerfile`) ; le serveur le signale au démarrage.
+- **Messages disparus après un redémarrage** : normal, ils ne vivent qu'en
+  mémoire (ils sont déjà sur les téléphones). Les clients reprennent sans trou :
+  le curseur `seq` continue de monter d'un démarrage à l'autre.
+- **Accès Pro offert par e-mail perdu après un redémarrage** : retoucher « Se
+  connecter avec Apple » dans l'app, ou lister l'appareil dans
+  `BROCOLIS_PRO_IDS` (qui ne dépend d'aucune donnée gardée).

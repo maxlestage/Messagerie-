@@ -1,8 +1,8 @@
-//! Rendez-vous X25519 + relais éphémères (mêmes routes que le serveur Node).
+//! Rendez-vous X25519 + relais éphémères.
 //!
 //! Le serveur ne relaie que des CLÉS PUBLIQUES et des blobs déjà chiffrés — il
-//! ne détient aucune clé secrète. Tout est en mémoire avec expiration (TTL),
-//! comme côté Node : `/pair` (échange de clés publiques par code), `/wrap`
+//! ne détient aucune clé secrète. Tout est en mémoire avec expiration (TTL) :
+//! `/pair` (échange de clés publiques par code), `/wrap`
 //! (clés de groupe emballées) et les push tokens de Live Activity.
 
 use std::collections::HashMap;
@@ -135,6 +135,11 @@ impl Rendezvous {
     pub fn live_token(&self, code: &str, peer_id: &str) -> Option<String> {
         let map = self.live.lock().unwrap();
         map.get(code).and_then(|t| t.get(peer_id)).map(|e| e.token.clone())
+    }
+
+    /// Le nombre de codes où quelqu'un attend (page Serveur du site).
+    pub fn room_count(&self) -> usize {
+        self.codes.lock().unwrap().len()
     }
 
     /// Purge des entrées expirées (> TTL). À appeler périodiquement.

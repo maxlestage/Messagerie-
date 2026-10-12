@@ -1,9 +1,9 @@
 //! Client APNs (mises à jour de Live Activity) : JWT ES256 + HTTP/2 vers Apple.
 //!
-//! Équivalent Rust de `server/apns.js`. Authentification par jeton (clé .p8,
-//! JWT ES256), transport HTTP/2 (reqwest + rustls). Le token de la Live Activity
-//! est fourni par l'app. `None` si la configuration APNs est incomplète : la
-//! route d'envoi répond alors 503, comme côté Node.
+//! Authentification par jeton (clé .p8, JWT ES256), transport HTTP/2
+//! (reqwest et rustls). Le token de la Live Activity est fourni par l'app.
+//! `None` si la configuration APNs est incomplète : la route d'envoi répond
+//! alors 503.
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -113,7 +113,7 @@ impl Apns {
 
 /// Construit la charge utile `aps` d'une mise à jour de Live Activity (fonction
 /// pure, testable). `event` vaut "update" ou "end" ; `dismissal-date` n'est
-/// ajouté que pour un "end". Même forme que `buildLiveActivityPayload` (Node).
+/// ajouté que pour un "end".
 fn live_activity_payload(
     event: &str,
     content_state: &serde_json::Value,
