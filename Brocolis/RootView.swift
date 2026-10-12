@@ -342,6 +342,11 @@ struct RootView: View {
             } label: {
                 Label(loc("Activer le clavier Brocolis 🥦", "Enable the Brocolis 🥦 keyboard", "Activar el teclado Brocolis 🥦"), systemImage: "keyboard")
             }
+            NavigationLink {
+                KeyboardPrefsView()
+            } label: {
+                Label(loc("Réglages du clavier", "Keyboard settings", "Ajustes del teclado"), systemImage: "slider.horizontal.3")
+            }
         } header: {
             Text(loc("Envoyer sans copier", "Send without copying", "Enviar sin copiar"))
         } footer: {
@@ -909,4 +914,79 @@ struct InvitePayload: Identifiable {
 
 #Preview {
     RootView()
+}
+
+// MARK: - Réglages du clavier Brocolis
+
+/// Vibrations, son, disposition, taille des touches… Enregistrés dans l'App
+/// Group : le clavier les relit à chaque ouverture.
+struct KeyboardPrefsView: View {
+    @State private var haptics = BrocolisKeyboardPrefs.haptics
+    @State private var sound = BrocolisKeyboardPrefs.sound
+    @State private var layout = BrocolisKeyboardPrefs.layout
+    @State private var keySize = BrocolisKeyboardPrefs.keySize
+    @State private var autoCapitalize = BrocolisKeyboardPrefs.autoCapitalize
+    @State private var doubleSpace = BrocolisKeyboardPrefs.doubleSpacePeriod
+    @State private var accents = BrocolisKeyboardPrefs.accentKeys
+
+    var body: some View {
+        Form {
+            Section {
+                Picker(selection: $haptics) {
+                    ForEach(BrocolisKeyboardPrefs.Haptics.allCases) { Text($0.title).tag($0) }
+                } label: {
+                    Label(loc("Vibrations", "Haptics", "Vibraciones"), systemImage: "iphone.radiowaves.left.and.right")
+                }
+                .onChange(of: haptics) { v in
+                    BrocolisKeyboardPrefs.haptics = v
+                    switch v {
+                    case .off: break
+                    case .light: UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    case .medium: UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    case .strong: UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+                    }
+                }
+                Toggle(isOn: $sound) {
+                    Label(loc("Son des touches", "Key sounds", "Sonido de teclas"), systemImage: "speaker.wave.2")
+                }
+                .onChange(of: sound) { v in BrocolisKeyboardPrefs.sound = v }
+            } header: {
+                Text(loc("Retour des touches", "Key feedback", "Respuesta de las teclas"))
+            } footer: {
+                Text(loc("iOS ne laisse vibrer un clavier que s’il a l’« Accès complet ». Le son suit aussi Réglages → Sons et vibrations → Retour clavier.", "iOS only lets a keyboard vibrate with « Full Access ». Sound also follows Settings → Sounds & Haptics → Keyboard Feedback.", "iOS solo deja vibrar un teclado con « Acceso completo ». El sonido también sigue Ajustes → Sonidos y vibraciones → Respuesta del teclado."))
+            }
+
+            Section(loc("Touches", "Keys", "Teclas")) {
+                Picker(selection: $layout) {
+                    ForEach(BrocolisKeyboardPrefs.Layout.allCases) { Text($0.title).tag($0) }
+                } label: {
+                    Label(loc("Disposition", "Layout", "Distribución"), systemImage: "keyboard")
+                }
+                .onChange(of: layout) { v in BrocolisKeyboardPrefs.layout = v }
+                Picker(selection: $keySize) {
+                    ForEach(BrocolisKeyboardPrefs.KeySize.allCases) { Text($0.title).tag($0) }
+                } label: {
+                    Label(loc("Taille", "Size", "Tamaño"), systemImage: "textformat.size")
+                }
+                .onChange(of: keySize) { v in BrocolisKeyboardPrefs.keySize = v }
+                Toggle(isOn: $accents) {
+                    Label(loc("Accents sur la barre d’espace", "Accents next to space", "Acentos junto al espacio"), systemImage: "character")
+                }
+                .onChange(of: accents) { v in BrocolisKeyboardPrefs.accentKeys = v }
+            }
+
+            Section(loc("Saisie", "Typing", "Escritura")) {
+                Toggle(isOn: $autoCapitalize) {
+                    Label(loc("Majuscule automatique", "Auto-capitalization", "Mayúscula automática"), systemImage: "textformat")
+                }
+                .onChange(of: autoCapitalize) { v in BrocolisKeyboardPrefs.autoCapitalize = v }
+                Toggle(isOn: $doubleSpace) {
+                    Label(loc("Double espace → point", "Double space → period", "Doble espacio → punto"), systemImage: "space")
+                }
+                .onChange(of: doubleSpace) { v in BrocolisKeyboardPrefs.doubleSpacePeriod = v }
+            }
+        }
+        .navigationTitle(loc("Clavier", "Keyboard", "Teclado"))
+        .navigationBarTitleDisplayMode(.inline)
+    }
 }
