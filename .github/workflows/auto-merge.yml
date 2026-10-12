@@ -1,0 +1,53 @@
+name: Merge automatique
+
+# Toute branche poussée est fusionnée dans master dès que les tests du serveur
+# et du site passent (master est ensuite déployé). Les branches `wip/…` ne sont
+# jamais fusionnées.
+on:
+  push:
+    branches-ignore: [master, 'wip/**']
+
+concurrency:
+  group: auto-merge-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            server-rust
+            site
+      - name: Tests du site
+        working-directory: site
+        run: cargo test --locked
+      - name: Le site compile en WebAssembly
+        working-directory: site
+        run: cargo build --locked --lib --target wasm32-unknown-unknown
+      - name: Tests du serveur
+        working-directory: server-rust
+        run: cargo test --locked
+
+  merge:
+    needs: [test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+      - name: Fusion dans master
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git merge --no-edit "origin/${GITHUB_REF_NAME}"
+          git push origin master
