@@ -1,5 +1,7 @@
-# Déploiement Heroku EN CONTENEUR — serveur Brocolis 🥦, tout en Rust :
+# Déploiement Heroku EN CONTENEUR — serveur Brocolis 🥦, tout en Rust, écrit
+# avec Paquets 📦 :
 #   - Vitesse  : le serveur web (API de messagerie, rendez-vous X25519, SSE) ;
+#   - Securite : le bouclier devant chaque requête (WAF, CSP, limites…) ;
 #   - Memoire  : les données, en mémoire (ni Postgres ni Redis : aucun add-on) ;
 #   - Active   : le site, rendu par le serveur et animé en WebAssembly.
 # Référencé par heroku.yml. Contexte de build = racine du dépôt.

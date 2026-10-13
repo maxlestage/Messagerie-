@@ -1,4 +1,5 @@
-//! Démarre le serveur Brocolis 🥦 sur `PORT` (fourni par Heroku), 8788 sinon.
+//! Démarre le serveur Brocolis 🥦 (une `App` Paquets 📦) sur `PORT` (fourni
+//! par Heroku), 8788 sinon.
 //!
 //! Variables facultatives :
 //! - `MEMOIRE_PATH` : garde aussi les données dans ce fichier (relu au
@@ -56,6 +57,10 @@ async fn main() -> std::io::Result<()> {
         eprintln!("attention : site/pkg manque, les pages ne seront pas animées (voir le README).");
     }
 
-    println!("Brocolis 🥦 (Vitesse + Memoire + Active) à l'écoute sur le port {port}");
-    app(&services, push, site).listen(port).await
+    println!(
+        "Brocolis 🥦 écrit avec Paquets 📦 (Vitesse + Securite + Memoire + Active), port {port}"
+    );
+    let mut app = app(&services, push, site);
+    app.port(port);
+    app.serve().await
 }

@@ -216,7 +216,9 @@ const FR: &[(&str, &str)] = &[
     ("server.stat.uptime", "en ligne depuis"),
     ("server.memory", "Pas de base de données : les messages chiffrés vivent en mémoire, une semaine au plus. Un redémarrage du serveur les efface définitivement."),
     ("server.stack", "Sous le capot"),
+    ("server.stack.paquets", "le framework full-stack qui assemble tout le reste : une crate, une App"),
     ("server.stack.vitesse", "le serveur web, rapide comme son nom (Rust, façon Express)"),
+    ("server.stack.securite", "le bouclier devant chaque requête : WAF, CSP, limites de débit, bannissement automatique"),
     ("server.stack.memoire", "les données, en mémoire : ni Postgres ni Redis"),
     ("server.stack.active", "ce site, rendu par le serveur et animé en WebAssembly"),
     ("server.api", "Points d'accès"),
@@ -319,7 +321,11 @@ POURRA ÊTRE TENU RESPONSABLE D'UN QUELCONQUE DOMMAGE, DIRECT OU INDIRECT,
 DÉCOULANT DE L'UTILISATION OU DE L'IMPOSSIBILITÉ D'UTILISER CE LOGICIEL.
 UTILISATION À VOS PROPRES RISQUES."),
     ("footer.tagline", "Brocolis messageries 🥦 — chiffrement sélectif pour tes messageries. Le contenu de cette page reflète le README du dépôt."),
-    ("footer.stack", "Site écrit en Rust 🦀 avec Active, servi par Vitesse, données en mémoire avec Memoire."),
+    ("footer.stack", "Site et serveur écrits en Rust 🦀 avec Paquets 📦 : Vitesse pour le web, Securite pour le bouclier, Memoire pour les données, Active pour les pages."),
+    ("footer.made", "Écrit avec"),
+    ("footer.lock", "Verrouillé par Securite"),
+    ("footer.lockText", "Chaque requête passe un pare-feu applicatif (WAF), une limite de débit, un anti-robots et un bannissement automatique ; chaque page part avec une CSP stricte, HSTS et des en-têtes durcis. Et le serveur ne voit jamais que du chiffré."),
+    ("footer.packages", "Les paquets"),
     ("footer.credit", "Conçu et développé par Maxime Nathan Lestage"),
 ];
 
@@ -450,7 +456,9 @@ const EN: &[(&str, &str)] = &[
     ("server.stat.uptime", "online for"),
     ("server.memory", "No database: encrypted messages live in memory, for a week at most. A server restart wipes them for good."),
     ("server.stack", "Under the hood"),
+    ("server.stack.paquets", "the full-stack framework that ties everything together: one crate, one App"),
     ("server.stack.vitesse", "the web server, as fast as its name (Rust, Express-style)"),
+    ("server.stack.securite", "the shield in front of every request: WAF, CSP, rate limits, automatic bans"),
     ("server.stack.memoire", "the data, in memory: no Postgres, no Redis"),
     ("server.stack.active", "this site, rendered by the server and animated in WebAssembly"),
     ("server.api", "Endpoints"),
@@ -551,7 +559,11 @@ AND FITNESS FOR A PARTICULAR PURPOSE. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
 ANY DAMAGE, DIRECT OR INDIRECT, ARISING FROM THE USE OF OR INABILITY TO USE THIS
 SOFTWARE. USE AT YOUR OWN RISK."),
     ("footer.tagline", "Brocolis messaging 🥦 — selective encryption for your messaging apps. This page mirrors the repository README."),
-    ("footer.stack", "Site written in Rust 🦀 with Active, served by Vitesse, data in memory with Memoire."),
+    ("footer.stack", "Site and server written in Rust 🦀 with Paquets 📦: Vitesse for the web, Securite for the shield, Memoire for the data, Active for the pages."),
+    ("footer.made", "Written with"),
+    ("footer.lock", "Locked down by Securite"),
+    ("footer.lockText", "Every request goes through a web application firewall (WAF), a rate limit, a bot blocker and automatic bans; every page ships with a strict CSP, HSTS and hardened headers. And the server only ever sees ciphertext."),
+    ("footer.packages", "The packages"),
     ("footer.credit", "Designed and developed by Maxime Nathan Lestage"),
 ];
 
@@ -682,7 +694,9 @@ const ES: &[(&str, &str)] = &[
     ("server.stat.uptime", "en línea desde hace"),
     ("server.memory", "Sin base de datos: los mensajes cifrados viven en memoria, una semana como mucho. Reiniciar el servidor los borra definitivamente."),
     ("server.stack", "Bajo el capó"),
+    ("server.stack.paquets", "el framework full-stack que lo une todo: una crate, una App"),
     ("server.stack.vitesse", "el servidor web, rápido como su nombre (Rust, al estilo Express)"),
+    ("server.stack.securite", "el escudo delante de cada petición: WAF, CSP, límites de tasa, bloqueo automático"),
     ("server.stack.memoire", "los datos, en memoria: ni Postgres ni Redis"),
     ("server.stack.active", "este sitio, renderizado por el servidor y animado en WebAssembly"),
     ("server.api", "Puntos de acceso"),
@@ -783,7 +797,11 @@ ADECUACIÓN A UN FIN DETERMINADO. EN NINGÚN CASO EL AUTOR SERÁ RESPONSABLE DE
 NINGÚN DAÑO, DIRECTO O INDIRECTO, DERIVADO DEL USO O LA IMPOSIBILIDAD DE USAR
 ESTE SOFTWARE. ÚSALO BAJO TU PROPIA RESPONSABILIDAD."),
     ("footer.tagline", "Brocolis mensajería 🥦 — cifrado selectivo para tus mensajerías. Esta página refleja el README del repositorio."),
-    ("footer.stack", "Sitio escrito en Rust 🦀 con Active, servido por Vitesse, datos en memoria con Memoire."),
+    ("footer.stack", "Sitio y servidor escritos en Rust 🦀 con Paquets 📦: Vitesse para la web, Securite para el escudo, Memoire para los datos, Active para las páginas."),
+    ("footer.made", "Escrito con"),
+    ("footer.lock", "Blindado por Securite"),
+    ("footer.lockText", "Cada petición pasa por un cortafuegos de aplicaciones (WAF), un límite de tasa, un bloqueador de robots y bloqueos automáticos; cada página sale con una CSP estricta, HSTS y cabeceras reforzadas. Y el servidor solo ve texto cifrado."),
+    ("footer.packages", "Los paquetes"),
     ("footer.credit", "Diseñado y desarrollado por Maxime Nathan Lestage"),
 ];
 

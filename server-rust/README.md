@@ -1,9 +1,13 @@
-# Serveur Brocolis 🥦 — Vitesse + Memoire
+# Serveur Brocolis 🥦 — écrit avec Paquets 📦
 
-Le serveur de messagerie chiffrée et de rendez-vous X25519, **tout en Rust** :
+Le serveur de messagerie chiffrée et de rendez-vous X25519, **tout en Rust**,
+écrit avec [Paquets](https://maxlestage.github.io/Paquets/), le framework
+full-stack qui assemble :
 
 - [Vitesse](https://maxlestage.github.io/Vitesse/) pour le web (routes façon
   Express, SSE, CORS, fichiers statiques) ;
+- [Securite](https://maxlestage.github.io/Securite/) pour le **bouclier 🔒**
+  devant chaque requête (voir plus bas) ;
 - [Memoire](https://maxlestage.github.io/Memoire/) pour les données, **en
   mémoire** : plus de Postgres ni de Redis, aucun add-on ;
 - les pages du site ([`../site`](../site), écrit avec Active) sont rendues ici
@@ -31,6 +35,28 @@ sans la clé), une semaine au plus.
 En-tête `X-User-Id` sur `/v1/*`. CORS ouvert (tout ce qui passe est public ou
 chiffré).
 
+## Le bouclier 🔒
+
+Chaque requête passe par les middlewares de Securite, branchés par Paquets
+(`src/bouclier.rs`) avant même le CORS et les routes :
+
+| Garde | Réglage |
+|---|---|
+| WAF | injection SQL, XSS, RCE, Log4Shell, traversée… sensibilité **moyenne** (URI, requête, en-têtes) |
+| Limite de débit | 20 req/s par adresse (rafales de 100) ; `/pair`, `/wrap`, `/push/` : 120/min ; `POST`/`DELETE /v1/plan/apple` : 12/min |
+| Bannissement auto | 20 refus (401/403/429) en une minute → 15 min de ban, puis de plus en plus long |
+| Concurrence | 64 requêtes simultanées par adresse (flux SSE compris) |
+| Corps | 8 Mo sur `/v1/messages` (médias chiffrés), 256 Ko ailleurs ; **JSON uniquement** (415 sinon) |
+| Anti-robots | sqlmap, nikto, nuclei, gobuster… refusés |
+| CSRF | Fetch Metadata ; l'API (CORS ouvert, par choix) en est exemptée |
+| HTTPS | redirection HTTP → HTTPS derrière le routeur Heroku, HSTS deux ans |
+| En-têtes | CSP sur mesure (le seul code inline permis est celui des pages, par empreinte SHA-256), `nosniff`, `X-Frame-Options: DENY`, COOP/CORP, Permissions-Policy (micro seulement, pour les vocaux) |
+| Hygiène | URI et en-têtes bornés, méthodes HTTP connues seulement, `X-Request-Id` partout |
+| Cookies | `Secure`, `HttpOnly`, `SameSite` |
+
+`GET /stats` expose le bouclier en chiffres (`shield` : gardes, requêtes vues
+et refusées, par garde). Les tests (`tests/api.rs`) vérifient chaque garde.
+
 ## Données en mémoire
 
 - **`seq`** ne fait que monter, même d'un démarrage à l'autre (il part de
@@ -55,6 +81,8 @@ montée en charge : [`../docs/SCALING.md`](../docs/SCALING.md).
 
 ## Organisation
 
+- `src/lib.rs` — l'`App` Paquets : bouclier, API, site
+- `src/bouclier.rs` — le bouclier Securite et la CSP du site
 - `src/api.rs` — les routes de l'API (Vitesse)
 - `src/store.rs` — les données (modèles Memoire, rétention, budget)
 - `src/broadcast.rs` — temps réel dans le processus (un canal par conversation)

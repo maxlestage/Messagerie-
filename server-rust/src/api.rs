@@ -11,6 +11,7 @@ use vitesse::sse::{Event, KeepAlive};
 
 use crate::apns::Apns;
 use crate::apple_signin::{self, AppleKeys, VerifyError};
+use crate::bouclier::Bouclier;
 use crate::broadcast::Broadcaster;
 use crate::live::{content_state, LiveSubscriptions};
 use crate::rendezvous::Rendezvous;
@@ -112,12 +113,13 @@ pub async fn unknown(req: Request) -> Response {
     json_error(404, format!("Cannot {} {}", req.method(), req.path()))
 }
 
+/// Les débuts d'adresse de l'API (le reste est le site).
+pub const API_PREFIXES: [&str; 6] = ["/v1/", "/pair", "/wrap", "/push/", "/health", "/stats"];
+
 /// Les chemins de l'API : une adresse inconnue sous l'un d'eux répond en JSON,
 /// pas avec la page 404 du site.
 pub fn is_api_path(path: &str) -> bool {
-    ["/v1/", "/pair", "/wrap", "/push/", "/health", "/stats"]
-        .iter()
-        .any(|p| path.starts_with(p))
+    API_PREFIXES.iter().any(|p| path.starts_with(p))
 }
 
 // ── État public ──────────────────────────────────────────────────────────────
@@ -137,8 +139,23 @@ async fn stats(req: Request) -> Response {
         "uptime": req.state::<Started>().0.elapsed().as_secs(),
         "retentionDays": retention_days(),
         "storage": "memoire",
+        "shield": shield_stats(&req),
     }))
     .header("cache-control", "no-store")
+}
+
+/// Le bouclier en chiffres : ses gardes, les requêtes vues et refusées.
+fn shield_stats(req: &Request) -> serde_json::Value {
+    let Some(Bouclier(shield)) = req.try_state::<Bouclier>() else {
+        return serde_json::Value::Null;
+    };
+    let stats = shield.stats();
+    json!({
+        "guards": shield.guard_names(),
+        "seen": stats.total,
+        "blocked": stats.blocked,
+        "byGuard": stats.by_guard.iter().copied().collect::<std::collections::BTreeMap<_, _>>(),
+    })
 }
 
 // ── Accès offerts ────────────────────────────────────────────────────────────
