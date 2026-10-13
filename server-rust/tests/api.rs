@@ -295,57 +295,97 @@ async fn conversation_membership_rules() {
 #[tokio::test]
 async fn pairing_and_group_key_relay() {
     let client = client().await;
-    // Alice publie sa clé : personne d'autre encore.
+    const PUB_A: &str = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=";
+    const PUB_B: &str = "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=";
+    const PUB_M: &str = "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM=";
+    const BLOB: &str = "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcH";
+    // Alice invite : elle publie sa clé en revendiquant l'hôte.
     let res = client
         .post("/pair")
-        .json(&json!({ "code": "4813", "peerId": "alice", "pub": "PUB_A" }))
+        .json(&json!({ "code": "K7P2QXAB", "peerId": "alice", "pub": PUB_A, "host": true }))
         .await;
     assert_eq!(res.status(), 200);
     assert!(res.json::<Value>()["peers"].as_array().unwrap().is_empty());
     // Bob arrive : il voit Alice.
     let res: Value = client
         .post("/pair")
-        .json(&json!({ "code": "4813", "peerId": "bob", "pub": "PUB_B" }))
+        .json(&json!({ "code": "K7P2QXAB", "peerId": "bob", "pub": PUB_B }))
         .await
         .json();
     assert_eq!(res["peers"][0]["peerId"], "alice");
-    assert_eq!(res["peers"][0]["pub"], "PUB_A");
+    assert_eq!(res["peers"][0]["pub"], PUB_A);
     // Lecture publique du salon (page Salon du site).
-    let res: Value = client.get("/pair?code=4813").await.json();
+    let res: Value = client.get("/pair?code=K7P2QXAB").await.json();
     assert_eq!(res["peers"].as_array().unwrap().len(), 2);
     let res = client.get("/pair").await;
     assert_eq!(res.status(), 400, "code requis");
 
-    // Clé de groupe emballée pour Bob.
+    // ── Tricheurs ──
+    // Code mal formé, clé publique qui n'en est pas une : refusés.
+    let res = client.get("/pair?code=abc").await;
+    assert_eq!(res.status(), 400);
+    let res = client
+        .post("/pair")
+        .json(&json!({ "code": "K7P2QXAB", "peerId": "eve", "pub": "PAS_UNE_CLE" }))
+        .await;
+    assert_eq!(res.status(), 400);
+    // Remplacer la clé publique de Bob pour intercepter sa clé : refusé.
+    let res = client
+        .post("/pair")
+        .json(&json!({ "code": "K7P2QXAB", "peerId": "bob", "pub": PUB_M }))
+        .await;
+    assert_eq!(res.status(), 409);
+    // Mallory rejoint, puis tente de glisser SA clé à Bob : refusé (pas l'hôte).
+    client
+        .post("/pair")
+        .json(&json!({ "code": "K7P2QXAB", "peerId": "mallory", "pub": PUB_M }))
+        .await;
+    let res = client
+        .post("/wrap")
+        .json(&json!({ "code": "K7P2QXAB", "fromPeerId": "mallory", "fromPub": PUB_M,
+                        "items": [{ "toPeerId": "bob", "blob": "BgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYG" }] }))
+        .await;
+    assert_eq!(res.status(), 403);
+    // Ni en se faisant passer pour Alice avec sa propre clé.
+    let res = client
+        .post("/wrap")
+        .json(&json!({ "code": "K7P2QXAB", "fromPeerId": "alice", "fromPub": PUB_M,
+                        "items": [{ "toPeerId": "bob", "blob": "BgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYG" }] }))
+        .await;
+    assert_eq!(res.status(), 403);
+    let res: Value = client.get("/wrap?code=K7P2QXAB&peerId=bob").await.json();
+    assert!(res["wrap"].is_null());
+
+    // L'hôte remet la clé de groupe emballée pour Bob.
     let res: Value = client
         .post("/wrap")
         .json(
-            &json!({ "code": "4813", "fromPeerId": "alice", "fromPub": "PUB_A",
-                        "items": [{ "toPeerId": "bob", "blob": "BLOB" }] }),
+            &json!({ "code": "K7P2QXAB", "fromPeerId": "alice", "fromPub": PUB_A,
+                        "items": [{ "toPeerId": "bob", "blob": BLOB }, { "toPeerId": "carol", "blob": "trop court" }] }),
         )
         .await
         .json();
-    assert_eq!(res["count"], 1);
-    let res: Value = client.get("/wrap?code=4813&peerId=bob").await.json();
-    assert_eq!(res["wrap"]["blob"], "BLOB");
-    assert_eq!(res["wrap"]["fromPub"], "PUB_A");
-    let res: Value = client.get("/wrap?code=4813&peerId=dan").await.json();
+    assert_eq!(res["count"], 1, "un blob mal formé est ignoré");
+    let res: Value = client.get("/wrap?code=K7P2QXAB&peerId=bob").await.json();
+    assert_eq!(res["wrap"]["blob"], BLOB);
+    assert_eq!(res["wrap"]["fromPub"], PUB_A);
+    let res: Value = client.get("/wrap?code=K7P2QXAB&peerId=dan").await.json();
     assert!(res["wrap"].is_null());
 
     // Push : token enregistré, mais APNs non configuré → 503.
     let res = client
         .post("/push/live-activity/token")
-        .json(&json!({ "code": "4813", "peerId": "bob", "token": "T" }))
+        .json(&json!({ "code": "K7P2QXAB", "peerId": "bob", "token": "T" }))
         .await;
     assert_eq!(res.status(), 200);
     let res = client
         .post("/push/live-activity/update")
-        .json(&json!({ "code": "4813", "peerId": "bob", "contentState": { "unread": 1 } }))
+        .json(&json!({ "code": "K7P2QXAB", "peerId": "bob", "contentState": { "unread": 1 } }))
         .await;
     assert_eq!(res.status(), 503);
     let res = client
         .post("/push/live-activity/update")
-        .json(&json!({ "code": "4813", "peerId": "nobody", "contentState": {} }))
+        .json(&json!({ "code": "K7P2QXAB", "peerId": "nobody", "contentState": {} }))
         .await;
     assert_eq!(res.status(), 404);
 }
@@ -623,4 +663,46 @@ async fn live_activity_subscription() {
     assert_eq!(res.status(), 400);
     let res = client.post("/v1/live").json(&json!({ "token": "ab", "conversationIds": [] })).await;
     assert_eq!(res.status(), 401);
+}
+
+/// Tricheurs et robots : les plafonds par minute et la taille des messages.
+#[tokio::test]
+async fn abuse_is_capped() {
+    let client = client().await;
+    // Inonder la messagerie depuis un même appareil : 429 au-delà du plafond.
+    let mut last = 0;
+    for i in 0..130 {
+        let res = client
+            .post("/v1/messages")
+            .header("x-user-id", "spammeur")
+            .json(&json!({ "conversationId": "flood", "id": format!("m{i}"), "ciphertext": "[[BROCOLIS:v1:AAAA]]" }))
+            .await;
+        last = res.status().as_u16();
+    }
+    assert_eq!(last, 429);
+    // Un autre appareil n'est pas puni pour lui.
+    let res = client
+        .post("/v1/messages")
+        .header("x-user-id", "voisin")
+        .json(&json!({ "conversationId": "calme", "id": "1", "ciphertext": "[[BROCOLIS:v1:AAAA]]" }))
+        .await;
+    assert_eq!(res.status(), 201);
+    // Un message plus lourd que 4 Mo : 413.
+    let huge = "A".repeat(4 * 1024 * 1024 + 1);
+    let res = client
+        .post("/v1/messages")
+        .header("x-user-id", "voisin")
+        .json(&json!({ "conversationId": "calme", "id": "2", "ciphertext": huge }))
+        .await;
+    assert_eq!(res.status(), 413);
+    // Essayer en boucle des codes de salon : bloqué aussi.
+    let mut blocked = false;
+    for i in 0..2500 {
+        let res = client.get(&format!("/pair?code=AAAA{:04}", i % 10000)).await;
+        if res.status() == 429 {
+            blocked = true;
+            break;
+        }
+    }
+    assert!(blocked, "deviner des codes doit être plafonné");
 }

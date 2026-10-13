@@ -319,13 +319,13 @@ struct PairingView: View {
     }
 
     private var codeField: some View {
-        TextField(loc("ex. K7P2QX", "e.g. K7P2QX", "ej. K7P2QX"), text: $code)
+        TextField(loc("ex. K7P2QXAB", "e.g. K7P2QXAB", "ej. K7P2QXAB"), text: $code)
             .autocorrectionDisabled()
             .textInputAutocapitalization(.characters)
             .font(.system(.title2, design: .monospaced))
             .disabled(isWorking)
             .onChange(of: code) { v in
-                let clean = String(v.uppercased().filter { $0.isLetter || $0.isNumber }.prefix(12))
+                let clean = String(v.uppercased().filter { $0.isASCII && ($0.isLetter || $0.isNumber) }.prefix(16))
                 if clean != v { code = clean }
             }
     }
@@ -338,13 +338,15 @@ struct PairingView: View {
             return c.uppercased()
         }
         let bare = text.uppercased()
-        if (4...12).contains(bare.count), bare.allSatisfy({ $0.isLetter || $0.isNumber }) { return bare }
+        if (4...16).contains(bare.count), bare.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }) { return bare }
         return nil
     }
 
     // MARK: UI helpers
 
-    private func randomCode(length: Int = 6) -> String {
+    /// 8 caractères (32⁸ ≈ 10¹² codes) : impossible à deviner, d'autant que le
+    /// serveur plafonne les essais.
+    private func randomCode(length: Int = 8) -> String {
         String((0..<length).map { _ in codeAlphabet.randomElement()! })
     }
 
@@ -464,7 +466,7 @@ struct PairingView: View {
         BrocolisPendingPairing.upsert(invite)
         await MainActor.run { delivered = 0; inviteDeadline = deadline }
 
-        _ = try await client.publish(code: code, peerId: peerId, pub: myPub)
+        _ = try await client.publish(code: code, peerId: peerId, pub: myPub, host: true)
         update(loc("Fais scanner ce QR, ou envoie le lien. Tu peux fermer l’app : l’invitation reste valable 7 jours et se termine toute seule.", "Have them scan this QR, or send the link. You can close the app: the invitation stays valid 7 days and completes on its own.", "Haz que escaneen este QR o envía el enlace. Puedes cerrar la app: la invitación es válida 7 días y se completa sola."))
 
         var wrappedTo = Set<String>()
@@ -717,6 +719,20 @@ enum BrocolisPendingPairing {
         defaults.set(try? JSONEncoder().encode(list), forKey: key)
     }
 
+    private static func canAddKey() -> Bool {
+        if case .needs = BrocolisPlan.gateForAddingKey(currentKeyCount: BrocolisKeyStore.keys.count,
+                                                       tier: BrocolisPlan.tier) {
+            return false
+        }
+        return true
+    }
+
+    private static func limitMessage(_ name: String) -> String {
+        loc("⏳ « \(name) » attend : la formule gratuite garde 3 clés. Supprime une clé ou passe à Brocolis+ pour terminer cet appairage.",
+            "⏳ “\(name)” is waiting: the free plan keeps 3 keys. Delete a key or upgrade to Brocolis+ to finish this pairing.",
+            "⏳ «\(name)» espera: el plan gratuito guarda 3 claves. Borra una clave o pasa a Brocolis+ para terminar este emparejamiento.")
+    }
+
     /// Installe une clé obtenue par appairage (mêmes effets partout).
     static func install(key: String, name: String, fingerprint: String, code: String, peerId: String) {
         BrocolisKeyStore.addKey(name: name, base64: key)
@@ -742,7 +758,7 @@ enum BrocolisPendingPairing {
         var done: [String] = []
 
         for var invite in invites {
-            guard let peers = try? await client.publish(code: invite.code, peerId: invite.peerId, pub: myPub) else { continue }
+            guard let peers = try? await client.publish(code: invite.code, peerId: invite.peerId, pub: myPub, host: true) else { continue }
             let others = peers.filter { $0.pub != myPub }
             guard !others.isEmpty else { continue }
             // On remet la clé à TOUS (pas seulement aux nouveaux) : après un
@@ -756,6 +772,11 @@ enum BrocolisPendingPairing {
                                                fromPub: myPub, items: items)) != nil else { continue }
             let fresh = others.filter { !invite.wrapped.contains($0.peerId) }
             if !invite.keyAdded {
+                // La limite du gratuit vaut aussi pour un appairage différé.
+                guard canAddKey() else {
+                    done.append(limitMessage(invite.name))
+                    continue
+                }
                 install(key: invite.groupKey, name: invite.name,
                         fingerprint: BrocolisKeyAgreement.groupFingerprint(groupKeyBase64: invite.groupKey),
                         code: invite.code, peerId: invite.peerId)
@@ -772,6 +793,10 @@ enum BrocolisPendingPairing {
         }
 
         for join in joins {
+            guard canAddKey() else {
+                done.append(limitMessage(join.name))
+                continue
+            }
             _ = try? await client.publish(code: join.code, peerId: join.peerId, pub: myPub)
             guard let wrap = try? await client.fetchWrap(code: join.code, peerId: join.peerId),
                   let key = try? BrocolisKeyAgreement.unwrapGroupKey(
