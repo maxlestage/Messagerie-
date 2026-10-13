@@ -402,7 +402,9 @@ pub fn chat_body(clear: Option<String>) -> ChatBody {
             if let Some(b) = c.strip_prefix("BRCM1:img:") {
                 ChatBody::Image(format!("data:image/jpeg;base64,{b}"))
             } else if let Some(b) = c.strip_prefix("BRCM1:aud:") {
-                ChatBody::Audio(format!("data:audio/mp4;base64,{b}"))
+                // WAV (« RIFF ») depuis le site, M4A depuis l'iPhone.
+                let mime = if b.starts_with("UklGR") { "audio/wav" } else { "audio/mp4" };
+                ChatBody::Audio(format!("data:{mime};base64,{b}"))
             } else {
                 ChatBody::Text(c)
             }
@@ -427,6 +429,7 @@ pub fn chat_island(props: &str) -> Node {
     let inviting = use_state(true);
     let typed = use_state(String::new());
     let draft = use_state(String::new());
+    let recording = use_state(false);
 
     let is = move |want: fn(&ChatPhase) -> bool| move || phase.with(want);
     let invite_field = move |f: fn(&str, &str, &str) -> String| {
@@ -626,6 +629,51 @@ pub fn chat_island(props: &str) -> Node {
                                 crate::client::chat::send(text, states);
                             }
                         })
+                        .child(
+                            label()
+                                .class("btn chat-media")
+                                .attr("title", lang.t("chat.photoSend"))
+                                .attr("aria-label", lang.t("chat.photoSend"))
+                                .text("📷")
+                                .child(
+                                    input()
+                                        .attr("type", "file")
+                                        .attr("accept", "image/*")
+                                        .class("visually-hidden")
+                                        .on("change", move |e| {
+                                            #[cfg(target_arch = "wasm32")]
+                                            {
+                                                use wasm_bindgen::JsCast;
+                                                if let Some(input) = e
+                                                    .raw()
+                                                    .target()
+                                                    .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
+                                                {
+                                                    crate::client::chat::send_photo(input, states);
+                                                }
+                                            }
+                                            #[cfg(not(target_arch = "wasm32"))]
+                                            let _ = e;
+                                        }),
+                                ),
+                        )
+                        .child(
+                            button()
+                                .class("btn chat-media")
+                                .class_if("is-recording", move || recording.get())
+                                .attr("type", "button")
+                                .attr_dyn("aria-label", move || {
+                                    lang.t(if recording.get() { "chat.voiceStop" } else { "chat.voiceSend" }).to_owned()
+                                })
+                                .attr_dyn("title", move || {
+                                    lang.t(if recording.get() { "chat.voiceStop" } else { "chat.voiceSend" }).to_owned()
+                                })
+                                .on_click(move |_| {
+                                    #[cfg(target_arch = "wasm32")]
+                                    crate::client::chat::toggle_voice(states, recording);
+                                })
+                                .text_dyn(move || if recording.get() { "⏹".to_owned() } else { "🎤".to_owned() }),
+                        )
                         .child(
                             input()
                                 .class("input")

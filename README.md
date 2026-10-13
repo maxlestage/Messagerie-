@@ -195,6 +195,9 @@ implémentation indépendante). On peut donc discuter navigateur ↔ navigateur
 **ou navigateur ↔ app** : un lien d'invitation créé sur le site s'ouvre dans
 l'app (Appairage → Je rejoins), et inversement. La discussion est retrouvée en
 rechargeant la page ; **Quitter** efface la clé du navigateur.
+On y envoie aussi des **photos** (📷, réduites et compressées en JPEG comme
+dans l'app) et des **vocaux** (🎤, 30 s max, enregistrés en WAV pour que
+l'iPhone les lise) ; ceux envoyés depuis l'app s'y affichent et s'y écoutent.
 
 ### Groupe (3+)
 
