@@ -874,6 +874,8 @@
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSContactsUsageDescription = "Brocolis lit tes contacts pour choisir un correspondant par son nom et son numéro. Rien n'est envoyé : tout reste sur ton iPhone.";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Brocolis utilise Face ID (ou ton code) pour verrouiller l'accès à tes messages.";
+				INFOPLIST_FILE = Brocolis/Info.plist;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Brocolis utilise l'appareil photo uniquement pour scanner le QR code d'appairage.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Brocolis enregistre ta voix uniquement pour créer un message vocal chiffré. Rien ne part sans chiffrement.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_NSSupportsLiveActivitiesFrequentUpdates = YES;
@@ -910,6 +912,8 @@
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSContactsUsageDescription = "Brocolis lit tes contacts pour choisir un correspondant par son nom et son numéro. Rien n'est envoyé : tout reste sur ton iPhone.";
 				INFOPLIST_KEY_NSFaceIDUsageDescription = "Brocolis utilise Face ID (ou ton code) pour verrouiller l'accès à tes messages.";
+				INFOPLIST_FILE = Brocolis/Info.plist;
+				INFOPLIST_KEY_NSCameraUsageDescription = "Brocolis utilise l'appareil photo uniquement pour scanner le QR code d'appairage.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Brocolis enregistre ta voix uniquement pour créer un message vocal chiffré. Rien ne part sans chiffrement.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_NSSupportsLiveActivitiesFrequentUpdates = YES;

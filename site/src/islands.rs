@@ -284,6 +284,14 @@ pub fn salon_island(props: &str) -> Node {
                         }
                     })),
             )
+            // Reçu un lien d'invitation : ouvre l'app sur l'appairage, code rempli.
+            .child(
+                a().class("btn primary salon-open-app")
+                    .attr_dyn("href", move || {
+                        format!("brocolis://pair?code={}", active.get().unwrap_or_default())
+                    })
+                    .text(lang.t("salon.openApp")),
+            )
             .children_dyn(move || match room.get() {
                 Room::Loading => vec![radar(lang.t("salon.waiting"))],
                 Room::Peers(p) if p.is_empty() => vec![radar(lang.t("salon.empty"))],
