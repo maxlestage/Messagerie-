@@ -136,7 +136,8 @@ struct RootView: View {
                 if open { showPairing = true; router.openPairing = false }
             }
             .sheet(isPresented: $showPairing, onDismiss: reload) {
-                NavigationStack { PairingView() }
+                NavigationStack { PairingView(initialCode: router.pairingCode) }
+                    .onDisappear { router.pairingCode = nil }
             }
             .sheet(isPresented: $showContacts) {
                 ContactPickerView { contact in

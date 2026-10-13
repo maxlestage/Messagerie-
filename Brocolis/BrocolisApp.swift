@@ -16,7 +16,21 @@ import UserNotifications
 final class AppRouter: ObservableObject {
     static let shared = AppRouter()
     @Published var openPairing = false
+    /// Code reçu par un lien brocolis://pair?code=… : l'appairage s'ouvre en
+    /// « Je rejoins », code rempli, et se lance tout seul.
+    @Published var pairingCode: String?
     private init() {}
+
+    /// brocolis://pair?code=K7P2QX (ou le lien du salon …/salon/?code=K7P2QX).
+    func handle(_ url: URL) {
+        guard let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              url.scheme == "brocolis" ? comps.host == "pair" : comps.path.contains("salon"),
+              let code = comps.queryItems?.first(where: { $0.name == "code" })?.value?
+                .trimmingCharacters(in: .whitespacesAndNewlines).uppercased(),
+              !code.isEmpty else { return }
+        pairingCode = code
+        openPairing = true
+    }
 }
 
 /// Gère le cycle de vie + les actions de notification (« Prolonger »).
@@ -133,6 +147,7 @@ struct BrocolisApp: App {
             // le système est en mode sombre. Sinon les textes passaient en clair
             // et devenaient invisibles sur le fond vert clair.
             .preferredColorScheme(.light)
+            .onOpenURL { AppRouter.shared.handle($0) }
         }
     }
 }
