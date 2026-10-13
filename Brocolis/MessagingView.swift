@@ -301,11 +301,18 @@ final class BrocolisChatStore: ObservableObject {
 // MARK: - Voix : enregistrement et lecture (AVFoundation)
 
 /// Enregistre un vocal en M4A (AAC mono 32 kbit/s : léger, suffisant pour la
-/// voix). Demande la permission micro au premier usage.
+/// voix), 1 minute au plus : à la limite, il s'arrête et part tout seul.
+/// Demande la permission micro au premier usage.
 final class VoiceRecorder: ObservableObject {
+    static let maxSeconds: TimeInterval = 60
+
     @Published var isRecording = false
+    @Published var elapsed: TimeInterval = 0
+    /// Appelé quand la minute est atteinte, avec le vocal enregistré.
+    var onAutoStop: ((Data?) -> Void)?
     private var recorder: AVAudioRecorder?
     private var fileURL: URL?
+    private var timer: Timer?
 
     func start() {
         let session = AVAudioSession.sharedInstance()
@@ -327,12 +334,24 @@ final class VoiceRecorder: ObservableObject {
                 self.fileURL = url
                 self.recorder?.record()
                 self.isRecording = self.recorder?.isRecording ?? false
+                self.elapsed = 0
+                guard self.isRecording else { return }
+                self.timer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
+                    guard let self, let rec = self.recorder else { return }
+                    self.elapsed = rec.currentTime
+                    if self.elapsed >= Self.maxSeconds {
+                        let data = self.stop()
+                        self.onAutoStop?(data)
+                    }
+                }
             }
         }
     }
 
     /// Arrête et renvoie l'audio enregistré (nil si vide/refusé).
     func stop() -> Data? {
+        timer?.invalidate()
+        timer = nil
         recorder?.stop()
         recorder = nil
         isRecording = false
@@ -523,6 +542,8 @@ private struct ChatScreen: View {
     @StateObject private var recorder = VoiceRecorder()
     @StateObject private var player = VoicePlayer()
     @State private var photoItem: PhotosPickerItem?
+    /// Photo ouverte en plein écran (zoom au pincement).
+    @State private var shownPhoto: ShownPhoto?
 
     /// État de la liaison avec le correspondant, déduit des messages reçus.
     private enum LinkState { case waiting, keyMismatch, connected }
@@ -543,6 +564,9 @@ private struct ChatScreen: View {
         .brocolisBackground()
         .navigationTitle(store.correspondent.name)
         .navigationBarTitleDisplayMode(.inline)
+        .fullScreenCover(item: $shownPhoto) { photo in
+            PhotoViewer(image: photo.image)
+        }
         .onAppear { store.start() }
         .onDisappear { store.stop() }
         .onChange(of: scenePhase) { phase in
@@ -717,6 +741,10 @@ private struct ChatScreen: View {
                         .frame(maxWidth: 230, maxHeight: 300)
                         .clipShape(shape)
                         .overlay(shape.stroke(Color.black.opacity(0.08)))
+                        .contentShape(Rectangle())
+                        .onTapGesture { shownPhoto = ShownPhoto(id: m.id, image: ui) }
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityHint(loc("Ouvre la photo en grand", "Opens the photo full screen", "Abre la foto en grande"))
                 } else {
                     Label(loc("Photo illisible", "Unreadable photo", "Foto ilegible"), systemImage: "photo")
                         .font(.subheadline).foregroundStyle(.secondary)
@@ -757,6 +785,12 @@ private struct ChatScreen: View {
         }
     }
 
+    /// « 0:42 ».
+    static func clock(_ t: TimeInterval) -> String {
+        let s = Int(t.rounded(.down))
+        return String(format: "%d:%02d", s / 60, s % 60)
+    }
+
     private var canSend: Bool {
         !store.draft.trimmingCharacters(in: .whitespaces).isEmpty
     }
@@ -768,6 +802,9 @@ private struct ChatScreen: View {
                 HStack(spacing: 8) {
                     Circle().fill(.red).frame(width: 10, height: 10)
                     Text(loc("Enregistrement…", "Recording…", "Grabando…")).font(.subheadline).foregroundStyle(.secondary)
+                    Text("\(Self.clock(recorder.elapsed)) / \(Self.clock(VoiceRecorder.maxSeconds))")
+                        .font(.subheadline.monospacedDigit())
+                        .foregroundStyle(recorder.elapsed > VoiceRecorder.maxSeconds - 10 ? Color.red : Color.secondary)
                     Spacer()
                     Button {
                         if let data = recorder.stop() { store.sendVoice(data) }
@@ -791,6 +828,9 @@ private struct ChatScreen: View {
                 }
                 // Vocal (chiffré).
                 Button {
+                    recorder.onAutoStop = { data in
+                        if let data { store.sendVoice(data) }
+                    }
                     recorder.start()
                 } label: {
                     Image(systemName: "mic")
@@ -964,5 +1004,68 @@ struct LockGate<Content: View>: View {
         .padding(32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(.systemBackground))
+    }
+}
+
+// MARK: - Photo en plein écran
+
+struct ShownPhoto: Identifiable {
+    let id: String
+    let image: UIImage
+}
+
+/// Une photo reçue, en grand : pincer pour zoomer, glisser pour se déplacer,
+/// double-toucher pour revenir, ✕ pour fermer.
+struct PhotoViewer: View {
+    let image: UIImage
+    @Environment(\.dismiss) private var dismiss
+    @State private var scale: CGFloat = 1
+    @State private var lastScale: CGFloat = 1
+    @State private var offset: CGSize = .zero
+    @State private var lastOffset: CGSize = .zero
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Color.black.ignoresSafeArea()
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
+                .scaleEffect(scale)
+                .offset(offset)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .gesture(
+                    MagnificationGesture()
+                        .onChanged { v in scale = min(max(lastScale * v, 1), 6) }
+                        .onEnded { _ in
+                            lastScale = scale
+                            if scale <= 1 { withAnimation(.spring()) { offset = .zero; lastOffset = .zero } }
+                        }
+                        .simultaneously(with: DragGesture()
+                            .onChanged { v in
+                                guard scale > 1 else { return }
+                                offset = CGSize(width: lastOffset.width + v.translation.width,
+                                                height: lastOffset.height + v.translation.height)
+                            }
+                            .onEnded { _ in lastOffset = offset })
+                )
+                .onTapGesture(count: 2) {
+                    withAnimation(.spring()) {
+                        if scale > 1 { scale = 1; lastScale = 1; offset = .zero; lastOffset = .zero }
+                        else { scale = 2.5; lastScale = 2.5 }
+                    }
+                }
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 40, height: 40)
+                    .background(Circle().fill(.white.opacity(0.18)))
+            }
+            .padding()
+            .accessibilityLabel(loc("Fermer", "Close", "Cerrar"))
+        }
+        .statusBarHidden()
     }
 }

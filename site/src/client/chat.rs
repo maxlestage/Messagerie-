@@ -389,8 +389,8 @@ pub fn leave(s: ChatStates) {
 
 /// Taille maximale d'une photo, comme l'app (côté le plus long).
 const PHOTO_MAX_SIDE: f64 = 1280.0;
-/// Durée maximale d'un vocal, comme la mini-app iMessage.
-pub const VOICE_MAX_SECONDS: f64 = 30.0;
+/// Durée maximale d'un vocal : une minute, comme dans l'app.
+pub const VOICE_MAX_SECONDS: f64 = 60.0;
 const VOICE_RATE: u32 = 16_000;
 
 /// La photo choisie dans `<input type=file>` : réduite, compressée en JPEG,
@@ -481,10 +481,18 @@ pub fn toggle_voice(s: ChatStates, recording: active::State<bool>) {
         let rate = context.sample_rate();
         let sink = samples.clone();
         let limit = (rate as f64 * VOICE_MAX_SECONDS) as usize;
+        let lang = s.lang;
+        let shown = std::rc::Rc::new(Cell::new(u32::MAX));
         let on_audio = Closure::<dyn FnMut(web_sys::AudioProcessingEvent)>::new(move |e: web_sys::AudioProcessingEvent| {
             if let Ok(data) = e.input_buffer().and_then(|b| b.get_channel_data(0)) {
                 let mut all = sink.borrow_mut();
                 all.extend_from_slice(&data);
+                // Le compteur « 0:12 / 1:00 », mis à jour chaque seconde.
+                let secs = (all.len() as f32 / rate) as u32;
+                if secs != shown.get() {
+                    shown.set(secs);
+                    s.status.set(format!("🔴 {} {}:{:02} / 1:00", lang.t("chat.recording"), secs / 60, secs % 60));
+                }
                 if all.len() >= limit {
                     all.truncate(limit);
                     drop(all);
@@ -501,7 +509,6 @@ pub fn toggle_voice(s: ChatStates, recording: active::State<bool>) {
             *r.borrow_mut() = Some(Recording { context, stream, _source: source, _processor: processor, samples, rate })
         });
         recording.set(true);
-        s.status.set(s.lang.t("chat.recording").to_owned());
     });
 }
 

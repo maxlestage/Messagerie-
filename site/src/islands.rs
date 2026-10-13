@@ -430,6 +430,8 @@ pub fn chat_island(props: &str) -> Node {
     let typed = use_state(String::new());
     let draft = use_state(String::new());
     let recording = use_state(false);
+    // Photo ouverte en grand (adresse `data:`), sinon `None`.
+    let zoomed = use_state(None::<String>);
 
     let is = move |want: fn(&ChatPhase) -> bool| move || phase.with(want);
     let invite_field = move |f: fn(&str, &str, &str) -> String| {
@@ -607,7 +609,16 @@ pub fn chat_island(props: &str) -> Node {
                     move |m| {
                         let body: Node = match &m.body {
                             ChatBody::Text(t) => span().text(t.clone()).into(),
-                            ChatBody::Image(src) => img().attr("src", src.clone()).attr("alt", lang.t("chat.photo")).into(),
+                            ChatBody::Image(src) => {
+                                let full = src.clone();
+                                button()
+                                    .class("chat-thumb")
+                                    .attr("type", "button")
+                                    .attr("aria-label", lang.t("chat.photoOpen"))
+                                    .on_click(move |_| zoomed.set(Some(full.clone())))
+                                    .child(img().attr("src", src.clone()).attr("alt", lang.t("chat.photo")))
+                                    .into()
+                            }
                             ChatBody::Audio(src) => audio().attr("controls", "").attr("src", src.clone()).into(),
                             ChatBody::Locked => span().class("chat-locked").text(lang.t("chat.locked")).into(),
                         };
@@ -692,6 +703,40 @@ pub fn chat_island(props: &str) -> Node {
                 ),
         )
         .child(p().class("chat-status").attr("aria-live", "polite").text_dyn(move || status.get()))
+        // La photo en grand : un clic (ou Échap) referme.
+        .child(
+            div()
+                .class("chat-lightbox")
+                .class_if("is-hidden", move || zoomed.with(Option::is_none))
+                .attr("role", "dialog")
+                .attr("aria-modal", "true")
+                .attr("aria-label", lang.t("chat.photo"))
+                .attr("tabindex", "-1")
+                // Rattachée à <body> : un ancêtre animé (transform) la
+                // confinerait sinon à son cadre au lieu de couvrir l'écran.
+                .on_mount(|el| {
+                    #[cfg(target_arch = "wasm32")]
+                    if let Some(body) = web_sys::window().and_then(|w| w.document()).and_then(|d| d.body()) {
+                        let _ = body.append_child(el);
+                    }
+                    #[cfg(not(target_arch = "wasm32"))]
+                    let _ = el;
+                })
+                .on_click(move |_| zoomed.set(None))
+                .on("keydown", move |e| {
+                    if e.key() == "Escape" {
+                        zoomed.set(None);
+                    }
+                })
+                .child(img().attr("alt", lang.t("chat.photo")).attr_dyn("src", move || zoomed.get().unwrap_or_default()))
+                .child(
+                    button()
+                        .class("chat-lightbox-close")
+                        .attr("type", "button")
+                        .attr("aria-label", lang.t("chat.close"))
+                        .text("✕"),
+                ),
+        )
         .into()
 }
 
