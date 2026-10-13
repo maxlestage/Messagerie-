@@ -104,9 +104,9 @@ struct PaywallView: View {
     /// Dire franchement ce qui reste gratuit vaut mieux que de le cacher :
     /// personne n'achète une app dont il croit la fonction principale bridée.
     private var freeReassurance: some View {
-        Text(loc("Le chiffrement reste gratuit, sans limite, pour toujours — et recevoir photos et vocaux aussi. et l'app Apple Watch également. S'abonner ne verrouille rien de ce qui marche déjà chez toi.",
-                 "Encryption stays free, unlimited, forever — and so does receiving photos and voice notes. Brocolis+ locks nothing that already works for you.",
-                 "El cifrado sigue siendo gratuito, sin límite, para siempre — y recibir fotos y notas de voz también. Brocolis+ no bloquea nada de lo que ya funciona."))
+        Text(loc("Le chiffrement reste gratuit, sans limite, pour toujours — tout comme recevoir photos et vocaux, et l'app Apple Watch. S'abonner ne verrouille rien de ce qui marche déjà chez toi.",
+                 "Encryption stays free, unlimited, forever — and so do receiving photos and voice notes, and the Apple Watch app. Subscribing locks nothing that already works for you.",
+                 "El cifrado sigue siendo gratuito, sin límite, para siempre — igual que recibir fotos y notas de voz, y la app de Apple Watch. Suscribirte no bloquea nada de lo que ya funciona."))
             .font(.footnote)
             .foregroundStyle(.secondary)
     }

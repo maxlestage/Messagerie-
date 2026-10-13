@@ -2,9 +2,10 @@
 //  ActionViewController.swift
 //  Brocolis 🥦 — Action Extension
 //
-//  Apparaît dans le menu Partager de N'IMPORTE QUELLE app (règle d'activation
-//  TRUEPREDICATE), pas seulement celles qui exposent le texte d'une manière
-//  précise. Si du texte est partagé, Brocolis agit ; sinon il l'indique.
+//  Apparaît dans le menu Partager dès qu'une app partage du texte ou un lien
+//  (NSExtensionActivationSupportsText / WebURL ; TRUEPREDICATE est refusé par
+//  l'App Store). Sans ((…)), chiffre tout le texte ; avec, seulement ces
+//  passages.
 //  Chiffre les ((secrets))
 //  ou déchiffre les jetons [[BROCOLIS:v1:...]] avec la clé partagée (App Group),
 //  puis affiche le résultat avec un bouton « Copier ».

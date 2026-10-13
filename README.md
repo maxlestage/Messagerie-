@@ -25,11 +25,10 @@ TLS pinning** de WhatsApp/iMessage. Le moyen pris en charge par iOS pour « se
 greffer » sur les apps existantes, c'est l'**extension système**. Ici on utilise
 une **Action Extension** sur le texte sélectionné.
 
-> 🌍 **Disponible dans toutes les apps.** L'extension utilise la règle
-> d'activation `TRUEPREDICATE` : Brocolis 🥦 apparaît dans la feuille **Partager**
-> de **n'importe quelle app** (pas seulement celles qui exposent le texte d'une
-> manière particulière). Quand l'app partage du texte, Brocolis agit ; sinon, il
-> l'indique. Le **clavier** Brocolis, lui, est universel par construction : il
+> 🌍 **Disponible partout où l'on partage du texte.** Brocolis 🥦 apparaît dans
+> la feuille **Partager** dès qu'une app partage du texte (ou un lien) : la
+> règle `TRUEPREDICATE`, qui l'aurait montré partout, est refusée par l'App
+> Store. Le **clavier** Brocolis, lui, est universel par construction : il
 > marche dans **tous** les champs de saisie.
 
 ## Comment ça marche
@@ -40,7 +39,7 @@ une **Action Extension** sur le texte sélectionné.
    message d'un correspondant se déchiffre avec la clé qui lui correspond).
    Transmets une clé par un canal sûr (ou utilise l'appairage).
 2. Mets l'interrupteur **Actif** sur ON. Brocolis **reste actif** tant que tu ne
-   le repasses pas sur OFF (ou que tu ne fermes pas l'app). Quand c'est actif,
+   le repasses pas sur OFF, même app fermée. Quand c'est actif,
    un **🥦 s'affiche dans la Dynamic Island** (et sur l'écran verrouillé) via
    une Live Activity — voir plus bas.
 3. Dans **n'importe quelle app**, sélectionne du texte → **Partager** →
@@ -107,9 +106,12 @@ place, dans **n'importe quelle app** (WhatsApp, iMessage, Notes…) :
    la conversation.
 
 Le clavier respecte l'état **Actif**, la **clé sélectionnée** et l'**expiration**
-comme l'extension Partager (mêmes clés via l'App Group). C'est un clavier
-« action » : il ne remplace pas ta saisie habituelle, il ajoute juste les deux
-gestes chiffrer/déchiffrer.
+comme l'extension Partager (mêmes clés via l'App Group). C'est un vrai clavier,
+à la manière de celui d'Apple : AZERTY, QWERTY ou QWERTZ, aperçu des touches,
+accents par appui long, emojis, curseur en glissant sur l'espace, thèmes,
+vibrations ; touche **((…))** pour ne chiffrer qu'un passage et menu **⚙️** pour
+tout régler (dont « Chiffrer pour » : la clé du destinataire) sans quitter
+l'app. Tous ses réglages sont aussi dans l'app, menu **Clavier** (⌨️).
 
 ### Écrire à plusieurs personnes à la fois — destinataires multiples
 
@@ -191,8 +193,9 @@ peut pas déballer la clé de groupe. Plafond de participants par code :
 
 - **Expiration** : dans l'app, règle la **Validité de la clé** (Jamais / 1 h /
   24 h / 7 j). À l'installation d'une clé, sa date d'expiration est calculée.
-  Au-delà, l'**extension refuse** de chiffrer/déchiffrer (« clé expirée ») tant
-  qu'on ne renouvelle pas la clé.
+  Au-delà, on ne **chiffre plus** avec cette clé (« clé expirée ») tant
+  qu'on ne la prolonge pas ; ce qu'elle a chiffré reste lisible jusqu'à la
+  purge.
 - **Purge automatique à l'ouverture** : au lancement et au retour au premier
   plan, l'app **efface** une clé périmée (ce qui désactive Brocolis) et le
   signale. La clé expirée ne traîne donc pas sur l'appareil.
@@ -209,7 +212,7 @@ peut pas déballer la clé de groupe. Plafond de participants par code :
 - **Rotation** : pour un groupe, le fondateur relance **Créer le groupe** → une
   **nouvelle clé** est générée et redistribuée (le `/wrap` du serveur écrase
   l'ancienne) ; les membres la récupèrent en re-touchant **Rejoindre le
-  groupe**. Installer une nouvelle clé réarme aussi l'horloge d'expiration.
+  groupe**. La nouvelle clé n'expire pas tant que tu ne règles pas sa validité.
 
 ## Interopérable avec brocolis
 
@@ -228,10 +231,10 @@ Un client Android peut donc s'appairer avec un iPhone et échanger des jetons,
 avec `java.security`/`javax.crypto` (X25519 natif depuis Android 13) ou
 Tink/libsodium pour les versions antérieures.
 
-L'**app Android native existe désormais** et est à **parité fonctionnelle** avec
-cette app iOS — [**Messageries-kotlin**](https://github.com/maxlestage/Messageries-kotlin)
-(Kotlin / Jetpack Compose). Elle reprend, point par point, les mêmes
-fonctionnalités :
+L'**app Android native existe désormais** et reprend les **fonctions
+principales** de cette app iOS (le clavier et le préavis d'expiration y sont
+prévus) — [**Messageries-kotlin**](https://github.com/maxlestage/Messageries-kotlin)
+(Kotlin / Jetpack Compose). Correspondance des fonctions :
 
 | Fonction iOS | Équivalent Android |
 |---|---|
@@ -343,7 +346,8 @@ open Brocolis.xcodeproj
 >
 > 💬 **Live Activity de messagerie** : la même Live Activity sert de fil de
 > messagerie. Elle affiche le **nombre de messages non lus**, le **nom** de
-> l'expéditeur du dernier message et **l'heure** de réception — jamais le
+> l'expéditeur du dernier message (quand l'app l'a vu ; app fermée, le serveur
+ne connaît pas les noms) et **l'heure** de réception — jamais le
 > texte : le contenu reste chiffré de bout en bout et la Live Activity n'y a
 > pas accès. Le compteur retombe à zéro dès que tu ouvres la conversation.
 > Voir `Shared/BrocolisActivityAttributes.swift`.
@@ -453,9 +457,11 @@ cette valeur à `NO` — c'est une décision juridique qui t'appartient.)
 5. Invite les testeurs (e‑mail ou lien public). Ils installent l'app
    **TestFlight** puis Brocolis.
 
-> Pas de push distant ici : Live Activities et notifications locales
-> fonctionnent en TestFlight sans configuration serveur. Le serveur de
-> rendez‑vous (Heroku) est public, rien à changer pour la distribution.
+> Les notifications d'expiration sont locales et marchent sans configuration.
+> La Live Activity est mise à jour par le serveur (push APNs), y compris app
+> fermée, dès que les variables `APNS_*` sont définies sur Heroku (voir
+> [docs/DEPLOY_RUST.md](docs/DEPLOY_RUST.md)). Le serveur (Heroku) est public,
+> rien à changer pour la distribution.
 
 ## Licence
 
