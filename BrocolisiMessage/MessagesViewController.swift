@@ -445,7 +445,25 @@ final class MessagesViewController: MSMessagesAppViewController {
     /// « 🥦 Message chiffré » (URL = jeton). Le correspondant touche la bulle
     /// pour lire — ou copie le jeton s'il n'a pas l'app.
     private func sendEncrypted(_ text: String) {
+        if insertMarked(text) { return }
         insertEncrypted(clear: text, summary: "🥦 Message chiffré")
+    }
+
+    /// Même règle que le partage et le clavier : des ((…)) fermés → seuls ces
+    /// passages sont chiffrés, le reste part en clair. Le message est alors
+    /// inséré en texte (« RDV [[BROCOLIS:…]] demain ») : une bulle image ne
+    /// peut pas montrer du clair à côté du chiffré. Faux si rien n'est marqué.
+    private func insertMarked(_ text: String) -> Bool {
+        guard text.contains(BrocolisCrypto.plainOpen), text.contains(BrocolisCrypto.plainClose),
+              let conversation = activeConversation,
+              let key = model.selectedKey,
+              let sym = try? BrocolisCrypto.symmetricKey(fromBase64: key.base64) else { return false }
+        let (marked, count) = BrocolisCrypto.encryptMarked(text, keys: [sym])
+        guard count > 0 else { return false }
+        model.sendError = nil
+        conversation.insertText(marked) { _ in }
+        requestPresentationStyle(.compact)
+        return true
     }
 
     /// Envoie une photo CHIFFRÉE : compressée, encodée `BRCM1:img:`, scellée
@@ -536,6 +554,7 @@ final class MessagesViewController: MSMessagesAppViewController {
     /// Variante compatibilité : insère le jeton `[[BROCOLIS:v1:…]]` en texte
     /// brut (lisible par le clavier / l'écran Conversation / le proxy).
     private func insertPlainToken(_ text: String) {
+        if insertMarked(text) { return }
         guard let conversation = activeConversation,
               let key = model.selectedKey,
               let sym = try? BrocolisCrypto.symmetricKey(fromBase64: key.base64),
