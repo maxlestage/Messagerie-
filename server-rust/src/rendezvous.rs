@@ -9,7 +9,9 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-const TTL: Duration = Duration::from_secs(10 * 60);
+/// Une invitation vit 7 jours : deux personnes loin l'une de l'autre n'ont
+/// pas à être en ligne en même temps (chacune agit quand elle ouvre l'app).
+const TTL: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
 struct Peer {
     pub_key: String,
@@ -272,7 +274,7 @@ mod tests {
         rdv.add_peer("c", "alice", "A").unwrap();
         rdv.put_wraps("c", "alice", "A", &[("bob".into(), "B".into())]);
         rdv.put_live_token("c", "alice", "T");
-        // Rien n'a expiré (TTL = 10 min) : tout survit.
+        // Rien n'a expiré (TTL = 7 jours) : tout survit.
         rdv.prune();
         assert_eq!(peer_ids(&rdv.peers_excluding("c", "bob")), vec!["alice"]);
         assert_eq!(rdv.get_wrap("c", "bob")["wrap"]["blob"], "B");
