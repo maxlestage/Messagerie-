@@ -45,11 +45,11 @@ une **Action Extension** sur le texte sélectionné.
    une Live Activity — voir plus bas.
 3. Dans **n'importe quelle app**, sélectionne du texte → **Partager** →
    **Brocolis 🥦**. Quand c'est actif, l'extension :
-   - **chiffre toute la sélection** d'un bloc par défaut (réglage **« Tout
-     chiffrer »**, activé) — pas besoin de marquer le texte, même quand tu es
-     seul ;
-   - si tu **désactives** « Tout chiffrer », elle ne chiffre que les segments
-     `((entre doubles parenthèses))` et laisse le reste en clair ;
+   - **chiffre toute la sélection** d'un bloc — pas besoin de marquer le
+     texte, même quand tu es seul ;
+   - si le texte contient des segments `((entre doubles parenthèses))`, elle
+     ne chiffre **que ceux-là** et laisse le reste en clair (même règle dans le
+     clavier et iMessage) ;
    - **déchiffre** automatiquement si la sélection contient des jetons
      `[[BROCOLIS:v1:…]]` (déchiffrement toujours prioritaire) ;
    - **copie** le résultat tout de suite — il n'y a plus qu'à coller.

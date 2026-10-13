@@ -47,9 +47,11 @@ struct BrocolisTransform {
         }
     }
 
-    /// - Parameter encryptWholeAlways: si `true`, on chiffre toute la sélection
-    ///   d'un bloc sans tenir compte des marqueurs `((…))` (réglage « Tout
-    ///   chiffrer »). Le déchiffrement d'un jeton reste toujours prioritaire.
+    /// - Parameter encryptWholeAlways: si `true`, une sélection SANS marqueurs
+    ///   `((…))` est chiffrée d'un bloc (réglage « Tout chiffrer »). Des `((…))`
+    ///   fermés sont une demande explicite : seuls ces passages sont chiffrés,
+    ///   quel que soit le réglage. Le déchiffrement d'un jeton reste toujours
+    ///   prioritaire.
     static func auto(_ input: String, key: SymmetricKey, encryptWholeAlways: Bool = false) -> Result {
         auto(input, keys: [key], encryptWholeAlways: encryptWholeAlways)
     }
@@ -63,12 +65,12 @@ struct BrocolisTransform {
             return Result(text: text, outcome: .decrypted(count: n))
         }
 
-        if !encryptWholeAlways,
-           input.contains(BrocolisCrypto.plainOpen) && input.contains(BrocolisCrypto.plainClose) {
+        if input.contains(BrocolisCrypto.plainOpen) && input.contains(BrocolisCrypto.plainClose) {
             let (text, n) = BrocolisCrypto.encryptMarked(input, keys: keys)
             if n > 0 { return Result(text: text, outcome: .encryptedMarked(count: n)) }
         }
 
+        // Pas de passage marqué : tout le texte part chiffré d'un bloc.
         if let token = BrocolisCrypto.sealToken(Data(input.utf8), keys: keys) {
             return Result(text: token, outcome: .encryptedWhole)
         }
