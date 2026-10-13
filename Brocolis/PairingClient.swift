@@ -46,9 +46,10 @@ struct PairingClient {
     let baseURL: String
 
     /// Publie sa clé publique ; renvoie les clés publiques des autres participants.
-    func publish(code: String, peerId: String, pub: String) async throws -> [PairingPeer] {
+    /// `host` : c'est l'invitant — le serveur ne laisse que lui remettre la clé.
+    func publish(code: String, peerId: String, pub: String, host: Bool = false) async throws -> [PairingPeer] {
         let data = try await raw(method: "POST", path: "/pair",
-                                 body: ["code": code, "peerId": peerId, "pub": pub])
+                                 body: ["code": code, "peerId": peerId, "pub": pub, "host": host])
         return try JSONDecoder().decode(PairingResponse.self, from: data).peers
     }
 

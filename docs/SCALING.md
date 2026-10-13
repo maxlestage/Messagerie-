@@ -20,6 +20,8 @@ add-on Heroku. C'est simple et rapide, avec une conséquence à garder en tête 
 | Budget mémoire | Au-delà de `MEMORY_BUDGET_MB` de chiffré, les plus vieux messages partent les premiers (retour à 90 %) | `Store::enforce_budget` |
 | Temps réel | Un canal par conversation, dans le processus ; canaux abandonnés purgés chaque minute | `broadcast.rs` |
 | Rendez-vous X25519 | En mémoire, TTL 7 jours (invitations à distance), plafond `MAX_PEERS` ; les apps republient à chaque ouverture, un redémarrage ne perd donc rien d'utile | `rendezvous.rs` |
+| Salon verrouillé | Seul l'invitant (`host`) remet la clé de groupe ; une clé publique inscrite ne peut pas être remplacée ; codes, clés et blobs validés | `rendezvous.rs`, `api.rs` |
+| Anti-abus | Plafonds par minute (par appareil, ×10 par adresse) sur `/pair`, `/wrap`, `/v1/messages`, `/v1/plan/apple`, push → `429` ; message chiffré ≤ 4 Mo → sinon `413` ; Live Activity : seuls `since`/`unread`/`lastAt` passent | `limits.rs`, `api.rs` |
 
 ---
 
