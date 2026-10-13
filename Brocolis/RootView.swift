@@ -373,15 +373,12 @@ struct RootView: View {
 
     private var encryptionSection: some View {
         Section {
-            Toggle(isOn: encryptWholeBinding) {
-                Label(loc("Tout chiffrer", "Encrypt everything", "Cifrar todo"), systemImage: "lock.rectangle.on.rectangle.fill")
-            }
+            Label(loc("Sans ((…)) : tout le message est chiffré d’un bloc.", "Without ((…)): the whole message is encrypted as one block.", "Sin ((…)): todo el mensaje se cifra en un bloque."), systemImage: "lock.rectangle.on.rectangle.fill")
+            Label(loc("Avec ((…)) : seuls ces passages sont chiffrés, le reste reste lisible.", "With ((…)): only those parts are encrypted, the rest stays readable.", "Con ((…)): solo esos fragmentos se cifran, el resto queda legible."), systemImage: "parentheses")
         } header: {
             Text(loc("Chiffrement", "Encryption", "Cifrado"))
         } footer: {
-            Text(encryptWhole
-                 ? loc("Toute ta sélection est chiffrée d'un bloc, même quand tu es seul — pas besoin d'entourer le texte de ((…)).", "Your whole selection is encrypted as one block, even on your own — no need to wrap the text in ((…)).", "Toda tu selección se cifra en un bloque, incluso a solas — no hace falta rodear el texto con ((…)).")
-                 : loc("Seuls les passages entre ((…)) sont chiffrés ; le reste du texte reste en clair.", "Only the parts between ((…)) are encrypted; the rest of the text stays in the clear.", "Solo se cifran los fragmentos entre ((…)); el resto del texto queda en claro."))
+            Text(loc("Même règle partout : partage, clavier, iMessage. Exemple : « RDV ((au 12 rue X)) demain » → seule l’adresse part chiffrée.", "Same rule everywhere: share, keyboard, iMessage. Example: « Meet ((at 12 X street)) tomorrow » → only the address is encrypted.", "Misma regla en todas partes: compartir, teclado, iMessage. Ejemplo: « Cita ((en calle X 12)) mañana » → solo la dirección se cifra."))
         }
     }
 

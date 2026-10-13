@@ -781,11 +781,9 @@ final class KeyboardViewController: UIInputViewController {
                 : loc("🔑 Aucune clé — ajoute-en une dans l’app.", "🔑 No key — add one in the app.", "🔑 Ninguna clave — añade una en la app.")
             return
         }
-        // Des ((…)) tapés au clavier sont une demande explicite : seuls ces
-        // passages sont chiffrés, même si « Tout chiffrer » est activé.
-        let marked = input.contains(BrocolisCrypto.plainOpen) && input.contains(BrocolisCrypto.plainClose)
+        // Des ((…)) : seuls ces passages sont chiffrés ; sinon tout le texte.
         let result = BrocolisTransform.auto(
-            input, keys: encKeys, encryptWholeAlways: marked ? false : BrocolisKeyStore.encryptWholeAlways)
+            input, keys: encKeys, encryptWholeAlways: BrocolisKeyStore.encryptWholeAlways)
         // Garde-fou : on ne remplace le champ QUE si c'est vraiment chiffré.
         guard result.isEncrypted else {
             statusLabel.text = loc("⚠️ Rien n'a été chiffré — le champ est laissé tel quel.", "⚠️ Nothing was encrypted — the field is left as is.", "⚠️ No se cifró nada — el campo se deja tal cual.")
