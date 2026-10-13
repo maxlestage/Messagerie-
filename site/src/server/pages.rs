@@ -212,6 +212,7 @@ fn navbar(ctx: &Ctx<'_>) -> Element {
                                 .child(section("features", "nav.features"))
                                 .child(section("pricing", "nav.pricing"))
                                 .child(section("doc", "nav.doc"))
+                                .child(page(Page::Chat, "nav.chat"))
                                 .child(page(Page::Salon, "nav.salon"))
                                 .child(page(Page::Server, "nav.server"))
                                 .child(outside(BROCOLIS_URL, "nav.brocolis"))
@@ -244,6 +245,10 @@ fn site_footer(ctx: &Ctx<'_>) -> Element {
                 nav()
                     .class("footer-links")
                     .attr("aria-label", ctx.t("nav.menu"))
+                    .child(
+                        a().href(Route::new(lang, Page::Chat).path())
+                            .text(ctx.t("nav.chat")),
+                    )
                     .child(
                         a().href(Route::new(lang, Page::Salon).path())
                             .text(ctx.t("nav.salon")),
@@ -378,6 +383,7 @@ fn layout(ctx: &Ctx<'_>, seo: Seo, content: Node) -> String {
 fn page_name(page: Page) -> &'static str {
     match page {
         Page::Home => "home",
+        Page::Chat => "chat",
         Page::Salon => "salon",
         Page::Server => "server",
         Page::License => "license",
@@ -477,6 +483,12 @@ fn hero(ctx: &Ctx<'_>) -> Element {
                                 .href(routes::home(lang, "pricing"))
                                 .attr("data-burst", "")
                                 .text(ctx.t("cta.pricing")),
+                        )
+                        .child(
+                            a().class("btn")
+                                .href(Route::new(lang, Page::Chat).path())
+                                .attr("data-burst", "")
+                                .text(ctx.t("cta.chat")),
                         )
                         .child(
                             a().class("btn")
@@ -830,6 +842,48 @@ fn inner(class: &str, title: &str, emoji: &str, children: Vec<Node>) -> Node {
         .into()
 }
 
+/// La discussion en ligne, seule sur sa page : on arrive, on invite ou on
+/// rejoint, on discute.
+fn chat(ctx: &Ctx<'_>) -> String {
+    let content = inner(
+        "chat-page",
+        ctx.t("chat.title"),
+        "💬",
+        vec![
+            p().class("lead rise")
+                .style("--i: 3")
+                .text(ctx.t("chat.intro"))
+                .into(),
+            div()
+                .class("panel chat-panel rise")
+                .style("--i: 4")
+                .child(island("chat", ctx.lang().code(), chat_island))
+                .into(),
+            ol().class("steps")
+                .children(["chat.step1", "chat.step2", "chat.step3"].iter().enumerate().map(|(i, s)| {
+                    li().class("reveal")
+                        .style(format!("--d: {i}"))
+                        .text(ctx.t(s))
+                }))
+                .into(),
+            p().class("callout reveal")
+                .text("🔑 ")
+                .text(ctx.t("salon.fingerprint"))
+                .into(),
+            p().class("legal-note")
+                .text(ctx.t("chat.more"))
+                .text(" ")
+                .child(a().href(Route::new(ctx.lang(), Page::Salon).path()).text(ctx.t("nav.salon")))
+                .into(),
+            back(ctx).into(),
+        ],
+    );
+    let seo = Seo::new()
+        .title(format!("{} — Brocolis 🥦", ctx.t("chat.title")))
+        .description(ctx.t("chat.intro"));
+    layout(ctx, seo, content)
+}
+
 fn salon(ctx: &Ctx<'_>) -> String {
     let steps = ["salon.step1", "salon.step2", "salon.step3", "salon.step4"];
     let content = inner(
@@ -1004,6 +1058,7 @@ fn not_found(ctx: &Ctx<'_>) -> String {
 pub fn render(ctx: &Ctx<'_>) -> String {
     match ctx.route.page {
         Page::Home => home(ctx),
+        Page::Chat => chat(ctx),
         Page::Salon => salon(ctx),
         Page::Server => server(ctx),
         Page::License => license(ctx),
