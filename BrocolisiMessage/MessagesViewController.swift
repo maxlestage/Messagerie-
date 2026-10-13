@@ -870,7 +870,14 @@ struct BrocolisiMessageRootView: View {
                         }
                     }
 
-                mediaRow
+                // Photos et vocaux : seulement dans la messagerie Brocolis 🥦
+                // (l'app et le site), jamais proposés dans une autre messagerie.
+                Label(loc("Photos et vocaux chiffrés : dans la messagerie Brocolis 🥦.",
+                          "Encrypted photos and voice notes: in Brocolis 🥦 messaging.",
+                          "Fotos y audios cifrados: en la mensajería Brocolis 🥦."),
+                      systemImage: "lock.fill")
+                    .font(.caption2).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 if let err = model.sendError {
                     Label(err, systemImage: "exclamationmark.triangle.fill")
@@ -912,7 +919,8 @@ struct BrocolisiMessageRootView: View {
         }
     }
 
-    // Photo 📷 + micro 🎙️ : deux médias chiffrés dans la bulle, comme le texte.
+    // Photo 📷 + micro 🎙️ : n'est plus affiché — les médias ne s'envoient que
+    // depuis la messagerie Brocolis. Gardé pour la lecture des formats.
     @ViewBuilder private var mediaRow: some View {
         HStack(spacing: 10) {
             PhotosPicker(selection: $photoItem, matching: .images, photoLibrary: .shared()) {
