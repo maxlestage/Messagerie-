@@ -152,7 +152,8 @@ Plutôt que de copier-coller la clé, on s'appaire en **deux gestes**, à 2 comm
 à plusieurs, **à côté ou à distance** :
 
 1. **J'invite** : l'app affiche un **QR code**, un code court (ex. `K7P2QX`) et
-   un bouton **Envoyer le lien**. L'invitation reste valable **10 minutes**.
+   un bouton **Envoyer le lien**. L'invitation reste valable **7 jours** : pas
+   besoin d'être en ligne en même temps.
 2. **Je rejoins** :
    - **à côté** : on touche **Scanner le QR code** (appareil photo intégré) ;
    - **à distance** : on **touche le lien reçu** par message — la page du salon
@@ -164,6 +165,12 @@ Plutôt que de copier-coller la clé, on s'appaire en **deux gestes**, à 2 comm
    publique**. Le serveur ne voit que des clés publiques et du chiffré.
 4. L'app affiche une **empreinte de sécurité** : comparez-la de vive voix (par
    un appel si vous êtes loin). Identique pour tous = pas d'interception (MITM).
+
+**Loin l'un de l'autre, sans être en ligne en même temps** : l'invitation et la
+réponse restent **en attente** sur chaque téléphone (7 jours) et se terminent
+**toutes seules à l'ouverture de l'app** — celui qui rejoint reçoit la clé à sa
+prochaine ouverture après celle de l'invitant. Rien à refaire, même après un
+redémarrage du serveur (chaque app republie à l'ouverture).
 
 Le **Mode compatible** garde l'ancien appairage à deux (chacun dérive la clé
 par Diffie-Hellman) pour les versions qui n'ont que « Appairer à deux ».
@@ -181,7 +188,7 @@ ensuite la clé dérivée comme d'habitude.
 ### Groupe (3+)
 
 Même geste : une personne touche **J'invite**, toutes les autres **rejoignent**
-(QR ou lien), **dans n'importe quel ordre** pendant les 10 minutes. Tout le
+(QR ou lien), **dans n'importe quel ordre** pendant 7 jours. Tout le
 monde obtient **la même clé** et la même empreinte.
 
 Le serveur ne voit que des **clés publiques** et des **blobs chiffrés** ; il ne
