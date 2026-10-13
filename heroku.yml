@@ -1,5 +1,6 @@
-# Heroku en mode CONTENEUR : construit le serveur Brocolis 🥦 (Vitesse +
-# Memoire + Active) depuis le Dockerfile à la racine. Aucun add-on requis.
+# Heroku en mode CONTENEUR : construit le serveur Brocolis 🥦 (Paquets :
+# Vitesse + Securite + Memoire + Active) depuis le Dockerfile à la racine.
+# Aucun add-on requis.
 build:
   docker:
     web: Dockerfile

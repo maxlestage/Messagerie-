@@ -265,12 +265,76 @@ fn site_footer(ctx: &Ctx<'_>) -> Element {
                     .child(external(REPO_URL).text(ctx.t("cta.repo")))
                     .child(external(BROCOLIS_URL).text("brocolis")),
             )
+            .child(footer_made(ctx))
             .child(
                 p().class("footer-meta")
                     .child(span().class("footer-credit").text(ctx.t("footer.credit")))
                     .child(span().class("footer-stack").text(ctx.t("footer.stack"))),
             ),
     )
+}
+
+/// « Écrit avec 📦 Paquets » : le badge, le cadenas de Securite et les cinq
+/// paquets du serveur, chacun vers sa documentation.
+fn footer_made(ctx: &Ctx<'_>) -> Element {
+    let (_, _, paquets_url, _) = STACK[0];
+    div()
+        .class("footer-made")
+        .child(
+            external(paquets_url)
+                .class("made-with")
+                .attr("data-burst", "")
+                .child(span().class("made-label").text(ctx.t("footer.made")))
+                .child(
+                    span()
+                        .class("made-box")
+                        .attr("aria-hidden", "true")
+                        .text("📦"),
+                )
+                .child(strong().class("made-name").text("Paquets")),
+        )
+        .child(
+            div()
+                .class("footer-lock")
+                .child(
+                    span()
+                        .class("lock-icon")
+                        .attr("aria-hidden", "true")
+                        .text("🔒"),
+                )
+                .child(
+                    p().child(strong().text(ctx.t("footer.lock")))
+                        .text(" — ")
+                        .text(ctx.t("footer.lockText")),
+                ),
+        )
+        .child(
+            ul().class("footer-chips")
+                .attr("aria-label", ctx.t("footer.packages"))
+                .children(STACK.iter().enumerate().map(|(i, (icon, name, href, key))| {
+                    li().style(format!("--d: {i}")).child(
+                        external(href)
+                            .class("chip")
+                            .attr("title", ctx.t(key))
+                            .child(span().attr("aria-hidden", "true").text(*icon))
+                            .text(*name),
+                    )
+                })),
+        )
+}
+
+/// Le code que chaque page écrit dans son `<head>` (le démarrage du module
+/// WebAssembly, le style des îlots) : le serveur en calcule les empreintes
+/// pour sa Content-Security-Policy, qui n'autorise que ce code-là.
+pub fn inline_code(site: &super::Site) -> String {
+    let mut doc = Document::new(fragment(Vec::<Node>::new()));
+    if site.has_bundle() {
+        doc = doc.client(
+            site.assets.url("/pkg/brocolis_site.js"),
+            site.assets.url("/pkg/brocolis_site_bg.wasm"),
+        );
+    }
+    doc.render()
 }
 
 /// Le rideau d'ouverture : la marque se trace, un compteur monte, puis le

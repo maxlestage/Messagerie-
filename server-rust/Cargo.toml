@@ -3,7 +3,7 @@ name = "brocolis-messagerie"
 version = "0.2.0"
 edition = "2021"
 rust-version = "1.88"
-description = "Serveur Brocolis 🥦 : API de messagerie chiffrée et rendez-vous X25519 (Vitesse), données en mémoire (Memoire), site (Active). Ne stocke que du chiffré."
+description = "Serveur Brocolis 🥦, écrit avec Paquets : API de messagerie chiffrée et rendez-vous X25519 (Vitesse), bouclier (Securite), données en mémoire (Memoire), site (Active). Ne stocke que du chiffré."
 license = "UNLICENSED"
 publish = false
 
@@ -18,6 +18,8 @@ name = "brocolis-messagerie"
 path = "src/main.rs"
 
 [dependencies]
+# Le framework full-stack : Vitesse (le web) + Securite (le bouclier) + Memoire + Active.
+paquets = { git = "https://github.com/maxlestage/Paquets", default-features = false }
 # Le framework web (façon Express) : routes, SSE, CORS, fichiers statiques.
 vitesse = { git = "https://github.com/maxlestage/Vitesse", default-features = false }
 # Les données, en mémoire : ni Postgres ni Redis.

@@ -32,13 +32,26 @@ pub const LICENSE_FILE: &str = "https://github.com/maxlestage/Messagerie-/blob/m
 /// Les fichiers bruts du dépôt (images du README).
 pub const RAW_URL: &str = "https://raw.githubusercontent.com/maxlestage/Messagerie-/master";
 
-/// Les trois briques, présentées sur la page Serveur.
-pub const STACK: [(&str, &str, &str, &str); 3] = [
+/// Les briques, présentées sur la page Serveur et dans le pied de page :
+/// Paquets, le framework, et les quatre paquets qu'il assemble.
+pub const STACK: [(&str, &str, &str, &str); 5] = [
+    (
+        "📦",
+        "Paquets",
+        "https://maxlestage.github.io/Paquets/",
+        "server.stack.paquets",
+    ),
     (
         "⚡",
         "Vitesse",
         "https://maxlestage.github.io/Vitesse/",
         "server.stack.vitesse",
+    ),
+    (
+        "🛡️",
+        "Securite",
+        "https://maxlestage.github.io/Securite/",
+        "server.stack.securite",
     ),
     (
         "💾",

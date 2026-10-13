@@ -15,7 +15,9 @@ async fn services() -> Services {
 }
 
 async fn client() -> TestClient {
-    TestClient::new(app(&services().await, None, Arc::new(Site::load())))
+    app(&services().await, None, Arc::new(Site::load()))
+        .test()
+        .await
 }
 
 async fn create_conv(client: &TestClient, owner: &str, participants: Value) -> String {
@@ -356,7 +358,9 @@ async fn pairing_and_group_key_relay() {
 #[tokio::test]
 async fn plan_follows_the_linked_apple_email() {
     let svc = services().await;
-    let client = TestClient::new(app(&svc, None, Arc::new(Site::load())));
+    let client = app(&svc, None, Arc::new(Site::load()))
+        .test()
+        .await;
     svc.store
         .link_email("device-1", "max@icloud.com")
         .await
@@ -402,7 +406,9 @@ async fn plan_follows_the_linked_apple_email() {
     let ticket =
         brocolis_messagerie::apple_signin::issue_ticket("device-3", "clement67114@gmail.com")
             .unwrap();
-    let restarted = TestClient::new(app(&services().await, None, Arc::new(Site::load())));
+    let restarted = app(&services().await, None, Arc::new(Site::load()))
+        .test()
+        .await;
     let v: Value = restarted
         .get("/v1/plan")
         .header("x-user-id", "device-3")
@@ -524,12 +530,22 @@ async fn the_site_is_served_next_to_the_api() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_stream_delivers_messages_and_read_receipts() {
     let services = services().await;
-    let server = app(&services, None, Arc::new(Site::load()))
-        .bind(([127, 0, 0, 1], 0))
-        .await
-        .unwrap();
-    let base = format!("http://{}", server.local_addr());
-    tokio::spawn(server.run());
+    // Un port libre, puis l'app Paquets complète (bouclier compris) dessus.
+    let port = std::net::TcpListener::bind(("127.0.0.1", 0))
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let mut server = app(&services, None, Arc::new(Site::load()));
+    server.port(port).quiet();
+    tokio::spawn(server.serve());
+    let base = format!("http://127.0.0.1:{port}");
+    for _ in 0..100 {
+        if tokio::net::TcpStream::connect(("127.0.0.1", port)).await.is_ok() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
 
     let http = reqwest::Client::new();
     let mut stream = http
@@ -594,7 +610,9 @@ async fn the_stream_delivers_messages_and_read_receipts() {
 #[tokio::test]
 async fn live_activity_subscription() {
     let svc = services().await;
-    let client = TestClient::new(app(&svc, None, Arc::new(Site::load())));
+    let client = app(&svc, None, Arc::new(Site::load()))
+        .test()
+        .await;
     let private = create_conv(&client, "alice", json!([{ "id": "alice" }, { "id": "bob" }])).await;
 
     let res = client
@@ -623,4 +641,172 @@ async fn live_activity_subscription() {
     assert_eq!(res.status(), 400);
     let res = client.post("/v1/live").json(&json!({ "token": "ab", "conversationIds": [] })).await;
     assert_eq!(res.status(), 401);
+}
+
+// ── Le bouclier 🔒 (Securite, branché par Paquets) ───────────────────────────
+
+#[tokio::test]
+async fn pages_ship_hardened_headers_and_a_tight_csp() {
+    let client = client().await;
+    let res = client.get("/fr/").await;
+    assert_eq!(res.status(), 200);
+    let csp = res.header("content-security-policy").unwrap().to_owned();
+    assert!(csp.contains("default-src 'self'"), "{csp}");
+    assert!(csp.contains("'wasm-unsafe-eval'"), "{csp}");
+    assert!(csp.contains("object-src 'none'"), "{csp}");
+    assert!(csp.contains("frame-ancestors 'none'"), "{csp}");
+    assert!(!csp.contains("script-src 'self' 'unsafe-inline'"), "{csp}");
+    assert!(res.header("strict-transport-security").is_some());
+    assert_eq!(res.header("x-content-type-options"), Some("nosniff"));
+    assert_eq!(res.header("x-frame-options"), Some("DENY"));
+    assert!(res.header("x-request-id").is_some());
+    // Le micro reste permis pour les notes vocales, pas la caméra.
+    let permissions = res.header("permissions-policy").unwrap();
+    assert!(permissions.contains("microphone=(self)"), "{permissions}");
+    assert!(permissions.contains("camera=()"), "{permissions}");
+    // Le pied de page le dit.
+    let html = res.text();
+    assert!(html.contains("made-with"), "badge « Écrit avec Paquets »");
+    assert!(html.contains("Securite"));
+}
+
+#[tokio::test]
+async fn the_csp_allows_exactly_the_inline_code_of_the_pages() {
+    let site = Site::load();
+    let csp = brocolis_messagerie::bouclier::content_security_policy(&site).to_string();
+    let html = brocolis_site::server::pages::inline_code(&site);
+    for hash in paquets::securite::prelude::ContentSecurityPolicy::hashes_for_inline_styles(&html) {
+        assert!(csp.contains(&hash), "{hash} manque dans {csp}");
+    }
+    for hash in paquets::securite::prelude::ContentSecurityPolicy::hashes_for_inline_scripts(&html)
+    {
+        assert!(csp.contains(&hash), "{hash} manque dans {csp}");
+    }
+}
+
+#[tokio::test]
+async fn the_waf_and_the_bot_blocker_turn_attacks_away() {
+    let client = client().await;
+    let sqli = client
+        .get("/v1/messages?conversationId=x%27%20UNION%20SELECT%20password%20FROM%20users--")
+        .header("x-user-id", "alice")
+        .await;
+    assert_eq!(sqli.status(), 403, "{}", sqli.text());
+
+    let xss = client
+        .get("/fr/?q=%3Cscript%3Ealert(1)%3C%2Fscript%3E")
+        .await;
+    assert_eq!(xss.status(), 403);
+
+    let scanner = client
+        .get("/health")
+        .header("user-agent", "sqlmap/1.7")
+        .await;
+    assert_eq!(scanner.status(), 403);
+
+    let traversal = client.get("/assets/..%2f..%2fetc%2fpasswd").await;
+    assert!(traversal.status() == 400 || traversal.status() == 403);
+
+    // Les vraies requêtes passent toujours.
+    assert_eq!(client.get("/health").await.status(), 200);
+}
+
+#[tokio::test]
+async fn api_bodies_are_json_and_bounded() {
+    let client = client().await;
+    let form = client
+        .post("/v1/messages")
+        .header("x-user-id", "alice")
+        .header("content-type", "application/x-www-form-urlencoded")
+        .header("content-length", "34")
+        .body("conversationId=c&id=m&ciphertext=x")
+        .await;
+    assert_eq!(form.status(), 415);
+
+    // 256 Ko au plus hors messages…
+    let big = json!({ "code": "123456", "peerId": "p", "pub": "A".repeat(300 * 1024) }).to_string();
+    let res = client
+        .post("/pair")
+        .header("content-type", "application/json")
+        .header("content-length", &big.len().to_string())
+        .body(big)
+        .await;
+    assert_eq!(res.status(), 413);
+
+    // … mais une photo chiffrée de 1 Mo passe dans un message.
+    let photo =
+        json!({ "conversationId": "c", "id": "photo", "ciphertext": "B".repeat(1024 * 1024) })
+            .to_string();
+    let res = client
+        .post("/v1/messages")
+        .header("x-user-id", "alice")
+        .header("content-type", "application/json")
+        .header("content-length", &photo.len().to_string())
+        .body(photo)
+        .await;
+    assert_eq!(res.status(), 201, "{}", res.text());
+}
+
+#[tokio::test]
+async fn the_api_stays_open_to_other_origins() {
+    let client = client().await;
+    let res = client
+        .post("/v1/messages")
+        .header("x-user-id", "alice")
+        .header("origin", "https://ailleurs.example")
+        .header("sec-fetch-site", "cross-site")
+        .json(&json!({ "conversationId": "c", "id": "m", "ciphertext": "X" }))
+        .await;
+    assert_eq!(res.status(), 201, "{}", res.text());
+    assert_eq!(res.header("access-control-allow-origin"), Some("*"));
+}
+
+#[tokio::test]
+async fn sign_in_with_apple_is_rate_limited() {
+    let client = client().await;
+    let mut statuses = Vec::new();
+    for _ in 0..8 {
+        let res = client
+            .post("/v1/plan/apple")
+            .header("x-user-id", "alice")
+            .json(&json!({ "identityToken": "pas.un.jeton" }))
+            .await;
+        statuses.push(res.status().as_u16());
+    }
+    assert!(statuses.contains(&429), "{statuses:?}");
+    // Le reste de l'API n'en souffre pas.
+    assert_eq!(client.get("/health").await.status(), 200);
+}
+
+#[tokio::test]
+async fn plain_http_behind_heroku_goes_to_https() {
+    let client = client().await;
+    let res = client
+        .get("/fr/")
+        .header("host", "brocolis.example")
+        .header("x-forwarded-proto", "http")
+        .await;
+    assert!(
+        res.status() == 301 || res.status() == 308,
+        "{}",
+        res.status()
+    );
+    assert_eq!(res.header("location"), Some("https://brocolis.example/fr/"));
+}
+
+#[tokio::test]
+async fn stats_show_the_shield() {
+    let client = client().await;
+    client.get("/health").header("user-agent", "nikto").await;
+    let stats: Value = client.get("/stats").await.json();
+    let guards: Vec<&str> = stats["shield"]["guards"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|g| g.as_str().unwrap())
+        .collect();
+    for guard in ["waf", "rate_limit", "ban", "csrf", "security_headers"] {
+        assert!(guards.contains(&guard), "{guard} : {guards:?}");
+    }
+    assert!(stats["shield"]["blocked"].as_u64().unwrap() >= 1);
 }
