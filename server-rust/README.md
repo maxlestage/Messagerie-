@@ -43,9 +43,9 @@ Chaque requête passe par les middlewares de Securite, branchés par Paquets
 | Garde | Réglage |
 |---|---|
 | WAF | injection SQL, XSS, RCE, Log4Shell, traversée… sensibilité **moyenne** (URI, requête, en-têtes) |
-| Limite de débit | 20 req/s par adresse (rafales de 100) ; `/pair`, `/wrap`, `/push/` : 120/min ; `POST`/`DELETE /v1/plan/apple` : 12/min |
-| Bannissement auto | 20 refus (401/403/429) en une minute → 15 min de ban, puis de plus en plus long |
-| Concurrence | 64 requêtes simultanées par adresse (flux SSE compris) |
+| Anti-inondation | 50 req/s par adresse (rafales de 200), en plus des plafonds par appareil et par usage de `src/limits.rs` |
+| Bannissement auto | 20 refus (401/403 : pare-feu, robots…) en une minute → 15 min de ban, puis de plus en plus long ; les 429 ne comptent pas (pas de ban de toute une box pour un appareil trop bavard) |
+| Concurrence | 128 requêtes simultanées par adresse (flux SSE compris) |
 | Corps | 8 Mo sur `/v1/messages` (médias chiffrés), 256 Ko ailleurs ; **JSON uniquement** (415 sinon) |
 | Anti-robots | sqlmap, nikto, nuclei, gobuster… refusés |
 | CSRF | Fetch Metadata ; l'API (CORS ouvert, par choix) en est exemptée |

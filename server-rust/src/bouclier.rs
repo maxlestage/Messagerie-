@@ -6,13 +6,13 @@
 //! | Garde | Ce qu'il fait ici |
 //! |---|---|
 //! | `request_id` | un identifiant par requête (`X-Request-Id`), dans les journaux |
-//! | `ban` | 20 refus (401, 403, 429) en une minute : l'adresse est bannie 15 min, puis de plus en plus longtemps |
+//! | `ban` | 20 refus (401, 403 : pare-feu, robots…) en une minute : l'adresse est bannie 15 min, puis de plus en plus longtemps. Les 429 ne comptent pas : un appareil trop bavard ne doit pas faire bannir ses voisins de box |
 //! | `hygiene` | URI, en-têtes et paramètres bornés ; ni `..` ni encodage douteux |
 //! | `method` | GET, HEAD, POST, PUT, PATCH, DELETE et OPTIONS seulement |
 //! | `https_redirect` | HTTP → HTTPS derrière le routeur Heroku |
 //! | `body_limit` | 8 Mo pour les messages (médias chiffrés), 256 Ko ailleurs |
-//! | `rate_limit` | 20 req/s par adresse (rafales de 100) ; bien moins sur le rendez-vous et la connexion Apple |
-//! | `concurrency` | 64 requêtes à la fois par adresse (flux SSE compris) |
+//! | `rate_limit` | 50 req/s par adresse (rafales de 200) contre l'inondation ; les plafonds fins, par appareil et par usage, sont ceux de [`crate::limits`] |
+//! | `concurrency` | 128 requêtes à la fois par adresse (flux SSE compris) |
 //! | `user_agent` | les scanners connus (sqlmap, nikto, nuclei…) sont refusés |
 //! | `waf` | injection SQL, XSS, RCE, Log4Shell, traversée… (sensibilité moyenne) |
 //! | `csrf` | Fetch Metadata ; l'API, ouverte en CORS par choix, en est exemptée |
@@ -24,7 +24,6 @@ use std::time::Duration;
 
 use brocolis_site::server::Site;
 use paquets::securite::prelude::*;
-use paquets::vitesse::Method;
 
 use crate::api::API_PREFIXES;
 use crate::BODY_LIMIT;
@@ -83,27 +82,18 @@ pub fn bouclier(site: &Site) -> Shield {
     paquets::shield()
         .guard(
             AutoBan::new()
+                .statuses([401, 403])
                 .max_strikes(20)
                 .window(Duration::from_secs(60))
                 .ban_for(Duration::from_secs(15 * 60)),
         )
         .guard(HttpsRedirect::new())
         .guard(BodyLimit::new(SMALL_BODY_LIMIT).route("/v1/messages", BODY_LIMIT as u64))
-        .guard(
-            RateLimit::new(Quota::per_second(20).burst(100))
-                // Le rendez-vous : l'app interroge toutes les 1,5 s pendant un
-                // appairage ; deviner des codes à la chaîne, non.
-                .route("/pair", Quota::per_minute(120).burst(30))
-                .route("/wrap", Quota::per_minute(120).burst(30))
-                // « Se connecter avec Apple » : quelques essais, pas des milliers.
-                .route_methods(
-                    "/v1/plan/apple",
-                    [Method::POST, Method::DELETE],
-                    Quota::per_minute(12).burst(4),
-                )
-                .route("/push/", Quota::per_minute(120).burst(30)),
-        )
-        .guard(ConcurrencyLimit::per_ip(64))
+        // Contre l'inondation seulement : les plafonds par usage (salon, envoi,
+        // Apple…) sont comptés par appareil dans `limits`, plus large par
+        // adresse pour ne pas punir toute une box ou tout un bureau.
+        .guard(RateLimit::new(Quota::per_second(50).burst(200)))
+        .guard(ConcurrencyLimit::per_ip(128))
         .guard(Waf::new().paranoia(Paranoia::Medium))
         .guard(csrf)
         // Le site n'envoie aucun formulaire : tout corps reçu est du JSON.
