@@ -1539,6 +1539,8 @@ html.over-film .grain::before { opacity: 0.09; }
   .pill { min-width: 34px; height: 30px; padding: 0 9px; font-size: 12.5px; }
   .features { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .features .card:first-child { grid-column: span 2; }
+  /* La dernière carte ferme la grille sur toute la largeur. */
+  .features .card:last-child { grid-column: 1 / -1; }
 }
 
 /* Survols uniquement sur les appareils qui en ont (pas d'effet collant au toucher) */
