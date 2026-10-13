@@ -11,6 +11,7 @@
 //!
 //! Sans WebAssembly, tout le contenu reste lisible : il est dans le HTML.
 
+pub mod crypto;
 pub mod demo;
 pub mod i18n;
 pub mod islands;

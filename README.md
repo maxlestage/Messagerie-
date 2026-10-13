@@ -185,6 +185,17 @@ ensuite la clé dérivée comme d'habitude.
 > Le code court ne sert qu'à se *rejoindre* : la sécurité réelle vient de X25519
 > et de la vérification de l'empreinte.
 
+### Discuter en ligne, depuis le site
+
+La page **Salon** du site a une **discussion en ligne** : mêmes gestes que
+l'app (**J'invite** → QR, code et lien ; **Je rejoins** → code ou lien), même
+chiffrement (X25519, HKDF-SHA256, AES-256-GCM, jetons `[[BROCOLIS:v1:…]]`),
+calculé **dans la page** (WebAssembly, `site/src/crypto.rs`, recoupé avec une
+implémentation indépendante). On peut donc discuter navigateur ↔ navigateur
+**ou navigateur ↔ app** : un lien d'invitation créé sur le site s'ouvre dans
+l'app (Appairage → Je rejoins), et inversement. La discussion est retrouvée en
+rechargeant la page ; **Quitter** efface la clé du navigateur.
+
 ### Groupe (3+)
 
 Même geste : une personne touche **J'invite**, toutes les autres **rejoignent**

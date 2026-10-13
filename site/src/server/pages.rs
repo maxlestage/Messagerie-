@@ -7,7 +7,7 @@ use active::pwa::Manifest;
 
 use super::Ctx;
 use crate::i18n::{APPS, Lang};
-use crate::islands::{demo_island, salon_island, status_island};
+use crate::islands::{chat_island, demo_island, salon_island, status_island};
 use crate::routes::{self, Page, Route};
 use crate::{BROCOLIS_URL, LICENSE_FILE, REPO_URL, STACK, THEMES};
 
@@ -840,6 +840,16 @@ fn salon(ctx: &Ctx<'_>) -> String {
             p().class("lead rise")
                 .style("--i: 3")
                 .text(ctx.t("salon.intro"))
+                .into(),
+            // Discuter tout de suite, depuis le navigateur.
+            h2().class("reveal")
+                .id("discuter")
+                .text(ctx.t("chat.title"))
+                .into(),
+            p().class("legal-note").text(ctx.t("chat.intro")).into(),
+            div()
+                .class("panel chat-panel reveal")
+                .child(island("chat", ctx.lang().code(), chat_island))
                 .into(),
             flow(ctx).into(),
             h2().class("reveal")

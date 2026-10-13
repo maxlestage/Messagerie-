@@ -9,10 +9,11 @@ use crate::demo::{self, Segment};
 use crate::i18n::Lang;
 
 /// Tous les îlots, sous le nom donné à [`island`].
-pub const ISLANDS: [(&str, active::IslandFn); 3] = [
+pub const ISLANDS: [(&str, active::IslandFn); 4] = [
     ("demo", demo_island),
     ("salon", salon_island),
     ("status", status_island),
+    ("chat", chat_island),
 ];
 
 /// Le sel des jetons factices : le même sur le serveur et dans le navigateur,
@@ -344,6 +345,305 @@ fn radar(label: &'static str) -> Node {
                 .child(span().class("radar-blip")),
         )
         .child(p().class("salon-empty").text(label))
+        .into()
+}
+
+// ── Discussion en ligne ──────────────────────────────────────────────────────
+
+/// Où en est la discussion du navigateur.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ChatPhase {
+    /// Choisir : j'invite ou je rejoins.
+    Setup,
+    /// L'invitation est affichée (QR, code, lien), on attend les autres.
+    Inviting { code: String, link: String, qr: String },
+    /// On a rejoint `code`, la clé arrive.
+    Joining(String),
+    /// Appairés : on discute.
+    Chat,
+}
+
+/// Le contenu d'un message déchiffré.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ChatBody {
+    Text(String),
+    /// Photo (adresse `data:`), envoyée depuis l'app.
+    Image(String),
+    /// Vocal (adresse `data:`), envoyé depuis l'app.
+    Audio(String),
+    /// Chiffré avec une autre clé.
+    Locked,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ChatMsg {
+    pub id: String,
+    pub seq: u64,
+    pub mine: bool,
+    pub body: ChatBody,
+}
+
+/// Les états partagés entre l'îlot et le code réseau du navigateur.
+#[derive(Clone, Copy)]
+pub struct ChatStates {
+    pub lang: Lang,
+    pub phase: State<ChatPhase>,
+    pub status: State<String>,
+    pub fingerprint: State<String>,
+    pub messages: State<Vec<ChatMsg>>,
+    pub joined: State<u32>,
+}
+
+/// Décode un message déchiffré comme l'app (`BRCM1:img:` / `BRCM1:aud:`).
+pub fn chat_body(clear: Option<String>) -> ChatBody {
+    match clear {
+        None => ChatBody::Locked,
+        Some(c) => {
+            if let Some(b) = c.strip_prefix("BRCM1:img:") {
+                ChatBody::Image(format!("data:image/jpeg;base64,{b}"))
+            } else if let Some(b) = c.strip_prefix("BRCM1:aud:") {
+                ChatBody::Audio(format!("data:audio/mp4;base64,{b}"))
+            } else {
+                ChatBody::Text(c)
+            }
+        }
+    }
+}
+
+/// Discuter en ligne, depuis le navigateur, avec le MÊME appairage que l'app
+/// (« J'invite » / « Je rejoins », QR, code ou lien) et le même chiffrement :
+/// on peut parler à quelqu'un qui est sur l'app.
+pub fn chat_island(props: &str) -> Node {
+    let lang = lang(props);
+    let states = ChatStates {
+        lang,
+        phase: use_state(ChatPhase::Setup),
+        status: use_state(String::new()),
+        fingerprint: use_state(String::new()),
+        messages: use_state(Vec::<ChatMsg>::new()),
+        joined: use_state(0u32),
+    };
+    let ChatStates { phase, status, fingerprint, messages, joined, .. } = states;
+    let inviting = use_state(true);
+    let typed = use_state(String::new());
+    let draft = use_state(String::new());
+
+    let is = move |want: fn(&ChatPhase) -> bool| move || phase.with(want);
+    let invite_field = move |f: fn(&str, &str, &str) -> String| {
+        move || {
+            phase.with(|p| match p {
+                ChatPhase::Inviting { code, link, qr } => f(code, link, qr),
+                _ => String::new(),
+            })
+        }
+    };
+
+    div()
+        .class("chat")
+        .on_mount(move |_| {
+            #[cfg(target_arch = "wasm32")]
+            {
+                // Un lien d'invitation `?code=K7P2QX` : « Je rejoins », code rempli.
+                if let Some(c) = active::query_param("code").filter(|c| !c.trim().is_empty()) {
+                    inviting.set(false);
+                    typed.set(c.trim().to_uppercase());
+                }
+                crate::client::chat::resume(states);
+            }
+        })
+        // ── Choisir ──
+        .child(
+            div()
+                .class("chat-setup")
+                .class_if("is-hidden", move || !phase.with(|p| *p == ChatPhase::Setup))
+                .child(
+                    div()
+                        .class("chat-tabs")
+                        .attr("role", "tablist")
+                        .child(
+                            button()
+                                .class("pill")
+                                .attr("type", "button")
+                                .attr_dyn("aria-pressed", move || inviting.get().to_string())
+                                .on_click(move |_| inviting.set(true))
+                                .text(lang.t("chat.invite")),
+                        )
+                        .child(
+                            button()
+                                .class("pill")
+                                .attr("type", "button")
+                                .attr_dyn("aria-pressed", move || (!inviting.get()).to_string())
+                                .on_click(move |_| inviting.set(false))
+                                .text(lang.t("chat.join")),
+                        ),
+                )
+                .child(
+                    div()
+                        .class("chat-pane")
+                        .class_if("is-hidden", move || !inviting.get())
+                        .child(p().class("chat-hint").text(lang.t("chat.inviteHint")))
+                        .child(
+                            button()
+                                .class("btn primary")
+                                .attr("type", "button")
+                                .on_click(move |_| {
+                                    #[cfg(target_arch = "wasm32")]
+                                    crate::client::chat::invite(states);
+                                })
+                                .text(lang.t("chat.inviteGo")),
+                        ),
+                )
+                .child(
+                    form()
+                        .class("chat-pane")
+                        .class_if("is-hidden", move || inviting.get())
+                        .on("submit", move |e| {
+                            e.prevent_default();
+                            let c = typed.get().trim().to_uppercase();
+                            if c.len() >= 4 {
+                                #[cfg(target_arch = "wasm32")]
+                                crate::client::chat::join(c, states);
+                            }
+                        })
+                        .child(p().class("chat-hint").text(lang.t("chat.joinHint")))
+                        .child(
+                            div()
+                                .class("salon-row")
+                                .child(
+                                    input()
+                                        .class("input")
+                                        .attr("autocomplete", "off")
+                                        .attr("aria-label", lang.t("salon.codeLabel"))
+                                        .attr("placeholder", lang.t("salon.codePlaceholder"))
+                                        .attr_dyn("value", move || typed.get())
+                                        .on_input(move |e| typed.set(e.value().to_uppercase())),
+                                )
+                                .child(
+                                    button()
+                                        .class("btn primary")
+                                        .attr("type", "submit")
+                                        .bool_attr("disabled", move || typed.with(|c| c.trim().len() < 4))
+                                        .text(lang.t("chat.joinGo")),
+                                ),
+                        ),
+                ),
+        )
+        // ── Invitation affichée ──
+        .child(
+            div()
+                .class("chat-invite")
+                .class_if("is-hidden", is(|p| !matches!(p, ChatPhase::Inviting { .. })))
+                .child(
+                    img()
+                        .class("chat-qr")
+                        .attr("alt", lang.t("chat.qrAlt"))
+                        .attr("width", "200")
+                        .attr("height", "200")
+                        .attr_dyn("src", invite_field(|_, _, qr| qr.to_owned())),
+                )
+                .child(code().class("chat-code").text_dyn(invite_field(|c, _, _| c.to_owned())))
+                .child(
+                    input()
+                        .class("input chat-link")
+                        .attr("readonly", "")
+                        .attr("aria-label", lang.t("chat.link"))
+                        .attr_dyn("value", invite_field(|_, l, _| l.to_owned())),
+                )
+                .child(
+                    button()
+                        .class("btn")
+                        .attr("type", "button")
+                        .on_click(move |_| {
+                            #[cfg(target_arch = "wasm32")]
+                            crate::client::chat::copy_link(states);
+                        })
+                        .text(lang.t("chat.copy")),
+                )
+                .child(p().class("chat-hint").text(lang.t("chat.inviteWait"))),
+        )
+        // ── En attente de la clé ──
+        .child(
+            div()
+                .class("chat-joining")
+                .class_if("is-hidden", is(|p| !matches!(p, ChatPhase::Joining(_))))
+                .child(radar(lang.t("chat.joining"))),
+        )
+        // ── La discussion ──
+        .child(
+            div()
+                .class("chat-room")
+                .class_if("is-hidden", is(|p| *p != ChatPhase::Chat))
+                .child(
+                    p().class("chat-head")
+                        .child(span().class("live-dot").attr("aria-hidden", "true"))
+                        .child(strong().text(lang.t("chat.paired")))
+                        .child(
+                            code()
+                                .class("code-badge")
+                                .attr("title", lang.t("chat.fingerprint"))
+                                .text_dyn(move || fingerprint.get()),
+                        )
+                        .child(span().class("peer-count").text_dyn(move || {
+                            let n = joined.get();
+                            if n == 0 { String::new() } else { format!("+{n}") }
+                        }))
+                        .child(
+                            button()
+                                .class("pill chat-leave")
+                                .attr("type", "button")
+                                .on_click(move |_| {
+                                    #[cfg(target_arch = "wasm32")]
+                                    crate::client::chat::leave(states);
+                                })
+                                .text(lang.t("chat.leave")),
+                        ),
+                )
+                .child(ul().class("chat-log").attr("aria-live", "polite").children_keyed(
+                    move || messages.get(),
+                    |m| m.id.clone(),
+                    move |m| {
+                        let body: Node = match &m.body {
+                            ChatBody::Text(t) => span().text(t.clone()).into(),
+                            ChatBody::Image(src) => img().attr("src", src.clone()).attr("alt", lang.t("chat.photo")).into(),
+                            ChatBody::Audio(src) => audio().attr("controls", "").attr("src", src.clone()).into(),
+                            ChatBody::Locked => span().class("chat-locked").text(lang.t("chat.locked")).into(),
+                        };
+                        li().class("chat-msg")
+                            .class(if m.mine { "mine" } else { "theirs" })
+                            .child(body)
+                            .into()
+                    },
+                ))
+                .child(
+                    form()
+                        .class("chat-compose")
+                        .on("submit", move |e| {
+                            e.prevent_default();
+                            let text = draft.get();
+                            if !text.trim().is_empty() {
+                                draft.set(String::new());
+                                #[cfg(target_arch = "wasm32")]
+                                crate::client::chat::send(text, states);
+                            }
+                        })
+                        .child(
+                            input()
+                                .class("input")
+                                .attr("autocomplete", "off")
+                                .attr("aria-label", lang.t("chat.placeholder"))
+                                .attr("placeholder", lang.t("chat.placeholder"))
+                                .attr_dyn("value", move || draft.get())
+                                .on_input(move |e| draft.set(e.value())),
+                        )
+                        .child(
+                            button()
+                                .class("btn primary")
+                                .attr("type", "submit")
+                                .text(lang.t("chat.send")),
+                        ),
+                ),
+        )
+        .child(p().class("chat-status").attr("aria-live", "polite").text_dyn(move || status.get()))
         .into()
 }
 
