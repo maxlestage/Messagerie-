@@ -128,10 +128,15 @@ async fn peers(code: &str, peer_id: &str) -> Vec<(String, String)> {
         .collect()
 }
 
-async fn publish(code: &str, peer_id: &str, public: &str) -> bool {
-    call("POST", "/pair", Some(json(&[("code", code), ("peerId", peer_id), ("pub", public)])))
-        .await
-        .is_some()
+/// S'inscrit au salon ; `host` : c'est l'invitant (lui seul remettra la clé).
+async fn publish(code: &str, peer_id: &str, public: &str, host: bool) -> bool {
+    let body = js_sys::Object::new();
+    for (k, v) in [("code", code), ("peerId", peer_id), ("pub", public)] {
+        let _ = js_sys::Reflect::set(&body, &JsValue::from_str(k), &JsValue::from_str(v));
+    }
+    let _ = js_sys::Reflect::set(&body, &"host".into(), &JsValue::from_bool(host));
+    let body = js_sys::JSON::stringify(&body).ok().and_then(|s| s.as_string()).unwrap_or_default();
+    call("POST", "/pair", Some(body)).await.is_some()
 }
 
 // ── J'invite ─────────────────────────────────────────────────────────────────
@@ -156,7 +161,7 @@ pub fn invite(s: ChatStates) {
     let group_key = crypto::random_bytes::<32>();
 
     spawn_local(async move {
-        if !publish(&code, &peer_id, &public).await {
+        if !publish(&code, &peer_id, &public, true).await {
             s.status.set(lang.t("chat.offline").to_owned());
             return;
         }
@@ -228,7 +233,7 @@ pub fn join(code: String, s: ChatStates) {
     s.status.set(String::new());
 
     spawn_local(async move {
-        if !publish(&code, &peer_id, &public).await {
+        if !publish(&code, &peer_id, &public, false).await {
             s.phase.set(ChatPhase::Setup);
             s.status.set(s.lang.t("chat.offline").to_owned());
             return;
