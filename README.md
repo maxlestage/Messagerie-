@@ -148,18 +148,25 @@ section **« Chiffrer pour »**, coche plusieurs clés (ex. « Maman » + « Tra
 
 ## Appairage automatique (sans copier la clé)
 
-Plutôt que de copier-coller la clé symétrique, deux personnes peuvent
-**l'obtenir automatiquement** par accord de clé **X25519 (ECDH)** :
+Plutôt que de copier-coller la clé, on s'appaire en **deux gestes**, à 2 comme
+à plusieurs, **à côté ou à distance** :
 
-1. Les deux ouvrent l'app → **Appairer automatiquement**, renseignent
-   **le même code court** (ex. `ABC123`). Le serveur de rendez-vous est fixé
-   dans l'app : <https://brocolis-serveur-839b43057467.herokuapp.com>.
-2. Chaque téléphone publie sa **clé publique** sur le serveur de rendez-vous et
-   récupère celle de l'autre, puis **dérive seul** la même clé AES (HKDF). La
-   clé secrète n'est jamais transmise ; le serveur ne voit que des clés
-   publiques.
-3. L'app affiche une **empreinte de sécurité** : comparez-la de vive voix. Si
-   elle est identique des deux côtés, personne n'a intercepté l'échange (MITM).
+1. **J'invite** : l'app affiche un **QR code**, un code court (ex. `K7P2QX`) et
+   un bouton **Envoyer le lien**. L'invitation reste valable **10 minutes**.
+2. **Je rejoins** :
+   - **à côté** : on touche **Scanner le QR code** (appareil photo intégré) ;
+   - **à distance** : on **touche le lien reçu** par message — la page du salon
+     s'ouvre, puis **Ouvrir dans l'app Brocolis** (lien `brocolis://pair?code=…`)
+     lance l'appairage tout seul, code rempli ;
+   - ou on tape le code.
+3. Chaque téléphone publie sa **clé publique X25519** dans le salon ; celui qui
+   invite **génère la clé** et la remet à chacun, **chiffrée pour sa clé
+   publique**. Le serveur ne voit que des clés publiques et du chiffré.
+4. L'app affiche une **empreinte de sécurité** : comparez-la de vive voix (par
+   un appel si vous êtes loin). Identique pour tous = pas d'interception (MITM).
+
+Le **Mode compatible** garde l'ancien appairage à deux (chacun dérive la clé
+par Diffie-Hellman) pour les versions qui n'ont que « Appairer à deux ».
 
 Le serveur de messagerie est dans [`server-rust/`](server-rust/) (Rust ·
 [Vitesse](https://maxlestage.github.io/Vitesse/), données en mémoire avec
@@ -171,19 +178,11 @@ ensuite la clé dérivée comme d'habitude.
 > Le code court ne sert qu'à se *rejoindre* : la sécurité réelle vient de X25519
 > et de la vérification de l'empreinte.
 
-### Groupe (3+) — automatique
+### Groupe (3+)
 
-Tout le monde saisit le même code, puis :
-
-1. Les **membres** touchent **Rejoindre le groupe** (ils publient leur clé
-   publique et attendent).
-2. Le **fondateur** touche **Créer le groupe** : l'app génère une clé de groupe
-   AES aléatoire et la **distribue, emballée (chiffrée) pour chaque membre** via
-   X25519. Chaque membre la **déballe** avec sa clé privée.
-
-Résultat : tous partagent **la même clé** automatiquement, sans copier-coller,
-et l'extension fonctionne pour tout le groupe. Comparez l'**empreinte** (dérivée
-de la clé de groupe) : elle doit être identique pour tous.
+Même geste : une personne touche **J'invite**, toutes les autres **rejoignent**
+(QR ou lien), **dans n'importe quel ordre** pendant les 10 minutes. Tout le
+monde obtient **la même clé** et la même empreinte.
 
 Le serveur ne voit que des **clés publiques** et des **blobs chiffrés** ; il ne
 peut pas déballer la clé de groupe. Plafond de participants par code :
@@ -209,10 +208,8 @@ peut pas déballer la clé de groupe. Plafond de participants par code :
   clé, sans ouvrir l'app) et reprogramme le préavis, et **« Ouvrir pour
   renouveler »** qui ouvre l'app directement sur l'écran d'appairage pour une
   **vraie rotation** (nouvelle clé de groupe).
-- **Rotation** : pour un groupe, le fondateur relance **Créer le groupe** → une
-  **nouvelle clé** est générée et redistribuée (le `/wrap` du serveur écrase
-  l'ancienne) ; les membres la récupèrent en re-touchant **Rejoindre le
-  groupe**. La nouvelle clé n'expire pas tant que tu ne règles pas sa validité.
+- **Rotation** : refaites un appairage (**J'invite** / **Je rejoins**) → une
+  **nouvelle clé** est générée et redistribuée. La nouvelle clé n'expire pas tant que tu ne règles pas sa validité.
 
 ## Interopérable avec brocolis
 

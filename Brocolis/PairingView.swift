@@ -2,176 +2,91 @@
 //  PairingView.swift
 //  Brocolis 🥦 (app uniquement)
 //
-//  Appairage automatique via le serveur de rendez-vous (X25519) :
-//   - À deux : échange des clés publiques, dérivation directe de la clé AES.
-//   - Groupe : un fondateur génère une clé de groupe et la distribue, emballée
-//     (chiffrée) pour chaque membre. Tout le monde obtient la même clé,
-//     automatiquement, sans copier-coller.
+//  Appairage automatique via le serveur de rendez-vous (X25519), en deux
+//  gestes : « J'invite » (affiche un QR code) ou « Je rejoins » (le scanne, ou
+//  tape le code). L'invitant génère la clé et la remet, chiffrée pour chacun,
+//  à toute personne qui rejoint : à 2 comme en groupe, dans n'importe quel
+//  ordre. Le « Mode compatible » garde l'ancien appairage à deux (dérivation
+//  directe) pour les versions qui n'ont que lui.
 //
 
 import SwiftUI
 import CryptoKit
 import CoreImage.CIFilterBuiltins
+import VisionKit
 
 struct PairingView: View {
-    @State private var code = ""
+    /// Deux gestes seulement : j'invite (je montre un code) ou je rejoins
+    /// (je scanne / tape le code). Ça marche à 2 comme à 10.
+    private enum Mode: Hashable { case invite, join }
+
+    @State private var mode: Mode
+    @State private var contactName = ""
+    @State private var code: String
+    /// Code reçu par lien (brocolis://pair?code=…) : on rejoint tout seul.
+    private let initialCode: String?
+    /// Fin de validité de l'invitation affichée (le salon garde 10 min).
+    @State private var inviteDeadline: Date?
     @State private var status = ""
-    @State private var fingerprint: String? = BrocolisKeyStore.pairingFingerprint
+    @State private var fingerprint: String? = nil
     @State private var isWorking = false
     @State private var task: Task<Void, Never>?
     /// Les participants vus dans le salon (clés publiques seulement), en direct.
     @State private var roomPeers: [PairingPeer] = []
+    /// Combien de personnes ont reçu la clé (côté invitant).
+    @State private var delivered = 0
+    @State private var showScanner = false
     /// Offre à montrer si l'appairage ajouterait une clé au-delà du gratuit.
     @State private var paywallReason: BrocolisPaidFeature?
+    @Environment(\.dismiss) private var dismiss
 
     private let codeAlphabet = Array("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
+
+    init(initialCode: String? = nil) {
+        self.initialCode = initialCode
+        _mode = State(initialValue: initialCode == nil ? .invite : .join)
+        _code = State(initialValue: initialCode ?? "")
+    }
 
     var body: some View {
         Form {
             Section {
-                locText("Saisissez **le même code** sur tous les téléphones.", "Enter **the same code** on every phone.", "Escribe **el mismo código** en todos los teléfonos.")
-                    .font(.subheadline)
-            }
-            .listRowBackground(Color.brocoliCard)
-
-            // LED d'état : vert = tout bon (appairés), orange = en cours,
-            // rouge = échec, gris = en attente.
-            Section {
-                HStack(spacing: 14) {
-                    ZStack {
-                        Circle()
-                            .fill(ledColor)
-                            .frame(width: 24, height: 24)
-                            .shadow(color: ledColor.opacity(0.9),
-                                    radius: pairState == .success ? 9 : 3)
-                        if pairState == .working {
-                            Circle()
-                                .stroke(ledColor.opacity(0.5), lineWidth: 3)
-                                .frame(width: 24, height: 24)
-                        }
-                    }
-                    Text(ledLabel)
-                        .font(.subheadline)
-                        .foregroundStyle(pairState == .success ? .green : .primary)
-                    Spacer()
+                TextField(loc("Avec qui ? (ex. Clément) — facultatif", "With whom? (e.g. Sam) — optional", "¿Con quién? (ej. Clara) — opcional"), text: $contactName)
+                    .textInputAutocapitalization(.words)
+                    .disabled(isWorking)
+                Picker("", selection: $mode) {
+                    Text(loc("J’invite", "I invite", "Invito")).tag(Mode.invite)
+                    Text(loc("Je rejoins", "I join", "Me uno")).tag(Mode.join)
                 }
-                .animation(.easeInOut, value: pairState)
-            }
-            .listRowBackground(Color.brocoliCard)
-
-            Section(loc("Code de jumelage", "Pairing code", "Código de emparejamiento")) {
-                HStack {
-                    TextField(loc("ex. ABC123", "e.g. ABC123", "ej. ABC123"), text: $code)
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.characters)
-                        .font(.system(.title3, design: .monospaced))
-                    Button(loc("Générer", "Generate", "Generar")) { code = randomCode() }
-                        .buttonStyle(.bordered)
-                        .disabled(isWorking)
-                }
-            }
-            .listRowBackground(Color.brocoliCard)
-
-            // Le code en QR : l'appareil photo de l'autre téléphone ouvre le
-            // salon en direct sur le site, avec le code déjà rempli.
-            if !trimmedCode.isEmpty, let qr = qrImage(for: salonURL) {
-                Section {
-                    VStack(spacing: 10) {
-                        Image(uiImage: qr)
-                            .interpolation(.none)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 180, height: 180)
-                            .padding(10)
-                            .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
-                        Text(trimmedCode.uppercased())
-                            .font(.system(.title2, design: .monospaced).weight(.bold))
-                        ShareLink(item: salonURL,
-                                  message: Text(loc("Mon code Brocolis 🥦 : \(trimmedCode.uppercased())",
-                                                    "My Brocolis 🥦 code: \(trimmedCode.uppercased())",
-                                                    "Mi código Brocolis 🥦: \(trimmedCode.uppercased())"))) {
-                            Label(loc("Partager le code", "Share the code", "Compartir el código"),
-                                  systemImage: "square.and.arrow.up")
-                        }
-                        .buttonStyle(.bordered)
-                    }
-                    .frame(maxWidth: .infinity)
-                } footer: {
-                    Text(loc("Fais scanner ce QR ou partage le code : ton correspondant saisit le même code dans son app.",
-                             "Have them scan this QR or share the code: your contact enters the same code in their app.",
-                             "Haz escanear este QR o comparte el código: tu contacto introduce el mismo código en su app."))
-                }
-                .listRowBackground(Color.brocoliCard)
-            }
-
-            // Le salon en direct : qui a déjà publié sa clé publique sous ce code.
-            if isWorking || !roomPeers.isEmpty {
-                Section(loc("Dans le salon", "In the room", "En la sala")) {
-                    if roomPeers.isEmpty {
-                        HStack(spacing: 10) {
-                            ProgressView()
-                            Text(loc("On guette les arrivées…", "Watching for arrivals…", "Vigilando las llegadas…"))
-                                .foregroundStyle(.secondary)
-                        }
-                    } else {
-                        ForEach(roomPeers, id: \.peerId) { peer in
-                            HStack(spacing: 10) {
-                                Text("🥦")
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(loc("Participant", "Participant", "Participante") + " · " + String(peer.peerId.prefix(6)))
-                                        .font(.subheadline.weight(.semibold))
-                                    Text(loc("clé publique", "public key", "clave pública") + " : " + String(peer.pub.prefix(14)) + "…")
-                                        .font(.caption.monospaced())
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            .transition(.move(edge: .leading).combined(with: .opacity))
-                        }
-                    }
-                }
-                .animation(.spring(response: 0.4, dampingFraction: 0.8), value: roomPeers.map(\.peerId))
-                .listRowBackground(Color.brocoliCard)
-            }
-
-            Section {
-                actionButton(title: loc("Appairer à deux", "Pair one-to-one", "Emparejar entre dos"), systemImage: "person.2.fill") {
-                    run { try await pairTwo() }
-                }
+                .pickerStyle(.segmented)
+                .disabled(isWorking)
             } footer: {
-                Text(loc("Pour 2 personnes : chacune dérive la clé directement.", "For 2 people: each one derives the key directly.", "Para 2 personas: cada una deriva la clave directamente."))
+                Text(mode == .invite
+                     ? loc("À côté : fais scanner ton QR. Loin : envoie le lien par message — il le touche, son app s’ouvre et vous êtes appairés. Marche à 2 comme en groupe.", "Nearby: have them scan your QR. Far away: send the link by message — they tap it, their app opens and you’re paired. Works for 2 or a group.", "Cerca: que escaneen tu QR. Lejos: envía el enlace por mensaje — lo tocan, su app se abre y quedáis emparejados. Funciona entre 2 o en grupo.")
+                     : loc("Tu as reçu un lien ? Touche-le, tout se fait seul. Sinon scanne le QR ou tape le code.", "Got a link? Just tap it, everything happens on its own. Otherwise scan the QR or type the code.", "¿Recibiste un enlace? Tócalo y todo se hace solo. Si no, escanea el QR o escribe el código."))
             }
             .listRowBackground(Color.brocoliCard)
 
-            Section {
-                actionButton(title: loc("Créer le groupe (je distribue la clé)", "Create the group (I distribute the key)", "Crear el grupo (yo distribuyo la clave)"), systemImage: "person.3.fill") {
-                    run { try await createGroup() }
-                }
-                actionButton(title: loc("Rejoindre le groupe", "Join the group", "Unirse al grupo"), systemImage: "person.fill.badge.plus") {
-                    run { try await joinGroup() }
-                }
-            } header: {
-                Text(loc("Groupe (3+)", "Group (3+)", "Grupo (3+)"))
-            } footer: {
-                Text(loc("Ordre : les membres touchent d’abord « Rejoindre le groupe », puis le fondateur touche « Créer le groupe ». Le fondateur génère la clé et la distribue chiffrée à chacun.", "Order: members first tap “Join the group”, then the founder taps “Create the group”. The founder generates the key and distributes it encrypted to each member.", "Orden: los miembros tocan primero «Unirse al grupo», luego el fundador toca «Crear el grupo». El fundador genera la clave y la distribuye cifrada a cada uno."))
-            }
-            .listRowBackground(Color.brocoliCard)
-
-            if isWorking {
-                Section {
-                    Button(loc("Annuler", "Cancel", "Cancelar"), role: .cancel) { cancel() }
-                }
-                .listRowBackground(Color.brocoliCard)
+            if mode == .invite {
+                inviteSection
+            } else {
+                joinSection
             }
 
             if !status.isEmpty {
-                Section { Text(status).font(.subheadline) }
-                    .listRowBackground(Color.brocoliCard)
+                Section {
+                    HStack(spacing: 10) {
+                        if isWorking { ProgressView() }
+                        Text(status).font(.subheadline)
+                    }
+                }
+                .listRowBackground(Color.brocoliCard)
             }
 
             if let fp = fingerprint {
                 Section {
                     VStack(alignment: .leading, spacing: 6) {
-                        Label(loc("Clé en place", "Key in place", "Clave en su lugar"), systemImage: "checkmark.seal.fill")
+                        Label(loc("Appairés ✅", "Paired ✅", "Emparejados ✅"), systemImage: "checkmark.seal.fill")
                             .foregroundStyle(.green)
                         Text(loc("Empreinte de sécurité", "Security fingerprint", "Huella de seguridad"))
                             .font(.caption).foregroundStyle(.secondary)
@@ -180,58 +95,201 @@ struct PairingView: View {
                             .textSelection(.enabled)
                     }
                 } footer: {
-                    Text(loc("Comparez cette empreinte de vive voix avec les autres. Si elle est identique pour tous, la clé n’a pas été interceptée.", "Compare this fingerprint out loud with the others. If it is identical for everyone, the key has not been intercepted.", "Compara esta huella en voz alta con los demás. Si es idéntica para todos, la clave no ha sido interceptada."))
+                    Text(loc("Facultatif : comparez cette empreinte de vive voix — par un appel si vous êtes loin. Identique pour tous = la clé n’a pas été interceptée.", "Optional: compare this fingerprint out loud — on a call if you’re far apart. Identical for everyone = the key wasn’t intercepted.", "Opcional: comparad esta huella en voz alta — por llamada si estáis lejos. Idéntica para todos = la clave no ha sido interceptada."))
                 }
                 .listRowBackground(Color.brocoliCard)
             }
+
+            Section {
+                DisclosureGroup(loc("Mode compatible (anciennes versions)", "Compatibility mode (older versions)", "Modo compatible (versiones antiguas)")) {
+                    Text(loc("Si l’autre téléphone n’a que « Appairer à deux » : saisissez le même code de part et d’autre, puis touchez ce bouton.", "If the other phone only has “Pair one-to-one”: enter the same code on both, then tap this button.", "Si el otro teléfono solo tiene «Emparejar entre dos»: escribid el mismo código en ambos y tocad este botón."))
+                        .font(.footnote).foregroundStyle(.secondary)
+                    codeField
+                    Button {
+                        run { try await pairTwo() }
+                    } label: {
+                        Label(loc("Appairer à deux", "Pair one-to-one", "Emparejar entre dos"), systemImage: "person.2.fill")
+                    }
+                    .disabled(isWorking)
+                }
+            }
+            .listRowBackground(Color.brocoliCard)
         }
         .brocolisBackground()
         .navigationTitle(loc("Appairage", "Pairing", "Emparejamiento"))
         .navigationBarTitleDisplayMode(.inline)
+        .onChange(of: mode) { _ in
+            cancel()
+            status = ""
+            fingerprint = nil
+            roomPeers = []
+            code = ""
+        }
+        .onAppear {
+            // Arrivé par un lien : on rejoint directement.
+            if let c = initialCode, !c.isEmpty, !isWorking, fingerprint == nil {
+                run { try await joinGroup() }
+            }
+        }
         .onDisappear { cancel() }
+        // Pendant l'attente, l'écran ne se met pas en veille.
+        .onChange(of: isWorking) { working in
+            UIApplication.shared.isIdleTimerDisabled = working
+        }
         .sheet(item: $paywallReason) { reason in PaywallView(reason: reason) }
-    }
-
-    // MARK: État visuel (LED)
-
-    private enum PairState: Equatable { case idle, working, success, error }
-
-    private var pairState: PairState {
-        if isWorking { return .working }
-        if fingerprint != nil { return .success }
-        if status.hasPrefix("⚠️") { return .error }
-        return .idle
-    }
-
-    private var ledColor: Color {
-        switch pairState {
-        case .idle:    return .gray
-        case .working: return .orange
-        case .success: return .green
-        case .error:   return .red
+        .sheet(isPresented: $showScanner) {
+            QRScannerSheet { scanned in
+                showScanner = false
+                if let c = Self.scannedCode(from: scanned) {
+                    code = c
+                    run { try await joinGroup() }
+                } else {
+                    status = loc("⚠️ Ce QR n’est pas un code Brocolis.", "⚠️ This QR isn’t a Brocolis code.", "⚠️ Este QR no es un código Brocolis.")
+                }
+            }
         }
     }
 
-    private var ledLabel: String {
-        switch pairState {
-        case .idle:    return loc("En attente — saisis un code, puis lance l’appairage.", "Waiting — enter a code, then start pairing.", "Esperando — escribe un código, luego inicia el emparejamiento.")
-        case .working: return loc("Appairage en cours…", "Pairing in progress…", "Emparejamiento en curso…")
-        case .success: return loc("✅ Tout bon — clé en place, vous êtes appairés.", "✅ All good — key in place, you’re paired.", "✅ Todo bien — clave en su lugar, estáis emparejados.")
-        case .error:   return loc("Échec — vérifie le code et réessaie.", "Failed — check the code and retry.", "Error — comprueba el código y reinténtalo.")
+    // MARK: J'invite
+
+    @ViewBuilder private var inviteSection: some View {
+        if isWorking, !trimmedCode.isEmpty, let qr = qrImage(for: salonURL) {
+            Section {
+                VStack(spacing: 10) {
+                    Image(uiImage: qr)
+                        .interpolation(.none)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 210, height: 210)
+                        .padding(10)
+                        .background(Color.white, in: RoundedRectangle(cornerRadius: 14))
+                    Text(trimmedCode)
+                        .font(.system(.largeTitle, design: .monospaced).weight(.bold))
+                        .kerning(4)
+                    ShareLink(item: salonURL,
+                              message: Text(loc("Appairons-nous sur Brocolis 🥦 (dans les 10 min) : touche ce lien puis « Ouvrir dans l’app ». Ou dans l’app : Appairage → Je rejoins → code \(trimmedCode).",
+                                                "Let’s pair on Brocolis 🥦 (within 10 min): tap this link, then “Open in the app”. Or in the app: Pairing → I join → code \(trimmedCode).",
+                                                "Emparejémonos en Brocolis 🥦 (en 10 min): toca este enlace y luego «Abrir en la app». O en la app: Emparejamiento → Me uno → código \(trimmedCode)."))) {
+                        Label(loc("Envoyer le lien (à distance)", "Send the link (remote)", "Enviar el enlace (a distancia)"), systemImage: "paperplane.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.brocoliGreen)
+                    if isWorking, let deadline = inviteDeadline, deadline > Date() {
+                        HStack(spacing: 4) {
+                            Text(loc("Valable encore", "Still valid for", "Válido aún"))
+                            Text(timerInterval: Date()...deadline, countsDown: true)
+                                .monospacedDigit()
+                        }
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    }
+                    Text(delivered == 0
+                         ? loc("En attente des autres…", "Waiting for the others…", "Esperando a los demás…")
+                         : loc("\(delivered) personne(s) appairée(s)", "\(delivered) person(s) paired", "\(delivered) persona(s) emparejada(s)"))
+                        .font(.headline)
+                        .foregroundStyle(delivered == 0 ? Color.secondary : Color.green)
+                    if isWorking {
+                        Button(loc("Terminé", "Done", "Listo")) {
+                            let paired = delivered > 0
+                            cancel()
+                            if paired { dismiss() }
+                        }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.brocoliGreen)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .animation(.spring(response: 0.4, dampingFraction: 0.8), value: delivered)
+            }
+            .listRowBackground(Color.brocoliCard)
+        } else {
+            Section {
+                Button {
+                    code = randomCode()
+                    run { try await createGroup() }
+                } label: {
+                    Label(loc("Afficher mon QR code", "Show my QR code", "Mostrar mi código QR"), systemImage: "qrcode")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.brocoliGreen)
+            }
+            .listRowBackground(Color.brocoliCard)
         }
+    }
+
+    // MARK: Je rejoins
+
+    @ViewBuilder private var joinSection: some View {
+        Section {
+            Button {
+                showScanner = true
+            } label: {
+                Label(loc("Scanner le QR code", "Scan the QR code", "Escanear el código QR"), systemImage: "qrcode.viewfinder")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.brocoliGreen)
+            .disabled(isWorking)
+        }
+        .listRowBackground(Color.brocoliCard)
+
+        Section(loc("Ou tape le code", "Or type the code", "O escribe el código")) {
+            codeField
+            Button {
+                run { try await joinGroup() }
+            } label: {
+                Label(loc("Rejoindre", "Join", "Unirme"), systemImage: "person.fill.badge.plus")
+            }
+            .disabled(isWorking || trimmedCode.count < 4)
+        }
+        .listRowBackground(Color.brocoliCard)
+
+        if isWorking && !roomPeers.isEmpty {
+            Section(loc("Dans le salon", "In the room", "En la sala")) {
+                Text(loc("\(roomPeers.count) autre(s) personne(s) connectée(s)", "\(roomPeers.count) other person(s) connected", "\(roomPeers.count) otra(s) persona(s) conectada(s)"))
+            }
+            .listRowBackground(Color.brocoliCard)
+        }
+
+        if isWorking {
+            Section {
+                Button(loc("Annuler", "Cancel", "Cancelar"), role: .cancel) { cancel() }
+            }
+            .listRowBackground(Color.brocoliCard)
+        }
+    }
+
+    private var codeField: some View {
+        TextField(loc("ex. K7P2QX", "e.g. K7P2QX", "ej. K7P2QX"), text: $code)
+            .autocorrectionDisabled()
+            .textInputAutocapitalization(.characters)
+            .font(.system(.title2, design: .monospaced))
+            .disabled(isWorking)
+            .onChange(of: code) { v in
+                let clean = String(v.uppercased().filter { $0.isLetter || $0.isNumber }.prefix(12))
+                if clean != v { code = clean }
+            }
+    }
+
+    /// Le code d'un QR Brocolis (lien du salon `…?code=K7P2QX`) ou d'un code nu.
+    static func scannedCode(from raw: String) -> String? {
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let comps = URLComponents(string: text),
+           let c = comps.queryItems?.first(where: { $0.name == "code" })?.value, !c.isEmpty {
+            return c.uppercased()
+        }
+        let bare = text.uppercased()
+        if (4...12).contains(bare.count), bare.allSatisfy({ $0.isLetter || $0.isNumber }) { return bare }
+        return nil
     }
 
     // MARK: UI helpers
-
-    private func actionButton(title: String, systemImage: String, action: @escaping () -> Void) -> some View {
-        // On ne désactive PLUS le bouton quand le code est vide : sinon il ne se
-        // passe rien quand on touche, sans explication. À la place, `run` détecte
-        // le code manquant et le signale clairement.
-        Button(action: action) {
-            Label(title, systemImage: systemImage)
-        }
-        .disabled(isWorking)
-    }
 
     private func randomCode(length: Int = 6) -> String {
         String((0..<length).map { _ in codeAlphabet.randomElement()! })
@@ -272,7 +330,7 @@ struct PairingView: View {
         code = code.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         // Garde-fou : sans code, on explique au lieu de rester inerte.
         guard !code.isEmpty else {
-            status = loc("⚠️ Entre d’abord un code de jumelage (le MÊME que ton correspondant), ou touche « Générer » et partage-le-lui.", "⚠️ Enter a pairing code first (the SAME as your contact’s), or tap “Generate” and share it with them.", "⚠️ Escribe primero un código de emparejamiento (el MISMO que tu contacto), o toca «Generar» y compártelo con él.")
+            status = loc("⚠️ Entre d’abord le code (ou scanne le QR).", "⚠️ Enter the code first (or scan the QR).", "⚠️ Escribe primero el código (o escanea el QR).")
             return
         }
         // Un appairage ajoute une clé : même limite que créer ou importer
@@ -285,6 +343,7 @@ struct PairingView: View {
         isWorking = true
         fingerprint = nil
         roomPeers = []
+        delivered = 0
         task = Task {
             do {
                 try await body()
@@ -297,6 +356,7 @@ struct PairingView: View {
     }
 
     private func cancel() {
+        UIApplication.shared.isIdleTimerDisabled = false
         task?.cancel()
         task = nil
         if isWorking { isWorking = false }
@@ -333,21 +393,25 @@ struct PairingView: View {
 
     // MARK: Flux — fondateur du groupe
 
+    /// L'invitant génère la clé et la remet, chiffrée (X25519), à chaque
+    /// personne qui rejoint avec son code — à 2 comme à 10, dans n'importe quel
+    /// ordre, pendant 5 minutes. La clé n'est enregistrée qu'à la première
+    /// remise : une invitation restée sans réponse ne laisse rien derrière elle.
     private func createGroup() async throws {
         let priv = BrocolisKeyAgreement.loadOrCreatePrivateKey()
         let myPub = BrocolisKeyAgreement.publicKeyBase64(of: priv)
         let peerId = UUID().uuidString
-
-        // Le fondateur a la clé tout de suite.
         let groupKey = BrocolisKeyAgreement.generateGroupKeyBase64()
-        applyKey(groupKey, fingerprint: BrocolisKeyAgreement.groupFingerprint(groupKeyBase64: groupKey),
-                 message: loc("Clé de groupe créée. Distribution en cours…", "Group key created. Distribution in progress…", "Clave de grupo creada. Distribución en curso…"), peerId: peerId, keepWorking: true)
+        // Le salon garde l'invitation 10 min : de quoi laisser à quelqu'un de
+        // loin le temps de voir le message et de toucher le lien.
+        let deadline = Date().addingTimeInterval(10 * 60 - 15)
+        await MainActor.run { delivered = 0; inviteDeadline = deadline }
 
-        // Publie sa clé publique pour que les membres puissent déballer.
         _ = try await client.publish(code: code, peerId: peerId, pub: myPub)
+        update(loc("Fais scanner ce QR, ou envoie le lien. Garde cet écran ouvert.", "Have them scan this QR, or send the link. Keep this screen open.", "Haz que escaneen este QR o envía el enlace. Mantén esta pantalla abierta."))
 
         var wrappedTo = Set<String>()
-        for _ in 0..<30 {
+        while Date() < deadline {
             if Task.isCancelled { return }
             let peers = try await client.fetch(code: code, peerId: peerId)
             await showPeers(peers, excluding: myPub)
@@ -360,13 +424,24 @@ struct PairingView: View {
                     items.append(WrapItem(toPeerId: p.peerId, blob: blob))
                 }
                 try await client.postWraps(code: code, fromPeerId: peerId, fromPub: myPub, items: items)
+                let first = wrappedTo.isEmpty
                 newPeers.forEach { wrappedTo.insert($0.peerId) }
                 BrocolisKeyStore.setPairingPeerIds(Array(wrappedTo))
-                update(loc("Clé distribuée à \(wrappedTo.count) membre(s). Touche « Annuler » quand tout le monde a reçu.", "Key distributed to \(wrappedTo.count) member(s). Tap “Cancel” when everyone has received it.", "Clave distribuida a \(wrappedTo.count) miembro(s). Toca «Cancelar» cuando todos la hayan recibido."))
+                if first {
+                    applyKey(groupKey, fingerprint: BrocolisKeyAgreement.groupFingerprint(groupKeyBase64: groupKey),
+                             message: loc("✅ Appairé ! D’autres peuvent encore scanner ; touche « Terminé » quand c’est bon.", "✅ Paired! Others can still scan; tap “Done” when everyone’s in.", "✅ ¡Emparejado! Otros aún pueden escanear; toca «Listo» cuando estén todos."),
+                             peerId: peerId, keepWorking: true)
+                }
+                let n = wrappedTo.count
+                await MainActor.run { delivered = n }
             }
             try await Task.sleep(nanoseconds: 2_000_000_000)
         }
-        finish(message: loc("Distribution terminée (\(wrappedTo.count) membre(s)).", "Distribution complete (\(wrappedTo.count) member(s)).", "Distribución completada (\(wrappedTo.count) miembro(s))."))
+        if wrappedTo.isEmpty {
+            finish(error: loc("Personne n’a rejoint en 10 min. Réessaie quand l’autre est disponible.", "Nobody joined within 10 min. Try again when the other person is available.", "Nadie se ha unido en 10 min. Reinténtalo cuando la otra persona esté disponible."))
+        } else {
+            finish(message: loc("✅ Terminé : \(wrappedTo.count) personne(s) appairée(s).", "✅ Done: \(wrappedTo.count) person(s) paired.", "✅ Listo: \(wrappedTo.count) persona(s) emparejada(s)."))
+        }
     }
 
     // MARK: Flux — membre du groupe
@@ -379,28 +454,31 @@ struct PairingView: View {
         update(loc("Publication de ta clé publique…", "Publishing your public key…", "Publicando tu clave pública…"))
         let others = try await client.publish(code: code, peerId: peerId, pub: myPub)
         await showPeers(others, excluding: myPub)
-        update(loc("En attente de la clé du groupe…", "Waiting for the group key…", "Esperando la clave del grupo…"))
+        update(loc("Connexion… (l’invitant doit avoir son QR affiché)", "Connecting… (the inviter must have their QR showing)", "Conectando… (quien invita debe tener su QR visible)"))
 
-        for _ in 0..<60 {
+        // Jusqu'à 10 min : l'invitant, s'il est loin, a pu quitter l'app un
+        // instant ; il remet la clé dès qu'il revient sur l'écran.
+        for _ in 0..<400 {
             if Task.isCancelled { return }
             if let wrap = try await client.fetchWrap(code: code, peerId: peerId) {
                 let groupKey = try BrocolisKeyAgreement.unwrapGroupKey(
                     blobBase64: wrap.blob, fromPeerPublicBase64: wrap.fromPub, myPrivate: priv)
                 BrocolisKeyStore.setPairingPeerIds([wrap.from])
                 applyKey(groupKey, fingerprint: BrocolisKeyAgreement.groupFingerprint(groupKeyBase64: groupKey),
-                         message: loc("✅ Clé de groupe reçue. Brocolis est actif.", "✅ Group key received. Brocolis is active.", "✅ Clave de grupo recibida. Brocolis está activo."), peerId: peerId)
+                         message: loc("✅ Appairé ! Brocolis est actif.", "✅ Paired! Brocolis is active.", "✅ ¡Emparejado! Brocolis está activo."), peerId: peerId)
                 return
             }
             try await Task.sleep(nanoseconds: 1_500_000_000)
         }
-        finish(error: loc("Délai dépassé : aucune clé de groupe reçue. Le fondateur a-t-il lancé la distribution ?", "Timed out: no group key received. Did the founder start the distribution?", "Tiempo agotado: no se ha recibido ninguna clave de grupo. ¿El fundador ha iniciado la distribución?"))
+        finish(error: loc("Pas de réponse : vérifie le code, et que l’autre a bien son QR affiché.", "No answer: check the code, and that the other person has their QR showing.", "Sin respuesta: comprueba el código y que la otra persona tenga su QR visible."))
     }
 
     // MARK: Application du résultat
 
     private func applyKey(_ keyB64: String, fingerprint fp: String, message: String, peerId: String, keepWorking: Bool = false) {
         let name = code.trimmingCharacters(in: .whitespacesAndNewlines)
-        BrocolisKeyStore.addKey(name: name.isEmpty ? "Appairage" : name, base64: keyB64)
+        let who = contactName.trimmingCharacters(in: .whitespacesAndNewlines)
+        BrocolisKeyStore.addKey(name: who.isEmpty ? (name.isEmpty ? "Appairage" : name) : who, base64: keyB64)
         BrocolisKeyStore.setPairingFingerprint(fp)
         BrocolisKeyStore.setPairingIdentity(code: name, peerId: peerId)
         BrocolisKeyStore.setActive(true)
@@ -430,4 +508,78 @@ struct PairingView: View {
 
 #Preview {
     NavigationStack { PairingView() }
+}
+
+// MARK: - Scanner de QR (appareil photo)
+
+/// Scanne un QR code avec l'appareil photo (VisionKit) et rend son texte.
+struct QRScannerSheet: View {
+    let onScan: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if DataScannerViewController.isSupported && DataScannerViewController.isAvailable {
+                    QRScannerView(onScan: onScan)
+                        .ignoresSafeArea()
+                } else {
+                    VStack(spacing: 12) {
+                        Image(systemName: "camera.fill").font(.largeTitle)
+                        Text(loc("Le scan n’est pas disponible (appareil photo refusé ou non pris en charge). Tape le code à la place.", "Scanning isn’t available (camera denied or unsupported). Type the code instead.", "El escaneo no está disponible (cámara denegada o no compatible). Escribe el código."))
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding()
+                }
+            }
+            .navigationTitle(loc("Scanner le QR", "Scan the QR", "Escanear el QR"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(loc("Annuler", "Cancel", "Cancelar")) { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+private struct QRScannerView: UIViewControllerRepresentable {
+    let onScan: (String) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(onScan: onScan) }
+
+    func makeUIViewController(context: Context) -> DataScannerViewController {
+        let scanner = DataScannerViewController(
+            recognizedDataTypes: [.barcode(symbologies: [.qr])],
+            qualityLevel: .fast,
+            isHighlightingEnabled: true)
+        scanner.delegate = context.coordinator
+        try? scanner.startScanning()
+        return scanner
+    }
+
+    func updateUIViewController(_ scanner: DataScannerViewController, context: Context) {}
+
+    static func dismantleUIViewController(_ scanner: DataScannerViewController, coordinator: Coordinator) {
+        scanner.stopScanning()
+    }
+
+    final class Coordinator: NSObject, DataScannerViewControllerDelegate {
+        private let onScan: (String) -> Void
+        private var done = false
+
+        init(onScan: @escaping (String) -> Void) { self.onScan = onScan }
+
+        func dataScanner(_ scanner: DataScannerViewController, didAdd items: [RecognizedItem], allItems: [RecognizedItem]) {
+            guard !done else { return }
+            for item in items {
+                if case .barcode(let code) = item, let text = code.payloadStringValue {
+                    done = true
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                    onScan(text)
+                    return
+                }
+            }
+        }
+    }
 }
