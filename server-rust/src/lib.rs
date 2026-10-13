@@ -17,6 +17,7 @@ pub mod apns;
 pub mod apple_signin;
 pub mod bouclier;
 pub mod broadcast;
+pub mod limits;
 pub mod live;
 pub mod rendezvous;
 pub mod store;
@@ -44,6 +45,8 @@ pub struct Services {
     pub broadcaster: Arc<Broadcaster>,
     pub rendezvous: Arc<Rendezvous>,
     pub live: Arc<LiveSubscriptions>,
+    /// Plafonds de requêtes par minute (anti-abus).
+    pub limits: Arc<limits::Limits>,
 }
 
 impl Services {
@@ -53,6 +56,7 @@ impl Services {
             broadcaster: Arc::new(Broadcaster::default()),
             rendezvous: Arc::new(Rendezvous::new(max_peers)),
             live: Arc::new(LiveSubscriptions::default()),
+            limits: Arc::new(limits::Limits::default()),
         }
     }
 }
@@ -76,6 +80,10 @@ pub fn app(services: &Services, push: Option<Apns>, site: Arc<Site>) -> App {
     app.state(services.broadcaster.clone());
     app.state(services.rendezvous.clone());
     app.state(services.live.clone());
+    app.state(services.limits.clone());
+    // Heroku place un routeur devant le dyno : l'adresse du client est la
+    // dernière de `X-Forwarded-For` (sert aux plafonds par adresse).
+    app.trust_proxy(1usize);
     app.state(Push(push));
     app.state(AppleKeys::default());
     app.state(Started(Instant::now()));
@@ -119,12 +127,14 @@ pub fn spawn_maintenance(services: &Services) {
     });
     let rendezvous = services.rendezvous.clone();
     let broadcaster = services.broadcaster.clone();
+    let limits = services.limits.clone();
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(Duration::from_secs(60));
         loop {
             tick.tick().await;
             rendezvous.prune();
             broadcaster.prune();
+            limits.prune();
         }
     });
 }

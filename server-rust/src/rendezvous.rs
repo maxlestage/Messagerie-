@@ -28,8 +28,22 @@ struct LiveToken {
     ts: Instant,
 }
 
+/// Pourquoi une inscription au salon est refusée.
+#[derive(Debug, PartialEq, Eq)]
+pub enum PairError {
+    /// Le plafond de participants du code est atteint.
+    Full,
+    /// Ce peerId est déjà inscrit avec une AUTRE clé publique : on ne laisse
+    /// personne remplacer la clé d'un participant (sinon l'invitant
+    /// remettrait la clé de groupe à l'usurpateur).
+    KeyMismatch,
+}
+
 pub struct Rendezvous {
     codes: Mutex<HashMap<String, HashMap<String, Peer>>>,
+    /// L'hôte de chaque code (celui qui invite) : lui seul peut remettre la
+    /// clé de groupe (`/wrap`). `bool` = revendiqué explicitement (`host`).
+    hosts: Mutex<HashMap<String, (String, bool)>>,
     wraps: Mutex<HashMap<String, HashMap<String, Wrap>>>,
     live: Mutex<HashMap<String, HashMap<String, LiveToken>>>,
     max_peers: usize,
@@ -39,6 +53,7 @@ impl Rendezvous {
     pub fn new(max_peers: usize) -> Self {
         Rendezvous {
             codes: Mutex::new(HashMap::new()),
+            hosts: Mutex::new(HashMap::new()),
             wraps: Mutex::new(HashMap::new()),
             live: Mutex::new(HashMap::new()),
             max_peers,
@@ -61,19 +76,38 @@ impl Rendezvous {
         serde_json::json!({ "peers": list })
     }
 
-    /// POST /pair : enregistre (code, peerId, pub). Renvoie Ok(peers) ou
-    /// Err(()) si le plafond de participants est atteint.
-    pub fn add_peer(
+    /// POST /pair (participant) : voir [`add_peer_as`](Self::add_peer_as).
+    pub fn add_peer(&self, code: &str, peer_id: &str, pub_key: &str) -> Result<serde_json::Value, PairError> {
+        self.add_peer_as(code, peer_id, pub_key, false)
+    }
+
+    /// POST /pair : enregistre (code, peerId, pub). `host` : c'est l'invitant
+    /// (le premier à le revendiquer le reste ; sans revendication, le premier
+    /// inscrit fait office d'hôte, pour les anciennes versions).
+    pub fn add_peer_as(
         &self,
         code: &str,
         peer_id: &str,
         pub_key: &str,
-    ) -> Result<serde_json::Value, ()> {
+        host: bool,
+    ) -> Result<serde_json::Value, PairError> {
         {
             let mut map = self.codes.lock().unwrap();
             let peers = map.entry(code.to_string()).or_default();
-            if !peers.contains_key(peer_id) && peers.len() >= self.max_peers {
-                return Err(());
+            match peers.get(peer_id) {
+                Some(p) if p.pub_key != pub_key => return Err(PairError::KeyMismatch),
+                None if peers.len() >= self.max_peers => return Err(PairError::Full),
+                _ => {}
+            }
+            let mut hosts = self.hosts.lock().unwrap();
+            match hosts.get(code) {
+                None => {
+                    hosts.insert(code.to_string(), (peer_id.to_string(), host));
+                }
+                Some((_, false)) if host => {
+                    hosts.insert(code.to_string(), (peer_id.to_string(), true));
+                }
+                _ => {}
             }
             peers.insert(
                 peer_id.to_string(),
@@ -95,14 +129,27 @@ impl Rendezvous {
     }
 
     /// POST /wrap : stocke une clé emballée par destinataire. Renvoie le nombre
-    /// d'items acceptés.
+    /// d'items acceptés, ou `None` si l'expéditeur n'est pas l'hôte du code
+    /// (inscrit avec cette clé publique) : personne d'autre ne peut glisser sa
+    /// propre clé à celui qui rejoint.
     pub fn put_wraps(
         &self,
         code: &str,
         from: &str,
         from_pub: &str,
         items: &[(String, String)], // (toPeerId, blob)
-    ) -> usize {
+    ) -> Option<usize> {
+        let is_host = self.hosts.lock().unwrap().get(code).is_some_and(|(h, _)| h == from);
+        let registered = self
+            .codes
+            .lock()
+            .unwrap()
+            .get(code)
+            .and_then(|peers| peers.get(from))
+            .is_some_and(|p| p.pub_key == from_pub);
+        if !is_host || !registered {
+            return None;
+        }
         let mut map = self.wraps.lock().unwrap();
         let recips = map.entry(code.to_string()).or_default();
         let now = Instant::now();
@@ -121,7 +168,7 @@ impl Rendezvous {
                 count += 1;
             }
         }
-        count
+        Some(count)
     }
 
     /// POST /push/live-activity/token : enregistre le push token d'un peer.
@@ -155,6 +202,10 @@ impl Rendezvous {
             });
         }
         sweep(&self.codes, |p| p.ts);
+        // Un code sans plus aucun participant perd son hôte.
+        let codes = self.codes.lock().unwrap();
+        self.hosts.lock().unwrap().retain(|code, _| codes.contains_key(code));
+        drop(codes);
         sweep(&self.wraps, |w| w.ts);
         sweep(&self.live, |l| l.ts);
     }
@@ -199,20 +250,35 @@ mod tests {
     }
 
     #[test]
-    fn pair_reconnect_updates_key_without_growing() {
+    fn nobody_can_replace_a_registered_public_key() {
         let rdv = Rendezvous::new(2);
         rdv.add_peer("c", "alice", "A1").unwrap();
         rdv.add_peer("c", "bob", "B").unwrap();
-        // Alice se reconnecte avec une nouvelle clé : pas un nouveau participant.
-        rdv.add_peer("c", "alice", "A2").unwrap();
-        let seen = rdv.peers_excluding("c", "bob");
-        let alice = seen["peers"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|p| p["peerId"] == "alice")
-            .unwrap();
-        assert_eq!(alice["pub"], "A2");
+        // Se ré-annoncer avec la même clé : permis (l'app republie).
+        assert!(rdv.add_peer("c", "alice", "A1").is_ok());
+        // Usurper le peerId d'Alice avec une autre clé : refusé.
+        assert_eq!(rdv.add_peer("c", "alice", "EVIL"), Err(PairError::KeyMismatch));
+        assert_eq!(rdv.peers_excluding("c", "bob")["peers"][0]["pub"], "A1");
+    }
+
+    #[test]
+    fn only_the_host_hands_out_the_group_key() {
+        let rdv = Rendezvous::new(16);
+        // Bob rejoint AVANT que l'hôte ne se montre (ordre libre)…
+        rdv.add_peer("g", "bob", "PUB_B").unwrap();
+        rdv.add_peer_as("g", "alice", "PUB_A", true).unwrap();
+        rdv.add_peer("g", "mallory", "PUB_M").unwrap();
+        // …Mallory, simple participant, ne peut pas glisser SA clé à Bob.
+        assert_eq!(rdv.put_wraps("g", "mallory", "PUB_M", &[("bob".into(), "EVIL".into())]), None);
+        // Ni en se faisant passer pour Alice avec une autre clé publique.
+        assert_eq!(rdv.put_wraps("g", "alice", "PUB_M", &[("bob".into(), "EVIL".into())]), None);
+        assert!(rdv.get_wrap("g", "bob")["wrap"].is_null());
+        // L'hôte, lui, remet la clé.
+        assert_eq!(rdv.put_wraps("g", "alice", "PUB_A", &[("bob".into(), "OK".into())]), Some(1));
+        assert_eq!(rdv.get_wrap("g", "bob")["wrap"]["blob"], "OK");
+        // Une seconde revendication d'hôte ne change rien.
+        rdv.add_peer_as("g", "mallory2", "PUB_M2", true).unwrap();
+        assert_eq!(rdv.put_wraps("g", "mallory2", "PUB_M2", &[("bob".into(), "EVIL".into())]), None);
     }
 
     #[test]
@@ -223,12 +289,13 @@ mod tests {
         // Le 3e participant est refusé…
         assert!(rdv.add_peer("full", "c", "C").is_err());
         // …mais un participant déjà présent peut toujours se ré-annoncer.
-        assert!(rdv.add_peer("full", "a", "A2").is_ok());
+        assert!(rdv.add_peer("full", "a", "A").is_ok());
     }
 
     #[test]
     fn wrap_is_delivered_per_recipient() {
         let rdv = Rendezvous::new(16);
+        rdv.add_peer_as("g", "alice", "PUB_A", true).unwrap();
         let n = rdv.put_wraps(
             "g",
             "alice",
@@ -238,7 +305,7 @@ mod tests {
                 ("carol".into(), "BLOB_CAROL".into()),
             ],
         );
-        assert_eq!(n, 2);
+        assert_eq!(n, Some(2));
         let bob = rdv.get_wrap("g", "bob");
         assert_eq!(bob["wrap"]["from"], "alice");
         assert_eq!(bob["wrap"]["fromPub"], "PUB_A");
@@ -250,13 +317,14 @@ mod tests {
     #[test]
     fn wrap_skips_empty_items() {
         let rdv = Rendezvous::new(16);
+        rdv.add_peer("g", "a", "P").unwrap();
         let n = rdv.put_wraps(
             "g",
             "a",
             "P",
             &[("".into(), "x".into()), ("bob".into(), "".into()), ("carol".into(), "ok".into())],
         );
-        assert_eq!(n, 1);
+        assert_eq!(n, Some(1));
         assert_eq!(rdv.get_wrap("g", "carol")["wrap"]["blob"], "ok");
     }
 
