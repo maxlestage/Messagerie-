@@ -15,13 +15,14 @@ const AUTHOR: &str = "Maxime Nathan Lestage";
 const SITE_NAME: &str = "Brocolis 🥦 messageries";
 
 /// Les fonctionnalités : (icône, titre, texte).
-const FEATURES: [(&str, &str, &str); 7] = [
+const FEATURES: [(&str, &str, &str); 8] = [
     ("🧩", "feat.graft.t", "feat.graft.d"),
     ("🔒", "feat.crypto.t", "feat.crypto.d"),
     ("🤝", "feat.pair.t", "feat.pair.d"),
     ("👥", "feat.group.t", "feat.group.d"),
     ("⏳", "feat.rotate.t", "feat.rotate.d"),
     ("⌚️", "feat.watch.t", "feat.watch.d"),
+    ("📷", "feat.media.t", "feat.media.d"),
     ("🥦", "feat.interop.t", "feat.interop.d"),
 ];
 
