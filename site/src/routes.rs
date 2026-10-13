@@ -1,4 +1,4 @@
-//! Les adresses du site : `/{langue}/`, `/{langue}/salon/`,
+//! Les adresses du site : `/{langue}/`, `/{langue}/discuter/`, `/{langue}/salon/`,
 //! `/{langue}/serveur/`, `/{langue}/licence/`.
 
 use crate::i18n::Lang;
@@ -6,6 +6,7 @@ use crate::i18n::Lang;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Page {
     Home,
+    Chat,
     Salon,
     Server,
     License,
@@ -14,11 +15,12 @@ pub enum Page {
 
 impl Page {
     /// Les pages qui ont une adresse.
-    pub const ALL: [Page; 4] = [Page::Home, Page::Salon, Page::Server, Page::License];
+    pub const ALL: [Page; 5] = [Page::Home, Page::Chat, Page::Salon, Page::Server, Page::License];
 
     fn slug(self) -> &'static str {
         match self {
             Page::Home => "",
+            Page::Chat => "discuter",
             Page::Salon => "salon",
             Page::Server => "serveur",
             Page::License => "licence",
@@ -44,6 +46,8 @@ impl Route {
         let lang = Lang::parse(parts.next()?)?;
         let page = match (parts.next(), parts.next()) {
             (None, _) => Page::Home,
+            // `/en/chat/` mène aussi à la discussion.
+            (Some("chat"), None) => Page::Chat,
             (Some(slug), None) => Page::ALL
                 .into_iter()
                 .find(|p| p.slug() == slug && *p != Page::Home)
@@ -113,6 +117,9 @@ mod tests {
         assert_eq!(Route::parse("/en/").unwrap().page, Page::Home);
         assert_eq!(Route::parse("/es/serveur").unwrap().page, Page::Server);
         assert_eq!(Route::parse("/es/licence").unwrap().page, Page::License);
+        assert_eq!(Route::parse("/fr/discuter/").unwrap().page, Page::Chat);
+        assert_eq!(Route::parse("/en/chat").unwrap().page, Page::Chat);
+        assert_eq!(Route::new(Lang::Es, Page::Chat).path(), "/es/discuter/");
         assert_eq!(Route::parse("/en/nope/").unwrap().page, Page::NotFound);
         assert_eq!(Route::parse("/en/salon/x").unwrap().page, Page::NotFound);
         assert_eq!(Route::parse("/de/"), None);
@@ -122,7 +129,7 @@ mod tests {
     #[test]
     fn lists_every_page_once() {
         let all = Route::all();
-        assert_eq!(all.len(), 3 * 4);
+        assert_eq!(all.len(), 3 * 5);
         let mut paths: Vec<String> = all.iter().map(Route::path).collect();
         paths.sort();
         paths.dedup();
