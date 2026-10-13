@@ -378,7 +378,7 @@ struct RootView: View {
         } header: {
             Text(loc("Chiffrement", "Encryption", "Cifrado"))
         } footer: {
-            Text(loc("Même règle dans le partage et le clavier. Exemple : « RDV ((au 12 rue X)) demain » → seule l’adresse part chiffrée.", "Same rule in Share and the keyboard. Example: « Meet ((at 12 X street)) tomorrow » → only the address is encrypted.", "Misma regla al compartir y en el teclado. Ejemplo: « Cita ((en calle X 12)) mañana » → solo la dirección se cifra."))
+            Text(loc("Même règle dans le partage, le clavier et iMessage. Exemple : « RDV ((au 12 rue X)) demain » → seule l’adresse part chiffrée.", "Same rule in Share, the keyboard and iMessage. Example: « Meet ((at 12 X street)) tomorrow » → only the address is encrypted.", "Misma regla al compartir, en el teclado y en iMessage. Ejemplo: « Cita ((en calle X 12)) mañana » → solo la dirección se cifra."))
         }
     }
 

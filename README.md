@@ -49,7 +49,7 @@ une **Action Extension** sur le texte sélectionné.
      texte, même quand tu es seul ;
    - si le texte contient des segments `((entre doubles parenthèses))`, elle
      ne chiffre **que ceux-là** et laisse le reste en clair (même règle dans le
-     clavier) ;
+     clavier et dans iMessage, où le message part alors en texte) ;
    - **déchiffre** automatiquement si la sélection contient des jetons
      `[[BROCOLIS:v1:…]]` (déchiffrement toujours prioritaire) ;
    - **copie** le résultat tout de suite — il n'y a plus qu'à coller.
