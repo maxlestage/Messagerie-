@@ -124,12 +124,14 @@ struct RootView: View {
             .onAppear {
                 purgeIfNeeded()
                 Task { await BrocolisPush.subscribeLiveActivity() }
+                resumePendingPairing()
                 if router.openPairing { showPairing = true; router.openPairing = false }
             }
             .onChange(of: scenePhase) { phase in
                 if phase == .active {
                     purgeIfNeeded()
                     Task { await BrocolisPush.subscribeLiveActivity() }
+                    resumePendingPairing()
                 }
             }
             .onChange(of: router.openPairing) { open in
@@ -872,6 +874,18 @@ struct RootView: View {
             alertMessage = loc("Une clé avait expiré : elle a été supprimée automatiquement.", "A key had expired: it was deleted automatically.", "Una clave había caducado: se eliminó automáticamente.")
         }
         reload()
+    }
+
+    /// Appairages à distance en attente : ils se terminent à chaque ouverture.
+    private func resumePendingPairing() {
+        Task {
+            let done = await BrocolisPendingPairing.resume()
+            guard !done.isEmpty else { return }
+            await MainActor.run {
+                reload()
+                alertMessage = done.joined(separator: "\n")
+            }
+        }
     }
 
     /// Peut-on ajouter une clé de plus ? Sinon, on ouvre l'écran d'offres.

@@ -19,7 +19,7 @@ add-on Heroku. C'est simple et rapide, avec une conséquence à garder en tête 
 | Rétention | Purge horaire au-delà de `MESSAGE_RETENTION_DAYS` (7 j) | `spawn_maintenance` |
 | Budget mémoire | Au-delà de `MEMORY_BUDGET_MB` de chiffré, les plus vieux messages partent les premiers (retour à 90 %) | `Store::enforce_budget` |
 | Temps réel | Un canal par conversation, dans le processus ; canaux abandonnés purgés chaque minute | `broadcast.rs` |
-| Rendez-vous X25519 | En mémoire, TTL 10 min, plafond `MAX_PEERS` | `rendezvous.rs` |
+| Rendez-vous X25519 | En mémoire, TTL 7 jours (invitations à distance), plafond `MAX_PEERS` ; les apps republient à chaque ouverture, un redémarrage ne perd donc rien d'utile | `rendezvous.rs` |
 
 ---
 
