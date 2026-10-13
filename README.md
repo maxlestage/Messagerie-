@@ -199,6 +199,19 @@ On y envoie aussi des **photos** (📷, réduites et compressées en JPEG comme
 dans l'app, affichées en miniature, en grand d'un clic) et des **vocaux**
 (🎤, 1 min max, enregistrés en WAV pour que l'iPhone les lise) ; ceux envoyés depuis l'app s'y affichent et s'y écoutent.
 
+### Robuste aux tricheurs
+
+- **Le salon est verrouillé** : seul celui qui invite peut remettre la clé ;
+  personne ne peut remplacer la clé publique d'un participant déjà inscrit
+  (impossible de s'intercaler pour lire les messages) ; l'empreinte reste la
+  vérification finale.
+- **Codes de 8 caractères** (32⁸ ≈ 10¹²) et **plafonds par minute** côté
+  serveur : deviner une invitation prendrait des siècles ; inonder la
+  messagerie ou le salon renvoie `429`, un message de plus de 4 Mo `413`.
+- **Formules** : achats vérifiés par l'App Store (StoreKit 2), accès offerts
+  par ticket signé ; la limite de 3 clés du gratuit vaut partout, appairage
+  (même différé) compris.
+
 ### Groupe (3+)
 
 Même geste : une personne touche **J'invite**, toutes les autres **rejoignent**

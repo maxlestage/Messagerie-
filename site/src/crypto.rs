@@ -160,10 +160,11 @@ pub fn fingerprint(data: &[u8]) -> String {
         .join("-")
 }
 
-/// Un code d'appairage comme ceux de l'app (6 caractères sans 0/O/1/I).
+/// Un code d'appairage comme ceux de l'app : 8 caractères sans 0/O/1/I
+/// (32⁸ ≈ 10¹² codes, impossibles à deviner sous les plafonds du serveur).
 pub fn pairing_code() -> String {
     const ALPHABET: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-    random_bytes::<6>()
+    random_bytes::<8>()
         .iter()
         .map(|b| ALPHABET[*b as usize % ALPHABET.len()] as char)
         .collect()
@@ -267,7 +268,7 @@ mod tests {
     #[test]
     fn codes_and_ids_look_like_the_app_ones() {
         let code = pairing_code();
-        assert_eq!(code.len(), 6);
+        assert_eq!(code.len(), 8);
         assert!(code.chars().all(|c| "ABCDEFGHJKLMNPQRSTUVWXYZ23456789".contains(c)));
         let id = uuid();
         assert_eq!(id.len(), 36);

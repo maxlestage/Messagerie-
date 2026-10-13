@@ -12,6 +12,7 @@ use vitesse::sse::{Event, KeepAlive};
 use crate::apns::Apns;
 use crate::apple_signin::{self, AppleKeys, VerifyError};
 use crate::broadcast::Broadcaster;
+use crate::limits::{Kind, Limits};
 use crate::live::{content_state, LiveSubscriptions};
 use crate::rendezvous::Rendezvous;
 use crate::store::{describe, Message, Store};
@@ -63,6 +64,24 @@ fn user_id(req: &Request) -> Option<String> {
 struct UserIdQuery {
     #[serde(rename = "userId")]
     user_id: Option<String>,
+}
+
+/// Taille maximale d'un message chiffré (photo, vocal d'une minute compris).
+const MAX_CIPHERTEXT: usize = 4 * 1024 * 1024;
+
+/// `429` si l'appelant dépasse le plafond de `kind` (par adresse, et par
+/// appareil quand `device` est connu).
+fn too_many(req: &Request, kind: Kind, device: Option<&str>) -> Option<Response> {
+    let limits = req.state::<Arc<Limits>>();
+    let ip = req.ip().map_or_else(|| "?".to_owned(), |ip| ip.to_string());
+    // Par adresse : plafond ×10 (plusieurs appareils derrière une même box).
+    let by_ip = limits.allow(kind, &format!("ip:{ip}"));
+    let by_device = device.is_none_or(|d| limits.allow(kind, &format!("dev:{d}")));
+    if by_ip && by_device {
+        None
+    } else {
+        Some(json_error(429, "trop de requêtes : réessaie dans une minute"))
+    }
 }
 
 fn text(status: u16, body: &'static str) -> Response {
@@ -222,6 +241,9 @@ struct AppleLinkBody {
 /// d'identité d'Apple ; si son e-mail figure dans `BROCOLIS_PRO_EMAILS`, le
 /// rattache à cet appareil (Pro offert). Sinon rien n'est conservé.
 async fn post_plan_apple(req: Request) -> Response {
+    if let Some(r) = too_many(&req, Kind::AppleLink, None) {
+        return r;
+    }
     let Some(user) = user_id(&req) else {
         return text(401, "x-user-id requis");
     };
@@ -342,6 +364,12 @@ async fn post_message(req: Request) -> Response {
     let ciphertext = body.ciphertext.trim();
     if conv.is_empty() || ciphertext.is_empty() {
         return text(400, "conversationId et ciphertext requis");
+    }
+    if ciphertext.len() > MAX_CIPHERTEXT {
+        return json_error(413, "message trop lourd");
+    }
+    if let Some(r) = too_many(&req, Kind::Send, Some(&sender)) {
+        return r;
     }
     let store = store(&req);
     if !can_access(store, conv, &sender).await {
@@ -607,6 +635,9 @@ struct LiveBody {
 /// POST /v1/live — abonne la Live Activity de l'appelant (push token APNs) à
 /// ses conversations : le serveur la met à jour à chaque message reçu ou lu.
 async fn live_subscribe(req: Request) -> Response {
+    if let Some(r) = too_many(&req, Kind::Push, None) {
+        return r;
+    }
     let Some(user) = user_id(&req) else {
         return text(401, "x-user-id requis");
     };
@@ -674,32 +705,66 @@ struct PairBody {
     peer_id: String,
     #[serde(rename = "pub")]
     pub_key: String,
+    /// C'est l'invitant : lui seul pourra remettre la clé de groupe.
+    #[serde(default)]
+    host: bool,
+}
+
+/// Un code de salon : 4 à 16 caractères A–Z / 0–9 (ceux de l'app et du site).
+fn valid_code(code: &str) -> bool {
+    (4..=16).contains(&code.len()) && code.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
+}
+
+/// Un identifiant de participant : court et imprimable.
+fn valid_peer_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+/// Une clé publique X25519 : 32 octets en base64.
+fn valid_public_key(b64: &str) -> bool {
+    b64.len() <= 64 && brocolis_site::crypto::unb64(b64).is_some_and(|raw| raw.len() == 32)
+}
+
+/// Une clé de groupe emballée (nonce 12 + 32 + tag 16 = 60 octets, base64).
+fn valid_blob(b64: &str) -> bool {
+    b64.len() <= 128 && brocolis_site::crypto::unb64(b64).is_some_and(|raw| raw.len() == 60)
 }
 
 async fn pair_get(req: Request) -> Response {
+    if let Some(r) = too_many(&req, Kind::PairRead, None) {
+        return r;
+    }
     let q: PairQuery = match req.query_as() {
         Ok(q) => q,
         Err(e) => return e.into_response(),
     };
     let code = q.code.trim();
-    if code.is_empty() {
-        return json_error(400, "code requis");
+    if !valid_code(code) {
+        return json_error(400, "code invalide");
     }
     res::json(rdv(&req).peers_excluding(code, q.peer_id.trim()))
 }
 
 async fn pair_post(req: Request) -> Response {
+    if let Some(r) = too_many(&req, Kind::PairPublish, None) {
+        return r;
+    }
     let body: PairBody = match req.json().await {
         Ok(b) => b,
         Err(e) => return e.into_response(),
     };
     let (code, peer_id, pub_key) = (body.code.trim(), body.peer_id.trim(), body.pub_key.trim());
-    if code.is_empty() || peer_id.is_empty() || pub_key.is_empty() {
-        return json_error(400, "code, peerId et pub requis");
+    if !valid_code(code) || !valid_peer_id(peer_id) || !valid_public_key(pub_key) {
+        return json_error(400, "code, peerId ou pub invalide");
     }
-    match rdv(&req).add_peer(code, peer_id, pub_key) {
+    match rdv(&req).add_peer_as(code, peer_id, pub_key, body.host) {
         Ok(peers) => res::json(peers),
-        Err(()) => json_error(409, "ce code a déjà atteint le maximum de participants"),
+        Err(crate::rendezvous::PairError::Full) => {
+            json_error(409, "ce code a déjà atteint le maximum de participants")
+        }
+        Err(crate::rendezvous::PairError::KeyMismatch) => {
+            json_error(409, "ce participant est déjà inscrit avec une autre clé")
+        }
     }
 }
 
@@ -727,18 +792,24 @@ struct WrapBody {
 }
 
 async fn wrap_get(req: Request) -> Response {
+    if let Some(r) = too_many(&req, Kind::PairRead, None) {
+        return r;
+    }
     let q: WrapQuery = match req.query_as() {
         Ok(q) => q,
         Err(e) => return e.into_response(),
     };
     let (code, peer_id) = (q.code.trim(), q.peer_id.trim());
-    if code.is_empty() || peer_id.is_empty() {
-        return json_error(400, "code et peerId requis");
+    if !valid_code(code) || !valid_peer_id(peer_id) {
+        return json_error(400, "code ou peerId invalide");
     }
     res::json(rdv(&req).get_wrap(code, peer_id))
 }
 
 async fn wrap_post(req: Request) -> Response {
+    if let Some(r) = too_many(&req, Kind::Wrap, None) {
+        return r;
+    }
     let body: WrapBody = match req.json().await {
         Ok(b) => b,
         Err(e) => return e.into_response(),
@@ -748,16 +819,19 @@ async fn wrap_post(req: Request) -> Response {
         body.from_peer_id.trim(),
         body.from_pub.trim(),
     );
-    if code.is_empty() || from.is_empty() || from_pub.is_empty() {
-        return json_error(400, "code, fromPeerId, fromPub et items requis");
+    if !valid_code(code) || !valid_peer_id(from) || !valid_public_key(from_pub) || body.items.len() > 64 {
+        return json_error(400, "code, fromPeerId, fromPub ou items invalide");
     }
     let items: Vec<(String, String)> = body
         .items
         .iter()
         .map(|it| (it.to_peer_id.trim().to_string(), it.blob.trim().to_string()))
+        .filter(|(to, blob)| valid_peer_id(to) && valid_blob(blob))
         .collect();
-    let count = rdv(&req).put_wraps(code, from, from_pub, &items);
-    res::json(json!({ "ok": true, "count": count }))
+    match rdv(&req).put_wraps(code, from, from_pub, &items) {
+        Some(count) => res::json(json!({ "ok": true, "count": count })),
+        None => json_error(403, "seul l'invitant de ce code peut remettre la clé"),
+    }
 }
 
 // ── Push Live Activity ───────────────────────────────────────────────────────
@@ -771,6 +845,9 @@ struct LiveTokenBody {
 }
 
 async fn live_token_post(req: Request) -> Response {
+    if let Some(r) = too_many(&req, Kind::Push, None) {
+        return r;
+    }
     let body: LiveTokenBody = match req.json().await {
         Ok(b) => b,
         Err(e) => return e.into_response(),
@@ -799,7 +876,23 @@ struct LiveUpdateBody {
     dismissal_date: Option<i64>,
 }
 
+/// Ne laisse passer vers APNs que l'état attendu par la Live Activity
+/// (`since`, `unread`, `lastAt`, des nombres bornés) : pas de texte arbitraire
+/// poussé sur l'écran verrouillé de quelqu'un d'autre.
+fn clean_state(state: &serde_json::Value) -> serde_json::Value {
+    let mut out = serde_json::Map::new();
+    for (key, max) in [("since", 1e11), ("unread", 9_999.0), ("lastAt", 1e11)] {
+        if let Some(n) = state.get(key).and_then(|v| v.as_f64()).filter(|n| (0.0..=max).contains(n)) {
+            out.insert(key.to_owned(), json!(n.round() as i64));
+        }
+    }
+    serde_json::Value::Object(out)
+}
+
 async fn live_update_post(req: Request) -> Response {
+    if let Some(r) = too_many(&req, Kind::Push, None) {
+        return r;
+    }
     let body: LiveUpdateBody = match req.json().await {
         Ok(b) => b,
         Err(e) => return e.into_response(),
@@ -821,7 +914,7 @@ async fn live_update_post(req: Request) -> Response {
         return json_error(503, "push non configuré côté serveur");
     };
     match sender
-        .send_live_activity(&token, event, &body.content_state, body.dismissal_date)
+        .send_live_activity(&token, event, &clean_state(&body.content_state), body.dismissal_date)
         .await
     {
         Ok(status) => res::json(json!({ "ok": true, "apns": status })),

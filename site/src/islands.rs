@@ -521,7 +521,16 @@ pub fn chat_island(props: &str) -> Node {
                                         .attr("aria-label", lang.t("salon.codeLabel"))
                                         .attr("placeholder", lang.t("salon.codePlaceholder"))
                                         .attr_dyn("value", move || typed.get())
-                                        .on_input(move |e| typed.set(e.value().to_uppercase())),
+                                        .on_input(move |e| {
+                                            typed.set(
+                                                e.value()
+                                                    .to_uppercase()
+                                                    .chars()
+                                                    .filter(char::is_ascii_alphanumeric)
+                                                    .take(16)
+                                                    .collect(),
+                                            )
+                                        }),
                                 )
                                 .child(
                                     button()
