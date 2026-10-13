@@ -82,22 +82,22 @@ final class BrocolisTransformTests: XCTestCase {
         XCTAssertTrue(result.text.contains("((pas touché))"))
     }
 
-    func testEncryptWholeAlwaysIgnoresMarkers() throws {
-        // Mode « Tout chiffrer » : la sélection entière est chiffrée d'un bloc,
-        // même si elle contient des marqueurs ((…)).
+    func testMarkersWinEvenWithEncryptWholeAlways() throws {
+        // Des ((…)) sont une demande explicite : seuls ces passages sont
+        // chiffrés, même avec « Tout chiffrer » (partage, clavier, iMessage).
         let key = try newKey()
         let result = BrocolisTransform.auto("avant ((secret)) après", key: key, encryptWholeAlways: true)
-        if case .encryptedWhole = result.outcome {
-            XCTAssertTrue(result.text.hasPrefix(BrocolisCrypto.tokenPrefix))
-            XCTAssertTrue(result.text.hasSuffix(BrocolisCrypto.tokenSuffix))
+        if case .encryptedMarked(let n) = result.outcome {
+            XCTAssertEqual(n, 1)
+            XCTAssertTrue(result.text.hasPrefix("avant "))
+            XCTAssertTrue(result.text.hasSuffix(" après"))
             XCTAssertFalse(result.text.contains("secret"))
-            XCTAssertFalse(result.text.contains("avant"))
         } else {
-            XCTFail("attendu .encryptedWhole, obtenu \(result.outcome)")
+            XCTFail("attendu .encryptedMarked, obtenu \(result.outcome)")
         }
-        // Round-trip : on récupère le texte d'origine ENTIER, marqueurs compris.
+        // Round-trip : le passage revient en clair.
         let dec = BrocolisTransform.auto(result.text, key: key)
-        XCTAssertEqual(dec.text, "avant ((secret)) après")
+        XCTAssertEqual(dec.text, "avant secret après")
     }
 
     func testEncryptWholeAlwaysStillDecryptsTokens() throws {

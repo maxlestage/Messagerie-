@@ -12,10 +12,12 @@ pub enum Segment {
 }
 
 /// Découpe `text` : les passages `((entre doubles parenthèses))` sont des
-/// secrets ; avec `all`, tout le message en est un. Un `((` jamais fermé reste
-/// du texte, comme dans l'app.
+/// secrets ; sans aucun passage marqué et avec `all`, tout le message en est
+/// un. Comme dans l'app, des `((…))` l'emportent toujours sur « Tout
+/// chiffrer ». Un `((` jamais fermé reste du texte.
 pub fn segments(text: &str, all: bool) -> Vec<Segment> {
-    if all {
+    let marked = marked_segments(text);
+    if all && secret_count(&marked) == 0 {
         let whole = text.replace("((", "").replace("))", "");
         return if whole.trim().is_empty() {
             Vec::new()
@@ -23,6 +25,10 @@ pub fn segments(text: &str, all: bool) -> Vec<Segment> {
             vec![Segment::Secret(whole)]
         };
     }
+    marked
+}
+
+fn marked_segments(text: &str) -> Vec<Segment> {
     let mut out = Vec::new();
     let mut rest = text;
     while let Some(start) = rest.find("((") {
@@ -134,7 +140,9 @@ mod tests {
 
     #[test]
     fn everything_becomes_one_secret() {
-        assert_eq!(segments("a ((b)) c", true), vec![secret("a b c")]);
+        assert_eq!(segments("a b c", true), vec![secret("a b c")]);
+        // Des ((…)) l'emportent sur « Tout chiffrer ».
+        assert_eq!(segments("a ((b)) c", true), vec![plain("a "), secret("b"), plain(" c")]);
         assert_eq!(segments("   ", true), vec![]);
         assert_eq!(secret_count(&segments("((x)) ((y))", false)), 2);
     }
