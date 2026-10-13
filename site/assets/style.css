@@ -1592,3 +1592,10 @@ html.over-film .grain::before { opacity: 0.09; }
 .chat-status { min-height: 1.2em; color: var(--muted); font-size: 0.9rem; margin: 0.6rem 0 0; }
 @keyframes chat-in { from { opacity: 0; transform: translateY(6px) scale(0.98); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .chat-msg { animation: none; } }
+.visually-hidden { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.chat-media { padding-inline: 0.8rem; font-size: 1.1rem; cursor: pointer; position: relative; flex: none; }
+.chat-media.is-recording { background: #e5484d; color: #fff; animation: chat-rec 1.2s ease-in-out infinite; }
+@keyframes chat-rec { 50% { box-shadow: 0 0 0 6px rgba(229, 72, 77, 0.25); } }
+@media (prefers-reduced-motion: reduce) { .chat-media.is-recording { animation: none; } }
+.chat-msg:has(> img), .chat-msg:has(> audio) { padding: 4px; }
+.chat-msg > img { max-height: 22rem; object-fit: contain; }

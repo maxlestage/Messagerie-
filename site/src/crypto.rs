@@ -178,6 +178,37 @@ pub fn uuid() -> String {
     format!("{}-{}-{}-{}-{}", &h[..8], &h[8..12], &h[12..16], &h[16..20], &h[20..])
 }
 
+/// Un vocal en WAV (PCM 16 bits mono à `to` Hz), rééchantillonné depuis
+/// `from` Hz : lisible par l'iPhone (AVAudioPlayer) comme par les navigateurs.
+pub fn wav_16k(samples: &[f32], from: f32, to: u32) -> Vec<u8> {
+    let ratio = f64::from(from) / f64::from(to);
+    let n = (samples.len() as f64 / ratio).floor() as usize;
+    let mut pcm = Vec::with_capacity(n * 2);
+    for i in 0..n {
+        // Moyenne des échantillons couverts : un filtre passe-bas simple.
+        let start = (i as f64 * ratio) as usize;
+        let end = (((i + 1) as f64 * ratio) as usize).clamp(start + 1, samples.len());
+        let slice = &samples[start.min(samples.len() - 1)..end];
+        let v = slice.iter().sum::<f32>() / slice.len() as f32;
+        pcm.extend_from_slice(&((v.clamp(-1.0, 1.0) * 32767.0) as i16).to_le_bytes());
+    }
+    let mut out = Vec::with_capacity(44 + pcm.len());
+    out.extend_from_slice(b"RIFF");
+    out.extend_from_slice(&(36 + pcm.len() as u32).to_le_bytes());
+    out.extend_from_slice(b"WAVEfmt ");
+    out.extend_from_slice(&16u32.to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes()); // PCM
+    out.extend_from_slice(&1u16.to_le_bytes()); // mono
+    out.extend_from_slice(&to.to_le_bytes());
+    out.extend_from_slice(&(to * 2).to_le_bytes());
+    out.extend_from_slice(&2u16.to_le_bytes());
+    out.extend_from_slice(&16u16.to_le_bytes());
+    out.extend_from_slice(b"data");
+    out.extend_from_slice(&(pcm.len() as u32).to_le_bytes());
+    out.extend(pcm);
+    out
+}
+
 /// Un QR code en SVG (pour `<img src="data:image/svg+xml,…">`).
 pub fn qr_svg(text: &str) -> Option<String> {
     use qrcode::render::svg;
@@ -242,6 +273,18 @@ mod tests {
         assert_eq!(id.len(), 36);
         assert_eq!(&id[14..15], "4");
         assert!(qr_svg("https://example.com/?code=K7P2QX").unwrap().contains("<svg"));
+    }
+
+    #[test]
+    fn voice_becomes_a_16k_wav() {
+        let samples = vec![0.5f32; 48_000]; // 1 s à 48 kHz
+        let wav = wav_16k(&samples, 48_000.0, 16_000);
+        assert_eq!(&wav[..4], b"RIFF");
+        assert_eq!(&wav[8..16], b"WAVEfmt ");
+        assert_eq!(wav.len(), 44 + 16_000 * 2);
+        assert_eq!(u32::from_le_bytes(wav[24..28].try_into().unwrap()), 16_000);
+        assert_eq!(i16::from_le_bytes([wav[44], wav[45]]), 16383);
+        assert!(b64(&wav).starts_with("UklGR"));
     }
 }
 
