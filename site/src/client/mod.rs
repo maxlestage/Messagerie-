@@ -3,6 +3,7 @@
 //! tout le contenu est dans le HTML envoyé par le serveur.
 
 pub mod burst;
+pub mod chat;
 pub mod film;
 pub mod live;
 pub mod motion;
