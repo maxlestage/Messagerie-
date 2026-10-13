@@ -122,12 +122,14 @@ final class KeyboardViewController: UIInputViewController {
         actionButtons = [read, encrypt, decrypt]
         let menu = makeButton(title: "⚙️", action: #selector(menuTapped))
         menu.widthAnchor.constraint(equalToConstant: 44).isActive = true
+        let marks = makeButton(title: "((…))", action: #selector(marksTapped))
+        marks.widthAnchor.constraint(equalToConstant: 58).isActive = true
 
         let actions = UIStackView(arrangedSubviews: [read, encrypt, decrypt])
         actions.axis = .horizontal
         actions.distribution = .fillEqually
         actions.spacing = 6
-        let row = UIStackView(arrangedSubviews: [actions, menu])
+        let row = UIStackView(arrangedSubviews: [actions, marks, menu])
         row.axis = .horizontal
         row.spacing = 6
         row.translatesAutoresizingMaskIntoConstraints = false
@@ -511,6 +513,23 @@ final class KeyboardViewController: UIInputViewController {
         }
     }
 
+    // MARK: ((…)) — ne chiffrer qu'un passage
+
+    /// Entoure la sélection de (( )), ou insère (( )) avec le curseur au
+    /// milieu : au moment de « Chiffrer », seuls ces passages sont chiffrés.
+    @objc private func marksTapped() {
+        feedback()
+        hideAccents()
+        let open = BrocolisCrypto.plainOpen, close = BrocolisCrypto.plainClose
+        if let selected = textDocumentProxy.selectedText, !selected.isEmpty {
+            textDocumentProxy.insertText(open + selected + close)
+        } else {
+            textDocumentProxy.insertText(open + close)
+            textDocumentProxy.adjustTextPosition(byCharacterOffset: -close.count)
+        }
+        statusLabel.text = loc("Écris le secret entre (( )) : « Chiffrer » ne chiffrera que lui.", "Type the secret inside (( )): « Encrypt » will only encrypt it.", "Escribe el secreto entre (( )): « Cifrar » solo cifrará eso.")
+    }
+
     // MARK: Menu ⚙️ (réglages sans quitter le clavier)
 
     @objc private func menuTapped() {
@@ -762,8 +781,11 @@ final class KeyboardViewController: UIInputViewController {
                 : loc("🔑 Aucune clé — ajoute-en une dans l’app.", "🔑 No key — add one in the app.", "🔑 Ninguna clave — añade una en la app.")
             return
         }
+        // Des ((…)) tapés au clavier sont une demande explicite : seuls ces
+        // passages sont chiffrés, même si « Tout chiffrer » est activé.
+        let marked = input.contains(BrocolisCrypto.plainOpen) && input.contains(BrocolisCrypto.plainClose)
         let result = BrocolisTransform.auto(
-            input, keys: encKeys, encryptWholeAlways: BrocolisKeyStore.encryptWholeAlways)
+            input, keys: encKeys, encryptWholeAlways: marked ? false : BrocolisKeyStore.encryptWholeAlways)
         // Garde-fou : on ne remplace le champ QUE si c'est vraiment chiffré.
         guard result.isEncrypted else {
             statusLabel.text = loc("⚠️ Rien n'a été chiffré — le champ est laissé tel quel.", "⚠️ Nothing was encrypted — the field is left as is.", "⚠️ No se cifró nada — el campo se deja tal cual.")
