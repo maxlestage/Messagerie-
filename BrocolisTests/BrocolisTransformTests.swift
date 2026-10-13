@@ -84,7 +84,7 @@ final class BrocolisTransformTests: XCTestCase {
 
     func testMarkersWinEvenWithEncryptWholeAlways() throws {
         // Des ((…)) sont une demande explicite : seuls ces passages sont
-        // chiffrés, même avec « Tout chiffrer » (partage, clavier, iMessage).
+        // chiffrés, même avec « Tout chiffrer » (partage, clavier).
         let key = try newKey()
         let result = BrocolisTransform.auto("avant ((secret)) après", key: key, encryptWholeAlways: true)
         if case .encryptedMarked(let n) = result.outcome {
