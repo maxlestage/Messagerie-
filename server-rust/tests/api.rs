@@ -223,6 +223,15 @@ async fn access_control_end_to_end() {
         .await;
     assert_eq!(res.status(), 200);
 
+    // Le navigateur (EventSource) passe l'identifiant en paramètre : mêmes
+    // règles d'accès que l'en-tête.
+    let res = client.get(&format!("/v1/stream?conversationId={conv}&userId=carol")).await;
+    assert_eq!(res.status(), 403);
+    let res = client.get("/v1/messages?conversationId=inconnue&userId=zoe").await;
+    assert_eq!(res.status(), 200);
+    let res = client.get("/v1/messages?conversationId=inconnue").await;
+    assert_eq!(res.status(), 401);
+
     // Corps invalide → 400 ; champs vides → 400.
     let res = client
         .post("/v1/messages")

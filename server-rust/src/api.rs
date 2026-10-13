@@ -48,6 +48,21 @@ fn user_id(req: &Request) -> Option<String> {
     req.header("x-user-id")
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
+        // Le navigateur (discussion du site) ouvre le flux temps réel avec
+        // EventSource, qui ne sait pas envoyer d'en-tête : `?userId=`.
+        .or_else(|| {
+            req.query_as::<UserIdQuery>()
+                .ok()
+                .and_then(|q| q.user_id)
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
+}
+
+#[derive(Deserialize)]
+struct UserIdQuery {
+    #[serde(rename = "userId")]
+    user_id: Option<String>,
 }
 
 fn text(status: u16, body: &'static str) -> Response {
