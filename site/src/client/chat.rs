@@ -379,3 +379,149 @@ pub fn leave(s: ChatStates) {
     s.status.set(String::new());
     s.phase.set(ChatPhase::Setup);
 }
+
+// ── Photos et vocaux ─────────────────────────────────────────────────────────
+//
+// Même format que l'app : le texte chiffré commence par `BRCM1:img:` (JPEG en
+// base64) ou `BRCM1:aud:` (audio en base64). L'iPhone lit l'audio avec
+// AVAudioPlayer, qui ne connaît pas le WebM des navigateurs : on enregistre
+// donc en WAV (PCM 16 kHz mono), lisible partout.
+
+/// Taille maximale d'une photo, comme l'app (côté le plus long).
+const PHOTO_MAX_SIDE: f64 = 1280.0;
+/// Durée maximale d'un vocal, comme la mini-app iMessage.
+pub const VOICE_MAX_SECONDS: f64 = 30.0;
+const VOICE_RATE: u32 = 16_000;
+
+/// La photo choisie dans `<input type=file>` : réduite, compressée en JPEG,
+/// puis envoyée chiffrée.
+pub fn send_photo(input: web_sys::HtmlInputElement, s: ChatStates) {
+    let Some(file) = input.files().and_then(|f| f.get(0)) else { return };
+    input.set_value("");
+    let Ok(url) = web_sys::Url::create_object_url_with_blob(&file) else { return };
+    let Ok(img) = web_sys::HtmlImageElement::new() else { return };
+    s.status.set(s.lang.t("chat.sendingPhoto").to_owned());
+    let img2 = img.clone();
+    let url2 = url.clone();
+    let onload = Closure::once_into_js(move || {
+        let _ = web_sys::Url::revoke_object_url(&url2);
+        let (w, h) = (img2.natural_width() as f64, img2.natural_height() as f64);
+        if w == 0.0 || h == 0.0 {
+            return;
+        }
+        let scale = (PHOTO_MAX_SIDE / w.max(h)).min(1.0);
+        let (cw, ch) = ((w * scale).round(), (h * scale).round());
+        let Ok(canvas) = super::document().create_element("canvas") else { return };
+        let canvas: web_sys::HtmlCanvasElement = canvas.unchecked_into();
+        canvas.set_width(cw as u32);
+        canvas.set_height(ch as u32);
+        let Some(ctx) = canvas
+            .get_context("2d")
+            .ok()
+            .flatten()
+            .and_then(|c| c.dyn_into::<web_sys::CanvasRenderingContext2d>().ok())
+        else {
+            return;
+        };
+        let _ = ctx.draw_image_with_html_image_element_and_dw_and_dh(&img2, 0.0, 0.0, cw, ch);
+        let Ok(data_url) = canvas.to_data_url_with_type_and_encoder_options("image/jpeg", &JsValue::from_f64(0.6))
+        else {
+            return;
+        };
+        if let Some((_, b64)) = data_url.split_once(',') {
+            send(format!("BRCM1:img:{b64}"), s);
+            s.status.set(String::new());
+        }
+    });
+    img.set_onload(Some(onload.unchecked_ref()));
+    img.set_src(&url);
+}
+
+/// L'enregistrement en cours.
+struct Recording {
+    context: web_sys::AudioContext,
+    stream: web_sys::MediaStream,
+    // Gardés en vie tant qu'on enregistre.
+    _source: web_sys::MediaStreamAudioSourceNode,
+    _processor: web_sys::ScriptProcessorNode,
+    samples: std::rc::Rc<RefCell<Vec<f32>>>,
+    rate: f32,
+}
+
+thread_local! {
+    static RECORDING: RefCell<Option<Recording>> = const { RefCell::new(None) };
+}
+
+/// Démarre (ou arrête et envoie) un vocal. `recording` suit l'état du bouton.
+pub fn toggle_voice(s: ChatStates, recording: active::State<bool>) {
+    if RECORDING.with(|r| r.borrow().is_some()) {
+        stop_voice(s, recording, true);
+        return;
+    }
+    let Ok(devices) = window().navigator().media_devices() else {
+        s.status.set(s.lang.t("chat.micDenied").to_owned());
+        return;
+    };
+    let constraints = web_sys::MediaStreamConstraints::new();
+    constraints.set_audio(&JsValue::TRUE);
+    let Ok(promise) = devices.get_user_media_with_constraints(&constraints) else { return };
+    spawn_local(async move {
+        let Ok(stream) = JsFuture::from(promise).await else {
+            s.status.set(s.lang.t("chat.micDenied").to_owned());
+            return;
+        };
+        let stream: web_sys::MediaStream = stream.unchecked_into();
+        let Ok(context) = web_sys::AudioContext::new() else { return };
+        let Ok(source) = context.create_media_stream_source(&stream) else { return };
+        let Ok(processor) = context.create_script_processor_with_buffer_size_and_number_of_input_channels_and_number_of_output_channels(4096, 1, 1)
+        else {
+            return;
+        };
+        let samples = std::rc::Rc::new(RefCell::new(Vec::<f32>::new()));
+        let rate = context.sample_rate();
+        let sink = samples.clone();
+        let limit = (rate as f64 * VOICE_MAX_SECONDS) as usize;
+        let on_audio = Closure::<dyn FnMut(web_sys::AudioProcessingEvent)>::new(move |e: web_sys::AudioProcessingEvent| {
+            if let Ok(data) = e.input_buffer().and_then(|b| b.get_channel_data(0)) {
+                let mut all = sink.borrow_mut();
+                all.extend_from_slice(&data);
+                if all.len() >= limit {
+                    all.truncate(limit);
+                    drop(all);
+                    // Durée maximale atteinte : on envoie.
+                    stop_voice(s, recording, true);
+                }
+            }
+        });
+        processor.set_onaudioprocess(Some(on_audio.as_ref().unchecked_ref()));
+        on_audio.forget();
+        let _ = source.connect_with_audio_node(&processor);
+        let _ = processor.connect_with_audio_node(&context.destination());
+        RECORDING.with(|r| {
+            *r.borrow_mut() = Some(Recording { context, stream, _source: source, _processor: processor, samples, rate })
+        });
+        recording.set(true);
+        s.status.set(s.lang.t("chat.recording").to_owned());
+    });
+}
+
+/// Arrête l'enregistrement ; l'envoie si `deliver`.
+pub fn stop_voice(s: ChatStates, recording: active::State<bool>, deliver: bool) {
+    let Some(rec) = RECORDING.with(|r| r.borrow_mut().take()) else { return };
+    rec._processor.set_onaudioprocess(None);
+    let _ = rec._source.disconnect();
+    let _ = rec._processor.disconnect();
+    let _ = rec.context.close();
+    for track in rec.stream.get_tracks().iter() {
+        track.unchecked_into::<web_sys::MediaStreamTrack>().stop();
+    }
+    recording.set(false);
+    s.status.set(String::new());
+    let samples = rec.samples.borrow();
+    // Moins d'un tiers de seconde : un appui par erreur.
+    if !deliver || samples.len() < (rec.rate as usize) / 3 {
+        return;
+    }
+    let wav = crate::crypto::wav_16k(&samples, rec.rate, VOICE_RATE);
+    send(format!("BRCM1:aud:{}", crypto::b64(&wav)), s);
+}
