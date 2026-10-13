@@ -26,8 +26,10 @@ pub fn lang(props: &str) -> Lang {
 
 // ── Démo : ce que tu écris, ce que voit l'app ─────────────────────────────────
 
-fn indexed_segments(text: &str, all: bool) -> Vec<(usize, Segment)> {
-    demo::segments(text, all).into_iter().enumerate().collect()
+/// Même règle que l'app : avec des ((…)), seulement ces passages ; sans,
+/// tout le message.
+fn indexed_segments(text: &str) -> Vec<(usize, Segment)> {
+    demo::segments(text, true).into_iter().enumerate().collect()
 }
 
 /// Un message tapé en direct, à gauche en clair (secrets surlignés), à droite
@@ -35,8 +37,7 @@ fn indexed_segments(text: &str, all: bool) -> Vec<(usize, Segment)> {
 pub fn demo_island(props: &str) -> Node {
     let lang = lang(props);
     let text = use_state(lang.t("demo.default").to_string());
-    let all = use_state(false);
-    let parts = memo(move || indexed_segments(&text.get(), all.get()));
+    let parts = memo(move || indexed_segments(&text.get()));
     let count = move || {
         parts.with(|p| {
             p.iter()
@@ -64,15 +65,7 @@ pub fn demo_island(props: &str) -> Node {
                 .child(
                     div()
                         .class("demo-tools")
-                        .child(
-                            button()
-                                .class("toggle")
-                                .attr("type", "button")
-                                .attr_dyn("aria-pressed", move || all.get().to_string())
-                                .on_click(move |_| all.update(|a| *a = !*a))
-                                .child(span().class("toggle-knob").attr("aria-hidden", "true"))
-                                .text(lang.t("demo.all")),
-                        )
+                        .child(span().class("demo-rule").text(lang.t("demo.all")))
                         .child(
                             span()
                                 .class("demo-count")
@@ -225,14 +218,15 @@ pub fn salon_island(props: &str) -> Node {
                 .class("salon-form")
                 .on("submit", move |e| {
                     e.prevent_default();
-                    open(typed.get().trim().to_string());
+                    open(typed.get().trim().to_uppercase());
                 })
                 .on_mount(move |_form| {
-                    // Un lien partagé `?code=4813` ouvre directement le salon.
+                    // Un lien partagé `?code=K7P2QX` ouvre directement le salon.
                     #[cfg(target_arch = "wasm32")]
                     if let Some(c) = active::query_param("code").filter(|c| !c.trim().is_empty()) {
-                        typed.set(c.trim().to_string());
-                        open(c.trim().to_string());
+                        let c = c.trim().to_uppercase();
+                        typed.set(c.clone());
+                        open(c);
                     }
                 })
                 .child(

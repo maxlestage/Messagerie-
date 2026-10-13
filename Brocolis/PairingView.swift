@@ -21,6 +21,8 @@ struct PairingView: View {
     @State private var task: Task<Void, Never>?
     /// Les participants vus dans le salon (clés publiques seulement), en direct.
     @State private var roomPeers: [PairingPeer] = []
+    /// Offre à montrer si l'appairage ajouterait une clé au-delà du gratuit.
+    @State private var paywallReason: BrocolisPaidFeature?
 
     private let codeAlphabet = Array("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
 
@@ -187,6 +189,7 @@ struct PairingView: View {
         .navigationTitle(loc("Appairage", "Pairing", "Emparejamiento"))
         .navigationBarTitleDisplayMode(.inline)
         .onDisappear { cancel() }
+        .sheet(item: $paywallReason) { reason in PaywallView(reason: reason) }
     }
 
     // MARK: État visuel (LED)
@@ -270,6 +273,13 @@ struct PairingView: View {
         // Garde-fou : sans code, on explique au lieu de rester inerte.
         guard !code.isEmpty else {
             status = loc("⚠️ Entre d’abord un code de jumelage (le MÊME que ton correspondant), ou touche « Générer » et partage-le-lui.", "⚠️ Enter a pairing code first (the SAME as your contact’s), or tap “Generate” and share it with them.", "⚠️ Escribe primero un código de emparejamiento (el MISMO que tu contacto), o toca «Generar» y compártelo con él.")
+            return
+        }
+        // Un appairage ajoute une clé : même limite que créer ou importer
+        // (3 clés en gratuit), vérifiée AVANT de rejoindre le salon.
+        if case .needs(_, let feature) = BrocolisPlan.gateForAddingKey(
+            currentKeyCount: BrocolisKeyStore.keys.count, tier: BrocolisPlan.tier) {
+            paywallReason = feature
             return
         }
         isWorking = true
