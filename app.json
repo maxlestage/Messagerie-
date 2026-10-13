@@ -1,6 +1,6 @@
 {
   "name": "Brocolis messagerie",
-  "description": "Serveur Brocolis 🥦 tout en Rust : API de messagerie chiffrée et rendez-vous X25519 (Vitesse), données en mémoire (Memoire), site animé (Active). Aucun add-on : ni Postgres ni Redis.",
+  "description": "Serveur Brocolis 🥦 tout en Rust, écrit avec Paquets : API de messagerie chiffrée et rendez-vous X25519 (Vitesse), bouclier WAF/CSP/limites (Securite), données en mémoire (Memoire), site animé (Active). Aucun add-on : ni Postgres ni Redis.",
   "stack": "container",
   "env": {
     "MESSAGE_RETENTION_DAYS": {

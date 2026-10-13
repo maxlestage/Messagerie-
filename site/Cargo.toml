@@ -3,7 +3,7 @@ name = "brocolis-site"
 version = "3.0.0"
 edition = "2024"
 rust-version = "1.88"
-description = "Vitrine Brocolis 🥦 messageries — écrite avec Active (rendu serveur + îlots WebAssembly), servie par Vitesse"
+description = "Vitrine Brocolis 🥦 messageries — écrite avec Active (rendu serveur + îlots WebAssembly), servie par l'App Paquets du serveur"
 publish = false
 
 # Crate indépendante : le serveur (`../server-rust`) en dépend pour rendre les

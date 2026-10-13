@@ -1,7 +1,10 @@
-//! Serveur Brocolis 🥦, tout en Rust :
+//! Serveur Brocolis 🥦, écrit avec [Paquets](https://maxlestage.github.io/Paquets/) 📦,
+//! le framework full-stack Rust qui assemble :
 //!
 //! - [Vitesse](https://maxlestage.github.io/Vitesse/) pour le web : l'API de
 //!   messagerie chiffrée, le rendez-vous X25519, le flux temps réel (SSE) ;
+//! - [Securite](https://maxlestage.github.io/Securite/) pour le bouclier 🔒
+//!   devant chaque requête (voir [`bouclier`]) ;
 //! - [Memoire](https://maxlestage.github.io/Memoire/) pour les données, en
 //!   mémoire : ni Postgres ni Redis ;
 //! - [Active](https://maxlestage.github.io/Active/) pour le site, rendu ici
@@ -12,6 +15,7 @@
 pub mod api;
 pub mod apns;
 pub mod apple_signin;
+pub mod bouclier;
 pub mod broadcast;
 pub mod live;
 pub mod rendezvous;
@@ -21,11 +25,13 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use brocolis_site::server::Site;
-use vitesse::prelude::*;
+use paquets::App;
+use vitesse::prelude::{middleware, Request};
 
 use crate::api::{Push, Started};
 use crate::apns::Apns;
 use crate::apple_signin::AppleKeys;
+use crate::bouclier::{bouclier, Bouclier};
 use crate::broadcast::Broadcaster;
 use crate::live::LiveSubscriptions;
 use crate::rendezvous::Rendezvous;
@@ -54,10 +60,14 @@ impl Services {
 /// Corps de requête maximal : les médias chiffrés (photos, notes vocales).
 pub const BODY_LIMIT: usize = 8 * 1024 * 1024;
 
-/// L'application complète : l'API, puis le site. Les tests construisent
-/// exactement la même (avec `vitesse::test::TestClient`).
+/// L'application complète, une `App` Paquets : le bouclier, l'API, puis le
+/// site. Les tests construisent exactement la même (avec `app.test()`).
 pub fn app(services: &Services, push: Option<Apns>, site: Arc<Site>) -> App {
     let mut app = App::new();
+    // Le bouclier passe avant tout le reste, CORS compris.
+    let shield = bouclier(&site);
+    app.state(Bouclier(shield.clone()));
+    app.security(shield);
     // CORS ouvert : le serveur ne relaie que du public ou du chiffré (clés
     // publiques, jetons). Le site peut aussi être servi d'ailleurs.
     app.middleware(middleware::cors());

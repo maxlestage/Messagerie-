@@ -5,6 +5,12 @@ Petite app iOS native (Swift) qui ajoute le **chiffrement sélectif de
 de messagerie existante** (WhatsApp, iMessage, Messenger, Notes…) via une
 **Action Extension** dans le menu **Partager**.
 
+> 📦 **Écrit avec [Paquets](https://maxlestage.github.io/Paquets/)** : le
+> serveur et le site sont une seule `App` Paquets (Vitesse, Securite, Memoire,
+> Active), **verrouillée 🔒** par les middlewares de Securite — WAF, CSP
+> stricte, HSTS, limites de débit, bannissement automatique, anti-robots
+> (détails dans [`server-rust/README.md`](server-rust/README.md#le-bouclier-)).
+>
 > 🌐 **Site vitrine** : une vitrine en **Rust avec
 > [Active](https://maxlestage.github.io/Active/)** (dans [`site/`](site/)) qui
 > rend ce README, en français, anglais et espagnol. Les pages sont **rendues par
