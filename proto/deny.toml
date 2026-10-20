@@ -1,0 +1,35 @@
+# cargo deny check : failles connues, licences, sources (§3.6).
+
+[graph]
+targets = [
+  "x86_64-unknown-linux-gnu",
+  "aarch64-apple-darwin",
+  "aarch64-linux-android",
+  "wasm32-unknown-unknown",
+]
+
+[advisories]
+# Toute faille connue (RustSec) fait échouer ; les crates non maintenues aussi.
+unmaintained = "all"
+yanked = "deny"
+
+[licenses]
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "BSD-3-Clause",
+  "Unicode-3.0",
+]
+confidence-threshold = 0.9
+# La crate elle-même n'est pas publiée.
+private = { ignore = true }
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+# Uniquement crates.io : aucune dépendance git.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
