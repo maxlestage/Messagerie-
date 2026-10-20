@@ -32,6 +32,7 @@ synchroniser Gradle, puis Run. En ligne de commande : `./gradlew assembleDebug`
 | Extension « Partager » / Action | `ui/ShareActivity.kt` (ACTION_SEND / PROCESS_TEXT) |
 | Verrou Face ID / code (LocalAuthentication) | `ui/BiometricLock.kt` (BiometricPrompt) |
 | `loc(fr,en,es)` | `i18n/Loc.kt` |
+| `BrocolisProto` (protocole v3, `proto-swift/`) | module `:proto` (`proto/`, paquet `rs.brocolis.messagerie.proto`, BouncyCastle) — pas encore branché sur l'interface : voir [`proto/README.md`](proto/README.md) |
 
 ## Interopérabilité (garantie par construction)
 
