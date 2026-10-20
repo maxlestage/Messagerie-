@@ -96,6 +96,9 @@ dependencies {
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 
+    // Tests unitaires JVM (clé protégée par phrase secrète) : `gradle testDebugUnitTest`.
+    testImplementation("junit:junit:4.13.2")
+
     // Tests instrumentés (interop crypto) : s'exécutent sur appareil/émulateur.
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test:runner:1.5.2")

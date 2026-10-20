@@ -258,7 +258,39 @@ struct MessageComposeView: UIViewControllerRepresentable {
     }
 }
 
-/// Texte d'invitation envoyé par iMessage : explique quoi faire + contient la clé.
+/// Texte d'invitation avec la clé PROTÉGÉE par une phrase secrète : le jeton
+/// `[[BROCOLIS-CLE:v1:…]]` peut voyager par n'importe quel canal, la phrase se
+/// donne à part.
+func brocolisProtectedInviteBody(contactName: String, token: String) -> String {
+    loc("""
+    Rejoins-moi sur Brocolis 🥦 pour qu'on discute chiffré (illisible pour tout le monde d'autre).
+
+    1) Installe l'app Brocolis
+    2) Ouvre-la → « Importer une clé »
+    3) Colle CE texte, puis tape la phrase secrète que je te donnerai de vive voix (jamais par message) :
+
+    \(token)
+    """, """
+    Join me on Brocolis 🥦 so we can chat encrypted (unreadable to everyone else).
+
+    1) Install the Brocolis app
+    2) Open it → “Import a key”
+    3) Paste THIS text, then type the passphrase I’ll tell you in person (never by message):
+
+    \(token)
+    """, """
+    Únete a mí en Brocolis 🥦 para que hablemos cifrado (ilegible para todos los demás).
+
+    1) Instala la app Brocolis
+    2) Ábrela → «Importar una clave»
+    3) Pega ESTE texto y luego escribe la frase secreta que te diré de viva voz (nunca por mensaje):
+
+    \(token)
+    """)
+}
+
+/// Texte d'invitation envoyé par iMessage : explique quoi faire + contient la
+/// clé EN CLAIR. Déconseillé : préférer `brocolisProtectedInviteBody`.
 func brocolisInviteBody(contactName: String, keyBase64: String) -> String {
     loc("""
     Rejoins-moi sur Brocolis 🥦 pour qu'on discute chiffré (illisible pour tout le monde d'autre).
