@@ -17,6 +17,15 @@ options:
   developmentLanguage: fr
   createIntermediateGroups: true
 
+# Le protocole v3 (docs/SECURITE.md) : le paquet SwiftPM BrocolisProto, à la
+# racine du dépôt (Package.swift, sources dans proto-swift/), pris par son
+# chemin. L'app, le clavier, Partager et iMessage chiffrent en v3 ; le widget
+# et la montre n'en ont pas besoin (§8.7). Xcode 16 ou plus (swift-crypto 4,
+# résolu même s'il ne sert que hors des plateformes Apple).
+packages:
+  BrocolisProto:
+    path: .
+
 # Réglages communs à toutes les cibles.
 settings:
   base:
@@ -65,6 +74,7 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
     dependencies:
+      - package: BrocolisProto
       - target: BrocolisAction
       - target: BrocolisStatus
       - target: BrocolisKeyboard
@@ -86,6 +96,10 @@ targets:
       - path: Shared/BrocolisCrypto.swift
       - path: Shared/BrocolisKeyStore.swift
       - path: Shared/BrocolisTransform.swift
+      - path: Shared/BrocolisV3.swift
+      - path: Shared/BrocolisV3Store.swift
+    dependencies:
+      - package: BrocolisProto
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: rs.brocolis.messagerie.action
@@ -125,6 +139,11 @@ targets:
       - path: Shared/BrocolisCrypto.swift
       - path: Shared/BrocolisKeyStore.swift
       - path: Shared/BrocolisPlan.swift
+      - path: Shared/BrocolisTransform.swift
+      - path: Shared/BrocolisV3.swift
+      - path: Shared/BrocolisV3Store.swift
+    dependencies:
+      - package: BrocolisProto
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: rs.brocolis.messagerie.imessage
@@ -147,6 +166,10 @@ targets:
       - path: Shared/BrocolisCrypto.swift
       - path: Shared/BrocolisKeyStore.swift
       - path: Shared/BrocolisTransform.swift
+      - path: Shared/BrocolisV3.swift
+      - path: Shared/BrocolisV3Store.swift
+    dependencies:
+      - package: BrocolisProto
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: rs.brocolis.messagerie.keyboard
@@ -197,6 +220,9 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
     dependencies:
       - target: Brocolis
+      # Les tests v3 importent BrocolisProto (modules explicites d'Xcode 16 :
+      # une importation doit être une dépendance déclarée).
+      - package: BrocolisProto
 
 # Scheme partagé (requis par Xcode Cloud) : build l'app + lance les tests.
 schemes:

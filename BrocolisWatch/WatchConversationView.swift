@@ -73,9 +73,13 @@ final class WatchChatStore: ObservableObject {
             .sorted { $0.seq < $1.seq }
             .map { m in
                 let (text, opened) = BrocolisCrypto.decryptTokens(m.ciphertext, keys: [key])
+                // Les sessions v3 restent sur l'iPhone (docs/SECURITE.md §8.7) :
+                // un message à double cliquet se lit là-bas.
+                let v3 = opened == 0 && m.ciphertext.contains("[[BROCOLIS:v3:")
                 return ChatLine(
                     id: m.id,
-                    body: opened > 0 ? MediaPayload.body(from: text) : .locked,
+                    body: v3 ? .text(loc("🔐 à lire sur l’iPhone", "🔐 read it on the iPhone", "🔐 léelo en el iPhone"))
+                        : opened > 0 ? MediaPayload.body(from: text) : .locked,
                     isMine: m.senderId == me,
                     seq: m.seq
                 )

@@ -6,8 +6,14 @@
 //  Brocolis le rend EN CLAIR à la volée — chaque message chiffré avec une de
 //  tes clés s'affiche déchiffré (🔓), les messages chiffrés avec d'autres clés
 //  restent chiffrés (🔒, « pour les autres »). En dessous, un champ de saisie
-//  chiffre ta réponse au fil de la frappe : copie en un tap, colle dans ta
-//  vraie messagerie.
+//  chiffre ta réponse : un tap la chiffre et la copie, colle dans ta vraie
+//  messagerie.
+//
+//  v3 (docs/SECURITE.md §8) : les jetons à double cliquet se lisent ici
+//  aussi (un message déjà ouvert se relit : son clair est gardé), et la
+//  réponse part en v3 pour un contact appairé. Elle n'est chiffrée qu'au
+//  tap, jamais à la frappe : chaque chiffrement v3 consomme une clé de
+//  message.
 //
 //  ⚠️ iOS interdit à une app de lire/modifier le contenu d'une AUTRE app
 //  (sandbox). Brocolis ne peut donc pas réécrire WhatsApp/iMessage tout seul :
@@ -16,24 +22,41 @@
 
 import SwiftUI
 import UIKit
-import CryptoKit
 
 struct ConversationView: View {
     @State private var pasted: String = ""
     @State private var reply: String = ""
     @State private var copiedToast: String?
+    /// Le rendu de la discussion collée : refait quand elle change (pas à
+    /// chaque frappe de la réponse). Toutes les clés sont essayées, v3 compris.
+    @State private var rendered = BrocolisConversation.Rendered(lines: [], decryptedCount: 0, lockedCount: 0)
+    /// Le dernier jeton chiffré et copié.
+    @State private var lastSealed: String?
+    /// La protection de la clé sélectionnée (§8.8).
+    @State private var protection: BrocolisProtection = .legacy
 
-    // Recalculé à chaque frappe : clés essayées = toutes les clés connues.
-    private var rendered: BrocolisConversation.Rendered {
-        BrocolisConversation.render(pasted, keys: BrocolisKeyStore.allSymmetricKeys())
+    private func refresh() {
+        let keys = BrocolisKeyStore.keys
+        rendered = BrocolisConversation.render(pasted, codec: BrocolisV3.codec(recipients: [], all: keys))
+        protection = BrocolisKeyStore.selectedKey.map(BrocolisV3.protection) ?? .legacy
     }
 
-    // Aperçu chiffré de la réponse (clé sélectionnée), recalculé à la volée.
-    private var encryptedReply: String? {
-        let trimmed = reply.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, let key = BrocolisKeyStore.symmetricKey(),
-              !BrocolisKeyStore.isExpired else { return nil }
-        return try? BrocolisCrypto.encryptToken(Data(reply.utf8), key: key)
+    private var canSeal: Bool {
+        !reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && BrocolisKeyStore.selectedKey != nil && !BrocolisKeyStore.isExpired
+    }
+
+    /// Chiffre la réponse pour la clé sélectionnée (v3 si possible), la copie.
+    private func sealReply() {
+        guard canSeal, let key = BrocolisKeyStore.selectedKey,
+              let sym = try? BrocolisCrypto.symmetricKey(fromBase64: key.base64),
+              let token = BrocolisV3.seal(reply, for: key)
+                ?? (try? BrocolisCrypto.encryptToken(Data(reply.utf8), key: sym)) else { return }
+        UIPasteboard.general.string = token
+        lastSealed = token
+        reply = ""
+        protection = BrocolisV3.protection(key)
+        toast(loc("Message chiffré copié", "Encrypted message copied", "Mensaje cifrado copiado"))
     }
 
     var body: some View {
@@ -64,6 +87,8 @@ struct ConversationView: View {
             }
         }
         .overlay(alignment: .bottom) { toastView }
+        .onAppear(perform: refresh)
+        .onChange(of: pasted) { _ in refresh() }
     }
 
     // MARK: Fil de discussion (lecture à la volée)
@@ -165,7 +190,14 @@ struct ConversationView: View {
 
     private var composer: some View {
         VStack(spacing: 8) {
-            if let token = encryptedReply {
+            if let key = BrocolisKeyStore.selectedKey {
+                Text("🔑 \(key.name) · \(protection.label)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal)
+            }
+            if let token = lastSealed {
                 HStack {
                     Image(systemName: "lock.fill").foregroundStyle(.green)
                     Text(token)
@@ -181,7 +213,8 @@ struct ConversationView: View {
                     }
                 }
                 .padding(.horizontal)
-            } else if !reply.trimmingCharacters(in: .whitespaces).isEmpty {
+            }
+            if !reply.trimmingCharacters(in: .whitespaces).isEmpty && !canSeal {
                 Text(BrocolisKeyStore.isExpired
                      ? loc("⌛️ Clé expirée — renouvelle-la pour chiffrer.", "⌛️ Key expired — renew it to encrypt.", "⌛️ Clave caducada — renuévala para cifrar.")
                      : loc("🔑 Aucune clé sélectionnée pour chiffrer.", "🔑 No key selected to encrypt.", "🔑 Ninguna clave seleccionada para cifrar."))
@@ -196,16 +229,12 @@ struct ConversationView: View {
                     .textFieldStyle(.roundedBorder)
                     .lineLimit(1...4)
                 Button {
-                    if let token = encryptedReply {
-                        UIPasteboard.general.string = token
-                        toast(loc("Message chiffré copié", "Encrypted message copied", "Mensaje cifrado copiado"))
-                        reply = ""
-                    }
+                    sealReply()
                 } label: {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.title)
                 }
-                .disabled(encryptedReply == nil)
+                .disabled(!canSeal)
             }
             .padding(.horizontal)
             .padding(.bottom, 8)
