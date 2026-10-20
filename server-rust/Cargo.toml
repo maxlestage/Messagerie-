@@ -26,6 +26,9 @@ vitesse = { git = "https://github.com/maxlestage/Vitesse", default-features = fa
 memoire-orm = { git = "https://github.com/maxlestage/Memoire" }
 # Le site, écrit avec Active : ses pages sont rendues par ce serveur.
 brocolis-site = { path = "../site" }
+# Le protocole v3 (docs/SECURITE.md) : le salon vérifie les paquets de clés
+# publiés à l'appairage (§8.4) avec la référence elle-même.
+brocolis-proto = { path = "../proto" }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

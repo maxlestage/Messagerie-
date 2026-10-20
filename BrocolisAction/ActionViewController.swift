@@ -152,14 +152,16 @@ final class ActionViewController: UIViewController {
         // Déchiffrement : un message reçu peut être chiffré avec N'IMPORTE
         // laquelle de tes clés → on les essaie toutes.
         if BrocolisCrypto.containsToken(input) {
-            let keys = BrocolisKeyStore.allSymmetricKeys()
+            let keys = BrocolisKeyStore.keys
             guard !keys.isEmpty else {
                 statusLabel.text = loc("🔑 Aucune clé configurée.", "🔑 No key configured.", "🔑 Ninguna clave configurada.")
                 textView.text = loc("Ouvre l’app Brocolis 🥦 pour ajouter une clé, puis réessaie.", "Open the Brocolis 🥦 app to add a key, then try again.", "Abre la app Brocolis 🥦 para añadir una clave, luego inténtalo de nuevo.")
                 resultText = ""
                 return
             }
-            let (text, n) = BrocolisCrypto.decryptTokens(input, keys: keys)
+            // v3 (double cliquet) compris : `BrocolisV3` garde le clair d'un
+            // message déjà ouvert (il ne se déchiffre qu'une fois).
+            let (text, n) = BrocolisV3.openTokens(input, keys: keys)
             resultText = text
             textView.text = text
             UIPasteboard.general.string = text
@@ -169,8 +171,10 @@ final class ActionViewController: UIViewController {
             return
         }
 
-        // Chiffrement : pour la (ou les) clé(s) destinataire(s) choisie(s).
-        let encKeys = BrocolisKeyStore.encryptionKeys()
+        // Chiffrement : pour la (ou les) clé(s) destinataire(s) choisie(s) —
+        // en v3 pour un contact appairé (ou une clé « à deux » en PSK), sinon
+        // v1/v2 (docs/SECURITE.md §8.5).
+        let encKeys = BrocolisKeyStore.encryptionNamedKeys()
         guard !encKeys.isEmpty else {
             if BrocolisKeyStore.hasKey {
                 statusLabel.text = loc("⌛️ Clé(s) destinataire(s) expirée(s).", "⌛️ Recipient key(s) expired.", "⌛️ Clave(s) de destinatario expirada(s).")
@@ -184,7 +188,8 @@ final class ActionViewController: UIViewController {
         }
 
         let result = BrocolisTransform.auto(
-            input, keys: encKeys, encryptWholeAlways: BrocolisKeyStore.encryptWholeAlways)
+            input, codec: BrocolisV3.codec(recipients: encKeys, all: BrocolisKeyStore.keys),
+            encryptWholeAlways: BrocolisKeyStore.encryptWholeAlways)
 
         // Garde-fou : si rien n'a été chiffré, on NE copie PAS de clair et on
         // l'indique clairement — pour ne jamais faire croire que c'est protégé.
@@ -201,7 +206,9 @@ final class ActionViewController: UIViewController {
         // Brocolis étant actif, on copie directement le résultat : il n'y a plus
         // qu'à coller EN REMPLAÇANT le texte d'origine.
         UIPasteboard.general.string = result.text
-        let recipients = encKeys.count > 1 ? loc(" · \(encKeys.count) destinataires", " · \(encKeys.count) recipients", " · \(encKeys.count) destinatarios") : ""
+        let recipients = encKeys.count > 1
+            ? loc(" · \(encKeys.count) destinataires", " · \(encKeys.count) recipients", " · \(encKeys.count) destinatarios")
+            : " · " + BrocolisV3.protectionUsed(result.text, recipients: encKeys).label
         statusLabel.text = result.label + recipients
             + loc(" — ✅ Copié. Colle en remplaçant ton texte (n'envoie pas le clair).", " — ✅ Copied. Paste over your text (don’t send the cleartext).", " — ✅ Copiado. Pega reemplazando tu texto (no envíes el texto claro).")
     }

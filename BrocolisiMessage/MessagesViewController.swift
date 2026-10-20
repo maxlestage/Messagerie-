@@ -295,7 +295,9 @@ final class BrocolisiMessageModel: ObservableObject {
             selectedLocked = false
             return
         }
-        let (text, opened) = BrocolisCrypto.decryptTokens(token, keys: BrocolisKeyStore.allSymmetricKeys())
+        // v3 compris (docs/SECURITE.md §8.6) : une bulle déjà ouverte se relit
+        // (clair gardé), même la sienne.
+        let (text, opened) = BrocolisV3.openTokens(token, keys: BrocolisKeyStore.keys)
         if opened > 0 {
             selectedLocked = false
             switch BrocolisMedia.decode(text) {
@@ -326,7 +328,7 @@ final class BrocolisiMessageModel: ObservableObject {
             clipboardLocked = true
             return
         }
-        let (text, opened) = BrocolisCrypto.decryptTokens(raw, keys: BrocolisKeyStore.allSymmetricKeys())
+        let (text, opened) = BrocolisV3.openTokens(raw, keys: BrocolisKeyStore.keys)
         if opened > 0 {
             clipboardClear = text
         } else {
@@ -343,7 +345,7 @@ final class BrocolisiMessageModel: ObservableObject {
         guard isActive, UIPasteboard.general.hasStrings else { return }
         guard let raw = UIPasteboard.general.string,
               BrocolisCrypto.containsToken(raw) else { return }
-        let (text, opened) = BrocolisCrypto.decryptTokens(raw, keys: BrocolisKeyStore.allSymmetricKeys())
+        let (text, opened) = BrocolisV3.openTokens(raw, keys: BrocolisKeyStore.keys)
         if opened > 0 { clipboardClear = text }
     }
 
@@ -458,7 +460,8 @@ final class MessagesViewController: MSMessagesAppViewController {
               let conversation = activeConversation,
               let key = model.selectedKey,
               let sym = try? BrocolisCrypto.symmetricKey(fromBase64: key.base64) else { return false }
-        let (marked, count) = BrocolisCrypto.encryptMarked(text, keys: [sym])
+        let codec = BrocolisV3.codec(recipients: [key], all: BrocolisKeyStore.keys)
+        let (marked, count) = BrocolisCrypto.encryptMarked(text, seal: { codec.seal($0) ?? BrocolisCrypto.sealToken(Data($0.utf8), keys: [sym]) })
         guard count > 0 else { return false }
         model.sendError = nil
         conversation.insertText(marked) { _ in }
@@ -513,7 +516,9 @@ final class MessagesViewController: MSMessagesAppViewController {
         guard let conversation = activeConversation,
               let key = model.selectedKey,
               let sym = try? BrocolisCrypto.symmetricKey(fromBase64: key.base64),
-              let token = try? BrocolisCrypto.encryptToken(Data(clear.utf8), key: sym)
+              // v3 pour un contact appairé (ou « à deux » en PSK), sinon v1.
+              let token = BrocolisV3.seal(clear, for: key)
+                ?? (try? BrocolisCrypto.encryptToken(Data(clear.utf8), key: sym))
         else { return }
 
         // Limite prudente pour l'URL d'une bulle iMessage.
@@ -558,7 +563,8 @@ final class MessagesViewController: MSMessagesAppViewController {
         guard let conversation = activeConversation,
               let key = model.selectedKey,
               let sym = try? BrocolisCrypto.symmetricKey(fromBase64: key.base64),
-              let token = try? BrocolisCrypto.encryptToken(Data(text.utf8), key: sym)
+              let token = BrocolisV3.seal(text, for: key)
+                ?? (try? BrocolisCrypto.encryptToken(Data(text.utf8), key: sym))
         else { return }
         conversation.insertText(token) { _ in }
         requestPresentationStyle(.compact)
@@ -840,6 +846,11 @@ struct BrocolisiMessageRootView: View {
                         }
                         .foregroundStyle(brocoliGreen)
                     }
+                }
+                // La protection que recevra le message (docs/SECURITE.md §8.8).
+                if let key = model.selectedKey {
+                    Text(BrocolisV3.protection(key).label)
+                        .font(.caption2).foregroundStyle(.secondary)
                 }
 
                 // Champ à CONTRASTE GARANTI : `.roundedBorder` s'adapte mal au

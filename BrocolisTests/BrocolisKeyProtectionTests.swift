@@ -61,7 +61,8 @@ final class BrocolisKeyProtectionTests: XCTestCase {
         let key = BrocolisCrypto.generateKeyBase64()
         let a = try BrocolisKeyToken.seal(keyBase64: key, passphrase: "phrase très secrète 🥦")
         let b = try BrocolisKeyToken.seal(keyBase64: key, passphrase: "phrase très secrète 🥦")
-        XCTAssertTrue(a.hasPrefix(BrocolisKeyToken.prefix))
+        // L'export écrit la v2 (Argon2id, docs/SECURITE.md §8.9).
+        XCTAssertTrue(a.hasPrefix(BrocolisKeyToken.prefixV2))
         XCTAssertTrue(a.hasSuffix(BrocolisKeyToken.suffix))
         XCTAssertNotEqual(a, b, "sel et nonce doivent être tirés à chaque export")
         XCTAssertEqual(try BrocolisKeyToken.open(token: a, passphrase: "phrase très secrète 🥦"), key)

@@ -5,7 +5,7 @@
 //  Rendu « à la volée » d'une conversation entière : on colle (ou on partage)
 //  tout un fil de discussion, et chaque ligne est rendue automatiquement :
 //   - en clair si elle ne contenait aucun jeton ;
-//   - DÉCHIFFRÉE (🔓) si un de tes jetons `[[BROCOLIS:v1:…]]` s'ouvre avec
+//   - DÉCHIFFRÉE (🔓) si un de tes jetons `[[BROCOLIS:…]]` (v1, v2, v3) s'ouvre avec
 //     l'une de tes clés (on les essaie toutes) ;
 //   - LAISSÉE CHIFFRÉE (🔒) si le jeton ne s'ouvre avec aucune de tes clés —
 //     c'est un message « pour les autres », qu'on n'a pas la clé de lire.
@@ -14,7 +14,11 @@
 //
 
 import Foundation
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 
 enum BrocolisConversation {
 
@@ -52,6 +56,15 @@ enum BrocolisConversation {
     /// Rend une conversation collée, ligne par ligne, en essayant TOUTES les clés.
     /// L'ordre des lignes est préservé (séparateur `\n`).
     static func render(_ input: String, keys: [SymmetricKey]) -> Rendered {
+        render(input, codec: .legacy(keys: keys))
+    }
+
+    /// Avec un `codec` (`BrocolisV3.codec` : jetons v3 compris). Le texte
+    /// entier passe d'abord une fois par le codec : les jetons v3 sont
+    /// ouverts en une seule transaction, chaque ligne relit ensuite leur
+    /// clair en mémoire.
+    static func render(_ input: String, codec: BrocolisCodec) -> Rendered {
+        if input.contains(BrocolisCrypto.tokenHead) { _ = codec.open(input) }
         var lines: [Line] = []
         var totalDecrypted = 0
         var totalLocked = 0
@@ -62,7 +75,7 @@ enum BrocolisConversation {
 
         for (index, rawSub) in rawLines.enumerated() {
             let raw = String(rawSub)
-            let (display, status, decrypted, locked) = renderLine(raw, keys: keys)
+            let (display, status, decrypted, locked) = renderLine(raw, codec: codec)
             totalDecrypted += decrypted
             totalLocked += locked
             lines.append(Line(id: index, display: display, raw: raw, status: status))
@@ -75,6 +88,12 @@ enum BrocolisConversation {
     static func renderLine(
         _ raw: String, keys: [SymmetricKey]
     ) -> (display: String, status: Status, decrypted: Int, locked: Int) {
+        renderLine(raw, codec: .legacy(keys: keys))
+    }
+
+    static func renderLine(
+        _ raw: String, codec: BrocolisCodec
+    ) -> (display: String, status: Status, decrypted: Int, locked: Int) {
         guard BrocolisCrypto.containsToken(raw) else {
             return (raw, .clear, 0, 0)
         }
@@ -82,7 +101,7 @@ enum BrocolisConversation {
         // On compte d'abord le nombre total de jetons présents, puis combien on
         // arrive à ouvrir : la différence donne ceux restés chiffrés.
         let totalTokens = countTokens(raw)
-        let (display, opened) = BrocolisCrypto.decryptTokens(raw, keys: keys)
+        let (display, opened) = codec.open(raw)
         let locked = max(0, totalTokens - opened)
 
         let status: Status

@@ -12,12 +12,14 @@ on:
     paths:
       - 'server-rust/**'
       - 'site/**'
+      - 'proto/**'
       - 'README.md'
       - '.github/workflows/api-tests.yml'
   pull_request:
     paths:
       - 'server-rust/**'
       - 'site/**'
+      - 'proto/**'
       - 'README.md'
       - '.github/workflows/api-tests.yml'
   workflow_dispatch:
