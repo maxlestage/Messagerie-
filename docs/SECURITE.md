@@ -586,6 +586,10 @@ fait passer au 3. Les jetons v1/v2 restent lisibles pour toujours.
 - **Mes messages** reviennent du serveur : ils ne sont jamais déchiffrés
   (impossible, et ce n'est pas de l'autre), seulement relus dans les
   messages ouverts ; à défaut : « 🔐 envoyé depuis cet appareil ».
+- **Rejeu par le serveur** : le clair d'un message v3 étant gardé, un même
+  jeton (même `h`) republié sous un autre identifiant de message
+  s'afficherait deux fois. Seule sa première apparition (plus petit `seq`)
+  s'affiche ; les suivantes sont ignorées.
 - **Photos, vocaux, longs textes** (clair commençant par `BRCM1:` ou de plus
   de 16 Kio) : une clé de média `K_m` (32 octets aléatoires) part dans le
   message v3, le média dans un jeton v1 sous `K_m`, collé derrière :
@@ -637,3 +641,38 @@ deçà de la borne du §3.2, sans effet sur ce qu'écrit un client conforme.
 - Pas encore : rafraîchir le paquet d'un contact sans réappairer (au-delà de
   30 jours sans session, l'envoi repasse en v1 et l'affiche) ; chiffrement
   des en-têtes (§5).
+
+### 8.11 Pour un portage (Android)
+
+Ce qui doit être **identique** (sinon deux appareils ne se comprennent
+pas) :
+
+1. Le champ `bundle` de `POST /pair` et des participants (§8.4) : le paquet
+   §7.3 en base64 standard, publié à chaque publication ; le paquet du
+   correspondant pris chez `wrap.from`/`wrap.fromPub` (celui qui rejoint) ou
+   chez celui à qui on remet la clé (l'invitant).
+2. « À deux » : l'invitant tant qu'une seule personne a reçu la clé ; celui
+   qui rejoint si le salon (lui exclu) compte exactement un participant,
+   revérifié 8 jours ; le mode compatible est toujours à deux.
+3. L'empreinte d'appairage, son contexte `Brocolis_v3_Appairage`, l'ordre
+   lexicographique des 64 octets, le vecteur `1D47-6221-06A0-8AC5` ; et le
+   repli sur l'empreinte d'avant hors des cas « à deux avec deux paquets ».
+4. Le choix du format (§8.5) dans cet ordre, la limite de 30 jours du
+   paquet (au-delà : PSK, l'autre étant à jour), la PSK jamais automatique
+   sans signe que l'autre est à jour, et jamais pour une clé de groupe.
+5. La réception (§8.6) : premier message X25519/hybride accepté seulement
+   d'une IK de contact ; PSK essayée clé par clé ; réparation seulement sur
+   `SessionInconnue`/`CleInconnue`, dans la messagerie, pour un message de
+   l'autre.
+6. L'enveloppe des médias (§8.7) : `BRCM3:` ‖ base64(K_m) dans le v3, le
+   jeton v1 sous K_m collé derrière ; seuil : clair `BRCM1:…` ou > 16 Kio.
+7. Les libellés (§8.8) et l'export de clé protégée en v2 (§8.9).
+
+Ce qui est **local** (à faire au mieux de la plateforme, mêmes garanties) :
+la forme de l'état gardé, son chiffrement au repos, le verrou entre
+processus (§8.3), les bornes des messages ouverts (§8.2).
+
+Les essais d'interopérabilité de référence : le site (`site/src/v3.rs`)
+et l'iPhone (`Shared/BrocolisV3.swift`) se parlent par le vrai serveur
+(appairage dans les deux sens, désordre, médias, rechargement), et un
+iPhone d'avant le v3 reste compatible.
