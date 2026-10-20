@@ -21,6 +21,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /src
 # Le site embarque le README du dépôt (rendu en HTML sur l'accueil).
 COPY README.md ./README.md
+# Le protocole v3 (référence Rust) : le site et le serveur en dépendent par
+# son chemin (`../proto`).
+COPY proto ./proto
 COPY site ./site
 COPY server-rust ./server-rust
 

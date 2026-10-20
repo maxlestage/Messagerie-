@@ -725,6 +725,10 @@ struct PairBody {
     /// C'est l'invitant : lui seul pourra remettre la clé de groupe.
     #[serde(default)]
     host: bool,
+    /// Le paquet de clés v3 (base64, `docs/SECURITE.md` §7.3), facultatif :
+    /// un ancien client n'en envoie pas (§8.4).
+    #[serde(default)]
+    bundle: Option<String>,
 }
 
 /// Un code de salon : 4 à 16 caractères A–Z / 0–9 (ceux de l'app et du site).
@@ -740,6 +744,21 @@ fn valid_peer_id(id: &str) -> bool {
 /// Une clé publique X25519 : 32 octets en base64.
 fn valid_public_key(b64: &str) -> bool {
     b64.len() <= 64 && brocolis_site::crypto::unb64(b64).is_some_and(|raw| raw.len() == 32)
+}
+
+/// Un paquet de clés v3 publié à l'appairage : décodé et VÉRIFIÉ par la
+/// référence (format exact, clés valides, signatures Ed25519 strictes). Le
+/// salon n'en garde que le base64 et l'identité (IK X25519 ‖ IK Ed25519).
+fn published_bundle(b64: &str) -> Option<crate::rendezvous::PublishedBundle> {
+    // 1 418 octets au plus (avec ML-KEM) : 1 892 caractères base64.
+    if b64.len() > 1_900 {
+        return None;
+    }
+    let bundle = brocolis_proto::KeyBundle::from_base64(b64).ok()?;
+    let mut identity = [0u8; 64];
+    identity[..32].copy_from_slice(&bundle.identity.dh);
+    identity[32..].copy_from_slice(&bundle.identity.sign);
+    Some(crate::rendezvous::PublishedBundle { base64: bundle.to_base64(), identity })
 }
 
 /// Une clé de groupe emballée (nonce 12 + 32 + tag 16 = 60 octets, base64).
@@ -774,13 +793,23 @@ async fn pair_post(req: Request) -> Response {
     if !valid_code(code) || !valid_peer_id(peer_id) || !valid_public_key(pub_key) {
         return json_error(400, "code, peerId ou pub invalide");
     }
-    match rdv(&req).add_peer_as(code, peer_id, pub_key, body.host) {
+    let bundle = match body.bundle.as_deref().map(str::trim).filter(|b| !b.is_empty()) {
+        None => None,
+        Some(b) => match published_bundle(b) {
+            Some(b) => Some(b),
+            None => return json_error(400, "paquet de clés invalide"),
+        },
+    };
+    match rdv(&req).add_peer_with(code, peer_id, pub_key, body.host, bundle) {
         Ok(peers) => res::json(peers),
         Err(crate::rendezvous::PairError::Full) => {
             json_error(409, "ce code a déjà atteint le maximum de participants")
         }
         Err(crate::rendezvous::PairError::KeyMismatch) => {
             json_error(409, "ce participant est déjà inscrit avec une autre clé")
+        }
+        Err(crate::rendezvous::PairError::BundleMismatch) => {
+            json_error(409, "ce participant a déjà publié un paquet d'une autre identité")
         }
     }
 }
