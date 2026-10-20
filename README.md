@@ -172,6 +172,18 @@ Plutôt que de copier-coller la clé, on s'appaire en **deux gestes**, à 2 comm
 4. L'app affiche une **empreinte de sécurité** : comparez-la de vive voix (par
    un appel si vous êtes loin). Identique pour tous = pas d'interception (MITM).
 
+> 🔐 **Double cliquet, post-quantique (protocole v3).** Chaque appareil publie
+> aussi dans le salon son **paquet de clés v3** (X25519 + ML-KEM-768, signé
+> Ed25519). Appairés **à deux** avec un appareil à jour, vous ouvrez une
+> **session à double cliquet** : une clé neuve par message, effacée aussitôt,
+> établie en **hybride X25519 + ML-KEM-768** (iOS 26 ; avant : X25519 seul).
+> L'empreinte couvre alors vos deux identités v3. Messagerie, clavier,
+> Partager, iMessage et discussion du site s'en servent ; chaque clé affiche sa
+> protection : « 🔐 double cliquet (post-quantique) », « (classique) »,
+> « clé partagée (PSK) » ou « ancien format » (groupe de 3 ou plus, ancien
+> téléphone). Les anciens jetons restent lisibles. Détails :
+> [`docs/SECURITE.md`](docs/SECURITE.md) §8.
+
 **Loin l'un de l'autre, sans être en ligne en même temps** : l'invitation et la
 réponse restent **en attente** sur chaque téléphone (7 jours) et se terminent
 **toutes seules à l'ouverture de l'app** — celui qui rejoint reçoit la clé à sa
@@ -195,9 +207,11 @@ ensuite la clé dérivée comme d'habitude.
 
 La page **Salon** du site a une **discussion en ligne** : mêmes gestes que
 l'app (**J'invite** → QR, code et lien ; **Je rejoins** → code ou lien), même
-chiffrement (X25519, HKDF-SHA256, AES-256-GCM, jetons `[[BROCOLIS:v1:…]]`),
-calculé **dans la page** (WebAssembly, `site/src/crypto.rs`, recoupé avec une
-implémentation indépendante). On peut donc discuter navigateur ↔ navigateur
+chiffrement — le **double cliquet v3** (hybride X25519 + ML-KEM-768,
+`site/src/v3.rs`, la référence `proto/` compilée en WebAssembly) avec un
+appareil à jour, sinon X25519, HKDF-SHA256, AES-256-GCM et jetons
+`[[BROCOLIS:v1:…]]` —, calculé **dans la page** (WebAssembly,
+`site/src/crypto.rs`, recoupé avec une implémentation indépendante). On peut donc discuter navigateur ↔ navigateur
 **ou navigateur ↔ app** : un lien d'invitation créé sur le site s'ouvre dans
 l'app (Appairage → Je rejoins), et inversement. La discussion est retrouvée en
 rechargeant la page ; **Quitter** efface la clé du navigateur.
@@ -303,6 +317,8 @@ Shared/                       # code partagé app + extension
   BrocolisTransform.swift     # chiffre/déchiffre en un geste (auto-détection)
   BrocolisConversation.swift  # rend une discussion entière à la volée (logique pure)
   BrocolisKeyAgreement.swift  # accord de clé X25519 (ECDH + HKDF) + empreinte
+  BrocolisV3.swift            # protocole v3 : sessions à double cliquet (logique pure)
+  BrocolisV3Store.swift       # v3 : Trousseau, état chiffré, verrou entre processus
   BrocolisActivityAttributes.swift # attributs de la Live Activity 🥦
 Brocolis/                     # app hôte
   BrocolisApp.swift, RootView.swift, Assets, Brocolis.entitlements
@@ -420,7 +436,11 @@ jetons adjacents, gros volumes, unicité des nonces, et l'auto-détection
 chiffrer/déchiffrer de l'extension.
 
 Elle inclut aussi l'**accord de clé X25519** (les deux côtés dérivent la même
-clé AES, clé dérivée utilisable pour chiffrer/déchiffrer, format d'empreinte).
+clé AES, clé dérivée utilisable pour chiffrer/déchiffrer, format d'empreinte),
+et le **v3** (`BrocolisV3Tests`) : appairage → session, désordre, doublons,
+PSK, clés de groupe, médias, état chiffré au repos, Trousseau fermé, et huit
+écrivains concurrents sur le même état sans jamais réutiliser une clé de
+message.
 
 ```
 Cmd+U dans Xcode   (ou : xcodebuild test -scheme Brocolis -destination 'platform=iOS Simulator,name=iPhone 15')
@@ -449,9 +469,18 @@ cd site && cargo test
   `Shared/BrocolisKeyStore.swift`). Sur la montre, Trousseau propre à l'app.
 - Clé **symétrique** : sa diffusion doit passer par un canal sûr, comme brocolis.
   Pour l'envoyer par un canal quelconque, « Partager protégée par une phrase
-  secrète » produit un jeton `[[BROCOLIS-CLE:v1:…]]` (PBKDF2-SHA256 600 000
-  itérations + AES-256-GCM, format commun avec Talka et l'Android) ; la phrase
-  se donne à part, de vive voix.
+  secrète » produit un jeton `[[BROCOLIS-CLE:v2:…]]` (Argon2id 64 Mio +
+  AES-256-GCM, format commun avec Talka et l'Android ; l'ancien
+  `[[BROCOLIS-CLE:v1:…]]`, PBKDF2, se lit toujours) ; la phrase se donne à
+  part, de vive voix.
+- **Protocole v3** (appairés à deux) : sessions à double cliquet, établies en
+  hybride X25519 + ML-KEM-768 ; voler une clé plus tard n'ouvre pas les
+  messages passés, et un ordinateur quantique devrait casser X25519 **et**
+  ML-KEM. L'appareil v3 est au Trousseau, les sessions dans un fichier chiffré
+  de l'App Group (hors sauvegardes) ; l'app et ses extensions s'en servent
+  chacune à son tour (verrou entre processus) : une clé de message ne sert
+  jamais deux fois. Les clés de groupe (3 personnes ou plus) restent en
+  v1/v2. Voir [`docs/SECURITE.md`](docs/SECURITE.md).
 
 ## Publier sur TestFlight
 
