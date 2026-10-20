@@ -447,10 +447,10 @@ async fn pairing_exchanges_v3_bundles_then_a_ratchet_session_talks() {
     let mut bytes = alice.bundle().unwrap().to_bytes();
     bytes[120] ^= 1;
     assert!(KeyBundle::from_bytes(&bytes).is_err());
-    let forged = Some(brocolis_site::crypto::b64(&bytes));
+    let forged = brocolis_site::crypto::b64(&bytes);
     let res = client
         .post("/pair")
-        .json(&json!({ "code": CODE, "peerId": "dave", "pub": PUB_C, "bundle": forged.unwrap() }))
+        .json(&json!({ "code": CODE, "peerId": "dave", "pub": PUB_C, "bundle": forged }))
         .await;
     assert_eq!(res.status(), 400);
     let res = client
