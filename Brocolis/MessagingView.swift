@@ -252,7 +252,13 @@ final class BrocolisChatStore: ObservableObject {
     /// perdue), le reste en v1/v2 comme avant.
     private func render() {
         let me = MessagingPrefs.deviceId
-        let sorted = raw.sorted { $0.seq < $1.seq }
+        // Un même jeton v3 republié sous un autre identifiant (le serveur peut
+        // rejouer) : ignoré, seule sa première apparition s'affiche (§1).
+        var seenTokens = Set<String>()
+        let sorted = raw.sorted { $0.seq < $1.seq }.filter { m in
+            guard let r = BrocolisV3Format.findTokens(m.ciphertext).first else { return true }
+            return seenTokens.insert(BrocolisV3Format.tokenHash(String(m.ciphertext[r]))).inserted
+        }
         let k = currentKey
         let v3 = BrocolisV3.openMessages(sorted.map { ($0.ciphertext, $0.senderId == me) },
                                          conversation: k, all: BrocolisKeyStore.keys)
