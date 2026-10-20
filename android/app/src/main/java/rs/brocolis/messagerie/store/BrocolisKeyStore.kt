@@ -13,8 +13,14 @@ import java.util.UUID
  * les destinataires, l'état « Actif », l'appairage X25519, etc.
  *
  * Port de Shared/BrocolisKeyStore.swift. iOS utilise l'App Group + UserDefaults ;
- * ici un unique fichier SharedPreferences nommé comme l'App Group. Comme sur iOS,
- * c'est un stockage « démo » : les clés ne quittent jamais l'appareil.
+ * ici un unique fichier SharedPreferences nommé comme l'App Group. Les clés ne
+ * quittent jamais l'appareil.
+ *
+ * Les SECRETS (`keys_json` : les clés nommées ; `x25519_private_b64` : la clé
+ * privée d'appairage) sont chiffrés au repos par une clé AES-256-GCM non
+ * exportable de l'Android Keystore (voir `SecretsAtRest`), et le fichier est
+ * exclu des sauvegardes et des transferts d'appareil (AndroidManifest.xml,
+ * res/xml/data_extraction_rules.xml). Les autres réglages restent en clair.
  *
  * `init(context)` doit être appelé une fois au démarrage (BrocolisApplication).
  */
@@ -41,17 +47,19 @@ object BrocolisKeyStore {
 
     fun init(context: Context) {
         prefs = context.applicationContext.getSharedPreferences(APP_GROUP, Context.MODE_PRIVATE)
+        // Anciennes installations : les secrets encore en clair sont rechiffrés.
+        SecretsAtRest.migrateAll(prefs, listOf(KEYS_NAME, PRIVATE_KEY))
     }
 
     // MARK: Liste de clés
 
     private fun loadKeys(): List<NamedKey> {
-        val data = prefs.getString(KEYS_NAME, null) ?: return emptyList()
+        val data = SecretsAtRest.read(prefs, KEYS_NAME) ?: return emptyList()
         return try { json.decodeFromString(data) } catch (_: Exception) { emptyList() }
     }
 
     private fun saveKeys(keys: List<NamedKey>) {
-        prefs.edit().putString(KEYS_NAME, json.encodeToString(keys)).apply()
+        SecretsAtRest.write(prefs, KEYS_NAME, json.encodeToString(keys))
     }
 
     val keys: List<NamedKey> get() = loadKeys()
@@ -193,8 +201,8 @@ object BrocolisKeyStore {
     // MARK: Appairage X25519
 
     var privateKeyBase64: String?
-        get() = prefs.getString(PRIVATE_KEY, null)
-        set(value) { prefs.edit().apply { if (value == null) remove(PRIVATE_KEY) else putString(PRIVATE_KEY, value) }.apply() }
+        get() = SecretsAtRest.read(prefs, PRIVATE_KEY)
+        set(value) { SecretsAtRest.write(prefs, PRIVATE_KEY, value) }
 
     var pairingFingerprint: String?
         get() = prefs.getString(FINGERPRINT, null)

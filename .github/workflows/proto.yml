@@ -55,10 +55,12 @@ jobs:
           git diff --exit-code vectors.json
       - name: Vérification indépendante des vecteurs (Python, OpenSSL)
         run: |
-          # ML-KEM n'est dans `cryptography` que depuis peu : la version
-          # préinstallée du runner ne l'a pas, d'où --upgrade.
-          python3 -m pip install --quiet --upgrade 'cryptography>=50'
-          python3 -I scripts/verifier_vecteurs.py vectors.json
+          # ML-KEM n'est dans `cryptography` que depuis peu, et `python3 -I`
+          # ignore les paquets installés par pip pour l'utilisateur : un
+          # environnement à part, avec une version récente.
+          python3 -m venv "$RUNNER_TEMP/verif"
+          "$RUNNER_TEMP/verif/bin/pip" install --quiet 'cryptography>=50'
+          "$RUNNER_TEMP/verif/bin/python" -I scripts/verifier_vecteurs.py vectors.json
       - name: WebAssembly
         run: cargo build --locked --release --target wasm32-unknown-unknown
 
