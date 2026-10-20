@@ -4,6 +4,7 @@
 
 pub mod burst;
 pub mod chat;
+pub mod coffre;
 pub mod film;
 pub mod live;
 pub mod motion;
