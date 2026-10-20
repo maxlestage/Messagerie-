@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
@@ -38,9 +40,15 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import rs.brocolis.messagerie.crypto.BrocolisCrypto
+import rs.brocolis.messagerie.crypto.BrocolisKeyProtection
 import rs.brocolis.messagerie.i18n.loc
 import rs.brocolis.messagerie.store.BrocolisKeyStore
 import rs.brocolis.messagerie.store.MessagingPrefs
@@ -73,6 +81,11 @@ fun RootScreen(
     var showImport by remember { mutableStateOf(false) }
     var renameTarget by remember { mutableStateOf<NamedKey?>(null) }
     var deleteTarget by remember { mutableStateOf<NamedKey?>(null) }
+    // Partage : protégé par une phrase secrète (recommandé) ou en clair (avec avertissement).
+    var protectTarget by remember { mutableStateOf<NamedKey?>(null) }
+    var plainShare by remember { mutableStateOf<Pair<NamedKey, Boolean>?>(null) } // (clé, true = copier)
+    // Import d'un jeton `[[BROCOLIS-CLE:v1:…]]` : (nom, texte collé) en attente de la phrase.
+    var protectedImport by remember { mutableStateOf<Pair<String, String>?>(null) }
 
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
@@ -286,16 +299,9 @@ fun RootScreen(
             if (selected != null) {
                 SelectedKeyCard(
                     key = selected,
-                    onCopy = {
-                        clipboard.setText(AnnotatedString(selected.base64))
-                        snackbar = loc("Clé copiée.", "Key copied.", "Clave copiada.")
-                    },
-                    onShare = {
-                        val send = Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"; putExtra(Intent.EXTRA_TEXT, selected.base64)
-                        }
-                        context.startActivity(Intent.createChooser(send, null))
-                    },
+                    onProtectedShare = { protectTarget = selected },
+                    onCopy = { plainShare = selected to true },
+                    onShare = { plainShare = selected to false },
                     onTTL = { seconds -> BrocolisKeyStore.setKeyTTL(seconds, selected.id); reload() }
                 )
             }
@@ -355,10 +361,17 @@ fun RootScreen(
             title = loc("Importer une clé", "Import a key", "Importar una clave"),
             confirmLabel = loc("Importer", "Import", "Importar"),
             fields = 2,
-            secondPlaceholder = loc("Clé base64 (32 octets)", "Base64 key (32 bytes)", "Clave base64 (32 bytes)"),
+            secondPlaceholder = loc(
+                "Clé protégée [[BROCOLIS-CLE:…]] ou base64",
+                "Protected key [[BROCOLIS-CLE:…]] or base64",
+                "Clave protegida [[BROCOLIS-CLE:…]] o base64"
+            ),
             onConfirm = { values ->
                 val name = values[0]; val b64 = values[1].trim()
-                if (BrocolisCrypto.isValidKey(b64)) {
+                if (BrocolisKeyProtection.containsToken(b64)) {
+                    // Clé protégée par une phrase secrète : on demande la phrase.
+                    showImport = false; protectedImport = name to b64
+                } else if (BrocolisCrypto.isValidKey(b64)) {
                     BrocolisKeyStore.addKey(name, b64); BrocolisKeyStore.setActive(true)
                     showImport = false; reload()
                 } else {
@@ -378,6 +391,73 @@ fun RootScreen(
                 BrocolisKeyStore.renameKey(target.id, values[0]); renameTarget = null; reload()
             },
             onCancel = { renameTarget = null }
+        )
+    }
+
+    protectTarget?.let { target ->
+        ProtectedExportDialog(
+            key = target,
+            onCopy = { token ->
+                clipboard.setText(AnnotatedString(token))
+                snackbar = loc(
+                    "Clé protégée copiée. Donne la phrase secrète à part, de vive voix.",
+                    "Protected key copied. Give the passphrase separately, in person.",
+                    "Clave protegida copiada. Da la frase secreta aparte, de viva voz."
+                )
+                protectTarget = null
+            },
+            onShare = { token ->
+                val send = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, token) }
+                context.startActivity(Intent.createChooser(send, null))
+                protectTarget = null
+            },
+            onCancel = { protectTarget = null }
+        )
+    }
+
+    // Partage EN CLAIR : toujours possible (compatibilité), mais après avertissement.
+    plainShare?.let { (target, copy) ->
+        AlertDialog(
+            onDismissRequest = { plainShare = null },
+            title = { Text(loc("Partager la clé en clair ?", "Share the key in clear?", "¿Compartir la clave en claro?")) },
+            text = {
+                Text(loc(
+                    "Quiconque voit ce texte (presse-papiers, messagerie, sauvegarde, capture d'écran) pourra lire tous les messages de « ${target.name} ». Préfère « Partager protégée par une phrase secrète ».",
+                    "Anyone who sees this text (clipboard, messaging app, backup, screenshot) can read every message of “${target.name}”. Prefer “Share protected by a passphrase”.",
+                    "Cualquiera que vea este texto (portapapeles, mensajería, copia de seguridad, captura) podrá leer todos los mensajes de «${target.name}». Mejor «Compartir protegida con una frase secreta»."
+                ))
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (copy) {
+                        clipboard.setText(AnnotatedString(target.base64))
+                        snackbar = loc("Clé copiée en clair.", "Key copied in clear.", "Clave copiada en claro.")
+                    } else {
+                        val send = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"; putExtra(Intent.EXTRA_TEXT, target.base64)
+                        }
+                        context.startActivity(Intent.createChooser(send, null))
+                    }
+                    plainShare = null
+                }) { Text(loc("En clair quand même", "Share in clear anyway", "En claro de todos modos")) }
+            },
+            dismissButton = {
+                TextButton(onClick = { protectTarget = target; plainShare = null }) {
+                    Text(loc("Protéger", "Protect", "Proteger"))
+                }
+            }
+        )
+    }
+
+    protectedImport?.let { (name, text) ->
+        ProtectedImportDialog(
+            text = text,
+            onImported = { b64 ->
+                BrocolisKeyStore.addKey(name, b64); BrocolisKeyStore.setActive(true)
+                protectedImport = null; reload()
+                snackbar = loc("Clé importée.", "Key imported.", "Clave importada.")
+            },
+            onCancel = { protectedImport = null }
         )
     }
 
@@ -449,7 +529,7 @@ private fun KeyRow(
 
 @Composable
 private fun SelectedKeyCard(
-    key: NamedKey, onCopy: () -> Unit, onShare: () -> Unit, onTTL: (Int) -> Unit
+    key: NamedKey, onProtectedShare: () -> Unit, onCopy: () -> Unit, onShare: () -> Unit, onTTL: (Int) -> Unit
 ) {
     val ttlOptions = listOf(
         loc("Jamais", "Never", "Nunca") to 0,
@@ -462,10 +542,23 @@ private fun SelectedKeyCard(
         SelectionContainer {
             Text(key.base64, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = onCopy) { Icon(Icons.Default.ContentCopy, null); Spacer(Modifier.size(6.dp)); Text(loc("Copier", "Copy", "Copiar")) }
-            OutlinedButton(onClick = onShare) { Icon(Icons.Default.Share, null); Spacer(Modifier.size(6.dp)); Text(loc("Partager", "Share", "Compartir")) }
+        Button(onClick = onProtectedShare, modifier = Modifier.fillMaxWidth()) {
+            Icon(Icons.Default.Lock, null); Spacer(Modifier.size(6.dp))
+            Text(loc("Partager protégée par une phrase secrète", "Share protected by a passphrase", "Compartir protegida con una frase secreta"))
         }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = onCopy) { Icon(Icons.Default.ContentCopy, null); Spacer(Modifier.size(6.dp)); Text(loc("Copier en clair", "Copy in clear", "Copiar en claro")) }
+            OutlinedButton(onClick = onShare) { Icon(Icons.Default.Share, null); Spacer(Modifier.size(6.dp)); Text(loc("En clair", "In clear", "En claro")) }
+        }
+        Text(
+            loc(
+                "⚠️ En clair, quiconque voit la clé lit tes messages. Protégée, il faut aussi la phrase, à donner à part (de vive voix).",
+                "⚠️ In clear, anyone who sees the key reads your messages. Protected, the passphrase is also needed — give it separately (in person).",
+                "⚠️ En claro, cualquiera que vea la clave lee tus mensajes. Protegida, también hace falta la frase, que se da aparte (de viva voz)."
+            ),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
         Text(loc("Validité", "Validity", "Validez"), style = MaterialTheme.typography.labelMedium)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             ttlOptions.forEach { (label, seconds) ->
@@ -507,6 +600,167 @@ private fun NameDialog(
         },
         confirmButton = { TextButton(onClick = { onConfirm(listOf(first, second)) }) { Text(confirmLabel) } },
         dismissButton = { TextButton(onClick = onCancel) { Text(loc("Annuler", "Cancel", "Cancelar")) } }
+    )
+}
+
+/** Champ de phrase secrète (masquée, clavier « mot de passe »). */
+@Composable
+private fun PassphraseField(value: String, onChange: (String) -> Unit, label: String, enabled: Boolean = true) {
+    OutlinedTextField(
+        value = value, onValueChange = onChange, singleLine = true, enabled = enabled,
+        label = { Text(label) },
+        visualTransformation = PasswordVisualTransformation(),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrect = false)
+    )
+}
+
+/**
+ * Export d'une clé protégée par une phrase secrète (format commun
+ * `[[BROCOLIS-CLE:v1:…]]`) : phrase de 8 caractères au moins, saisie deux fois.
+ * La dérivation (PBKDF2, 600 000 tours) tourne hors du fil principal.
+ */
+@Composable
+private fun ProtectedExportDialog(
+    key: NamedKey, onCopy: (String) -> Unit, onShare: (String) -> Unit, onCancel: () -> Unit
+) {
+    var phrase by remember { mutableStateOf("") }
+    var again by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var token by remember { mutableStateOf<String?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+
+    val longEnough = BrocolisKeyProtection.isPassphraseAcceptable(phrase)
+    val same = phrase == again
+
+    AlertDialog(
+        onDismissRequest = { if (!busy) onCancel() },
+        title = { Text(loc("Protéger « ${key.name} »", "Protect “${key.name}”", "Proteger «${key.name}»")) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (token == null) {
+                    Text(
+                        loc(
+                            "Choisis une phrase secrète (8 caractères au moins). Donne-la à ton correspondant à part, de vive voix — jamais dans le même message que la clé.",
+                            "Choose a passphrase (at least 8 characters). Give it to your contact separately, in person — never in the same message as the key.",
+                            "Elige una frase secreta (8 caracteres como mínimo). Dásela a tu contacto aparte, de viva voz — nunca en el mismo mensaje que la clave."
+                        ),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    PassphraseField(phrase, { phrase = it; error = null }, loc("Phrase secrète", "Passphrase", "Frase secreta"), !busy)
+                    PassphraseField(again, { again = it; error = null }, loc("Encore une fois", "Once more", "Otra vez"), !busy)
+                    when {
+                        phrase.isNotEmpty() && !longEnough -> Text(
+                            loc("8 caractères au moins.", "At least 8 characters.", "8 caracteres como mínimo."),
+                            color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall
+                        )
+                        again.isNotEmpty() && !same -> Text(
+                            loc("Les deux phrases diffèrent.", "The two passphrases differ.", "Las dos frases no coinciden."),
+                            color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                    if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+                } else {
+                    Text(
+                        loc(
+                            "Clé protégée prête. Envoie-la, puis donne la phrase à part.",
+                            "Protected key ready. Send it, then give the passphrase separately.",
+                            "Clave protegida lista. Envíala y da la frase aparte."
+                        ),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Text(token!!, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        },
+        confirmButton = {
+            val ready = token
+            if (ready == null) {
+                TextButton(
+                    enabled = !busy && longEnough && same,
+                    onClick = {
+                        busy = true
+                        val raw = try { BrocolisCrypto.keyBytes(key.base64) } catch (_: Exception) { null }
+                        scope.launch {
+                            val sealed = raw?.let {
+                                withContext(Dispatchers.Default) {
+                                    try { BrocolisKeyProtection.seal(it, phrase) } catch (_: Exception) { null }
+                                }
+                            }
+                            busy = false
+                            if (sealed != null) { token = sealed; phrase = ""; again = "" }
+                            else error = loc("Impossible de protéger cette clé.", "Unable to protect this key.", "No se puede proteger esta clave.")
+                        }
+                    }
+                ) { Text(loc("Protéger", "Protect", "Proteger")) }
+            } else {
+                Row {
+                    TextButton(onClick = { onCopy(ready) }) { Text(loc("Copier", "Copy", "Copiar")) }
+                    TextButton(onClick = { onShare(ready) }) { Text(loc("Partager", "Share", "Compartir")) }
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(enabled = !busy, onClick = onCancel) { Text(loc("Annuler", "Cancel", "Cancelar")) }
+        }
+    )
+}
+
+/**
+ * Import d'une clé protégée `[[BROCOLIS-CLE:v1:…]]` : on demande la phrase et on
+ * déchiffre ; phrase fausse ou jeton abîmé → message d'erreur, rien d'importé.
+ */
+@Composable
+private fun ProtectedImportDialog(text: String, onImported: (String) -> Unit, onCancel: () -> Unit) {
+    var phrase by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+
+    AlertDialog(
+        onDismissRequest = { if (!busy) onCancel() },
+        title = { Text(loc("Clé protégée", "Protected key", "Clave protegida")) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    loc(
+                        "Cette clé est protégée par une phrase secrète. Saisis la phrase que ton correspondant t'a donnée.",
+                        "This key is protected by a passphrase. Enter the passphrase your contact gave you.",
+                        "Esta clave está protegida con una frase secreta. Escribe la frase que te dio tu contacto."
+                    ),
+                    style = MaterialTheme.typography.bodySmall
+                )
+                PassphraseField(phrase, { phrase = it; error = null }, loc("Phrase secrète", "Passphrase", "Frase secreta"), !busy)
+                error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = !busy && phrase.isNotEmpty(),
+                onClick = {
+                    busy = true
+                    scope.launch {
+                        val raw = withContext(Dispatchers.Default) { BrocolisKeyProtection.openOrNull(text, phrase) }
+                        busy = false
+                        if (raw != null) {
+                            phrase = ""
+                            onImported(BrocolisCrypto.b64encode(raw))
+                        } else {
+                            error = loc(
+                                "Phrase incorrecte ou clé abîmée. Rien n'a été importé.",
+                                "Wrong passphrase or damaged key. Nothing was imported.",
+                                "Frase incorrecta o clave dañada. No se importó nada."
+                            )
+                        }
+                    }
+                }
+            ) { Text(loc("Importer", "Import", "Importar")) }
+        },
+        dismissButton = {
+            TextButton(enabled = !busy, onClick = onCancel) { Text(loc("Annuler", "Cancel", "Cancelar")) }
+        }
     )
 }
 
