@@ -1674,6 +1674,7 @@ html.over-film .grain::before { opacity: 0.09; }
 .chat-link { width: 100%; max-width: 34rem; text-align: center; font-size: 0.85rem; }
 .chat-room { display: grid; gap: 0.7rem; }
 .chat-head { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin: 0; }
+.chat-protection { font-size: 0.85em; opacity: 0.85; }
 .chat-leave { margin-left: auto; }
 .chat-log { list-style: none; margin: 0; padding: 0.6rem; display: flex; flex-direction: column; gap: 0.4rem;
   max-height: 55vh; min-height: 12rem; overflow-y: auto; background: var(--code-bg); border-radius: 14px; }

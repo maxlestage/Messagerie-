@@ -4,12 +4,19 @@
 //
 //  Clé Brocolis PROTÉGÉE PAR UNE PHRASE SECRÈTE, pour la sortir de l'appareil
 //  (la copier, l'envoyer hors d'un canal chiffré) sans jamais l'exposer en
-//  clair. Format commun avec Talka, Brocolis Android et le site :
+//  clair. Format commun avec Talka, Brocolis Android et le site.
+//
+//  L'export écrit la **v2** (docs/SECURITE.md §3.2, §8.9), avec le paquet
+//  `BrocolisProto` :
+//
+//      [[BROCOLIS-CLE:v2:<base64>]]   Argon2id (64 Mio, t = 3, p = 1) + AES-256-GCM
+//
+//  L'import lit la v2 et l'ancienne v1 :
 //
 //      [[BROCOLIS-CLE:v1:<base64 standard, avec =>]]
 //
-//  payload décodé (76 octets) = sel (16) ‖ nonce (12) ‖ AES-256-GCM(clé brute
-//  32 octets) ‖ tag (16).
+//  payload v1 décodé (76 octets) = sel (16) ‖ nonce (12) ‖ AES-256-GCM(clé
+//  brute 32 octets) ‖ tag (16) ;
 //
 //  - clé de chiffrement = PBKDF2-HMAC-SHA256(phrase UTF-8 telle quelle, sel,
 //    600 000 itérations, 32 octets) ;
@@ -18,6 +25,9 @@
 //  - phrase : 8 caractères au moins à l'export ; à l'import, toute phrase est
 //    essayée.
 //
+//  Une v2 qui demanderait plus de 256 Mio est refusée avant tout calcul :
+//  iOS tuerait l'app avant la fin (en deçà de la borne du §3.2).
+//
 //  La phrase se donne À PART (de vive voix), jamais dans le même message que
 //  le jeton. PBKDF2 est écrit avec `HMAC<SHA256>` de CryptoKit (pas de
 //  CommonCrypto) : le même code se compile et se teste hors iOS avec
@@ -25,6 +35,7 @@
 //
 
 import Foundation
+import BrocolisProto
 #if canImport(CryptoKit)
 import CryptoKit
 #else
@@ -34,7 +45,10 @@ import Crypto
 enum BrocolisKeyToken {
 
     static let prefix = "[[BROCOLIS-CLE:v1:"
+    static let prefixV2 = CleProtegee.headV2
     static let suffix = "]]"
+    /// Au-delà, une v2 est refusée à l'import (§8.9).
+    static let maxMemoryKiB: UInt32 = 262_144
 
     static let minPassphraseLength = 8
     static let iterations = 600_000
@@ -52,6 +66,7 @@ enum BrocolisKeyToken {
         case badKey
         case badToken
         case wrongPassphrase
+        case tooDemanding
 
         var errorDescription: String? {
             switch self {
@@ -75,20 +90,42 @@ enum BrocolisKeyToken {
                 return loc("Phrase secrète incorrecte (ou clé protégée abîmée). Rien n’a été importé.",
                            "Wrong passphrase (or damaged protected key). Nothing was imported.",
                            "Frase secreta incorrecta (o clave protegida dañada). No se importó nada.")
+            case .tooDemanding:
+                return loc("Cette clé protégée demande trop de mémoire pour un iPhone. Demande à l’autre de la réexporter avec une version à jour.",
+                           "This protected key needs too much memory for an iPhone. Ask the sender to export it again with an up-to-date version.",
+                           "Esta clave protegida necesita demasiada memoria para un iPhone. Pide que la exporten de nuevo con una versión actualizada.")
             }
         }
     }
 
     // MARK: Détection
 
-    /// Le texte contient-il une clé protégée ?
-    static func containsToken(_ text: String) -> Bool { text.contains(prefix) }
+    /// Le texte contient-il une clé protégée (v1 ou v2) ?
+    static func containsToken(_ text: String) -> Bool { text.contains(prefix) || text.contains(prefixV2) }
 
     // MARK: Sceller (export)
 
-    /// Chiffre une clé Brocolis (base64, 32 octets) sous une phrase secrète.
-    /// Sel et nonce aléatoires : deux exports de la même clé diffèrent.
+    /// Chiffre une clé Brocolis (base64, 32 octets) sous une phrase secrète,
+    /// en **v2** (Argon2id). Sel et nonce aléatoires : deux exports de la même
+    /// clé diffèrent.
     static func seal(keyBase64: String, passphrase: String) throws -> String {
+        guard passphrase.count >= minPassphraseLength else { throw KeyTokenError.passphraseTooShort }
+        let trimmed = keyBase64.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let raw = Data(base64Encoded: trimmed), raw.count == keyLength else {
+            throw KeyTokenError.badKey
+        }
+        do {
+            return try CleProtegee.protectKey(key: Array(raw), phrase: passphrase, rng: Hasard.system())
+        } catch Erreur.phraseTropCourte {
+            throw KeyTokenError.passphraseTooShort
+        } catch {
+            throw KeyTokenError.badKey
+        }
+    }
+
+    /// L'ancien export v1 (PBKDF2), sel et nonce aléatoires. On n'écrit plus
+    /// que la v2 ; gardé pour les tests d'interopérabilité.
+    static func sealV1(keyBase64: String, passphrase: String) throws -> String {
         var salt = [UInt8](repeating: 0, count: saltLength)
         var nonce = [UInt8](repeating: 0, count: nonceLength)
         var rng = SystemRandomNumberGenerator() // CSPRNG du système
@@ -126,6 +163,18 @@ enum BrocolisKeyToken {
     /// être un texte plus long (message d'invitation collé en entier) : on y
     /// cherche le premier jeton `[[BROCOLIS-CLE:v1:…]]`.
     static func open(token: String, passphrase: String) throws -> String {
+        if let v2 = extractV2(token) {
+            let params: Argon2Params
+            do { params = try CleProtegee.v2Params(v2) } catch { throw KeyTokenError.badToken }
+            guard params.mKib <= maxMemoryKiB else { throw KeyTokenError.tooDemanding }
+            do {
+                return Data(try CleProtegee.unprotectKey(v2, phrase: passphrase)).base64EncodedString()
+            } catch Erreur.dechiffrement {
+                throw KeyTokenError.wrongPassphrase
+            } catch {
+                throw KeyTokenError.badToken
+            }
+        }
         guard let b64 = extractBase64(token),
               let payload = Data(base64Encoded: b64),
               payload.count == payloadLength else {
@@ -148,6 +197,16 @@ enum BrocolisKeyToken {
         }
         guard raw.count == keyLength else { throw KeyTokenError.badToken }
         return raw.base64EncodedString()
+    }
+
+    /// Le premier jeton v2 de `text`, refermé et sans les blancs qu'une
+    /// messagerie aurait pu insérer. `nil` si absent.
+    static func extractV2(_ text: String) -> String? {
+        guard let start = text.range(of: prefixV2) else { return nil }
+        let rest = text[start.upperBound...]
+        guard let end = rest.range(of: suffix) else { return nil }
+        let inner = rest[rest.startIndex..<end.lowerBound].filter { !$0.isWhitespace }
+        return prefixV2 + inner + suffix
     }
 
     /// Le base64 du premier jeton trouvé dans `text`, sans les blancs qu'une

@@ -18,9 +18,17 @@
 //  emballée sous chaque clé destinataire. Un seul jeton, lisible en clair par
 //  tous les destinataires. Spécifique à Brocolis (non lu par le proxy v1).
 //
+//  v3 (`[[BROCOLIS:v3:…]]`, double cliquet) : `BrocolisV3.swift`. v1 et v2
+//  restent lisibles pour toujours, et servent quand le v3 n'est pas possible
+//  (clé de groupe, ancien correspondant : docs/SECURITE.md §8.5).
+//
 
 import Foundation
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 
 enum BrocolisCrypto {
 
@@ -171,6 +179,13 @@ enum BrocolisCrypto {
     /// les clés (jeton `v2` si plusieurs, `v1` si une seule).
     @discardableResult
     static func encryptMarked(_ input: String, keys: [SymmetricKey]) -> (text: String, count: Int) {
+        encryptMarked(input, seal: { sealToken(Data($0.utf8), keys: keys) })
+    }
+
+    /// Chaque `((segment))` passe par `seal` (le v3 quand la clé le permet,
+    /// cf. `BrocolisV3.codec`) ; un segment que `seal` refuse reste tel quel.
+    @discardableResult
+    static func encryptMarked(_ input: String, seal: (String) -> String?) -> (text: String, count: Int) {
         var out = ""
         var count = 0
         var rest = Substring(input)
@@ -181,7 +196,7 @@ enum BrocolisCrypto {
             let secret = afterOpen[afterOpen.startIndex..<close.lowerBound]
 
             out += rest[rest.startIndex..<open.lowerBound]
-            if let token = sealToken(Data(secret.utf8), keys: keys) {
+            if let token = seal(String(secret)) {
                 out += token
                 count += 1
             } else {
@@ -201,8 +216,12 @@ enum BrocolisCrypto {
     /// Déchiffre chaque jeton en **essayant plusieurs clés** : pour chaque jeton,
     /// la première clé qui réussit gagne. Idéal quand on a une clé par
     /// correspondant. Un jeton qu'aucune clé ne déchiffre est laissé tel quel.
+    ///
+    /// `other` lit les jetons d'une autre version (le v3 : `BrocolisV3`), le
+    /// jeton entier en argument : son clair, ou `nil` pour le laisser tel quel.
     @discardableResult
-    static func decryptTokens(_ input: String, keys: [SymmetricKey]) -> (text: String, count: Int) {
+    static func decryptTokens(_ input: String, keys: [SymmetricKey],
+                              other: ((String) -> String?)? = nil) -> (text: String, count: Int) {
         var out = ""
         var count = 0
         var rest = Substring(input)
@@ -231,6 +250,8 @@ enum BrocolisCrypto {
                 if let plain = decryptTokenV2(base64: b64, keys: keys) {
                     decrypted = String(decoding: plain, as: UTF8.self)
                 }
+            } else if let other {
+                decrypted = other(tokenHead + inner + tokenSuffix)
             }
 
             if let plain = decrypted {

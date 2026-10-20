@@ -390,6 +390,8 @@ pub struct ChatStates {
     pub phase: State<ChatPhase>,
     pub status: State<String>,
     pub fingerprint: State<String>,
+    /// La protection de la discussion (§8.8 de `docs/SECURITE.md`).
+    pub protection: State<String>,
     pub messages: State<Vec<ChatMsg>>,
     pub joined: State<u32>,
 }
@@ -422,10 +424,11 @@ pub fn chat_island(props: &str) -> Node {
         phase: use_state(ChatPhase::Setup),
         status: use_state(String::new()),
         fingerprint: use_state(String::new()),
+        protection: use_state(String::new()),
         messages: use_state(Vec::<ChatMsg>::new()),
         joined: use_state(0u32),
     };
-    let ChatStates { phase, status, fingerprint, messages, joined, .. } = states;
+    let ChatStates { phase, status, fingerprint, protection, messages, joined, .. } = states;
     let inviting = use_state(true);
     let typed = use_state(String::new());
     let draft = use_state(String::new());
@@ -597,6 +600,7 @@ pub fn chat_island(props: &str) -> Node {
                                 .attr("title", lang.t("chat.fingerprint"))
                                 .text_dyn(move || fingerprint.get()),
                         )
+                        .child(span().class("chat-protection").text_dyn(move || protection.get()))
                         .child(span().class("peer-count").text_dyn(move || {
                             let n = joined.get();
                             if n == 0 { String::new() } else { format!("+{n}") }

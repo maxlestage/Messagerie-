@@ -102,6 +102,9 @@ final class BrocolisChatStore: ObservableObject {
     /// Jusqu'où le correspondant a LU (seq) — pour l'accusé « Lu ».
     @Published private(set) var otherReadUpTo: UInt64 = 0
     @Published var draft: String = ""
+    /// La protection de la conversation (docs/SECURITE.md §8.8) : double
+    /// cliquet (post-quantique, classique, PSK) ou ancien format.
+    @Published private(set) var protection: BrocolisProtection = .legacy
 
     let correspondent: NamedKey
     private let key: SymmetricKey
@@ -238,18 +241,47 @@ final class BrocolisChatStore: ObservableObject {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
     }
 
+    /// La clé du correspondant telle qu'elle est maintenant (son contact v3
+    /// a pu changer : passage en groupe…).
+    private var currentKey: NamedKey {
+        BrocolisKeyStore.keys.first { $0.id == correspondent.id } ?? correspondent
+    }
+
+    /// Les jetons v3 en UNE transaction (§8.6 : mes envois relus dans les
+    /// messages ouverts, jamais déchiffrés ; réparation d'une session
+    /// perdue), le reste en v1/v2 comme avant.
     private func render() {
-        lines = raw
-            .sorted { $0.seq < $1.seq }
-            .map { m in
-                let (text, opened) = BrocolisCrypto.decryptTokens(m.ciphertext, keys: [key])
-                return ChatLine(
-                    id: m.id,
-                    body: opened > 0 ? MediaPayload.body(from: text) : .locked,
-                    isMine: m.senderId == MessagingPrefs.deviceId,
-                    seq: m.seq
-                )
+        let me = MessagingPrefs.deviceId
+        // Un même jeton v3 republié sous un autre identifiant (le serveur peut
+        // rejouer) : ignoré, seule sa première apparition s'affiche (§1).
+        var seenTokens = Set<String>()
+        let sorted = raw.sorted { $0.seq < $1.seq }.filter { m in
+            guard let r = BrocolisV3Format.findTokens(m.ciphertext).first else { return true }
+            return seenTokens.insert(BrocolisV3Format.tokenHash(String(m.ciphertext[r]))).inserted
+        }
+        let k = currentKey
+        let v3 = BrocolisV3.openMessages(sorted.map { ($0.ciphertext, $0.senderId == me) },
+                                         conversation: k, all: BrocolisKeyStore.keys)
+        lines = zip(sorted, v3).map { pair -> ChatLine in
+            let (m, opened) = pair
+            let mine = m.senderId == me
+            let body: ChatBody
+            switch opened {
+            case .text(let t)?:
+                body = MediaPayload.body(from: t)
+            case .replay?:
+                body = .text(mine
+                    ? loc("🔐 envoyé depuis cet appareil", "🔐 sent from this device", "🔐 enviado desde este dispositivo")
+                    : BrocolisV3.alreadyRead)
+            case .failed?:
+                body = .locked
+            case nil:
+                let (text, n) = BrocolisCrypto.decryptTokens(m.ciphertext, keys: [key])
+                body = n > 0 ? MediaPayload.body(from: text) : .locked
             }
+            return ChatLine(id: m.id, body: body, isMine: mine, seq: m.seq)
+        }
+        protection = BrocolisV3.protection(k)
     }
 
     func send() {
@@ -287,7 +319,14 @@ final class BrocolisChatStore: ObservableObject {
         Task { [weak self] in
             guard let self else { return }
             do {
-                try await self.client.send(text: plain, conversationId: self.conversationId, key: self.key)
+                // v3 si la conversation le permet (§8.5, §8.7) : l'état est
+                // écrit AVANT l'envoi. Sinon l'ancien format.
+                if let ciphertext = BrocolisV3.sealMessage(plain, for: self.currentKey) {
+                    self.protection = BrocolisV3.protection(self.currentKey)
+                    try await self.client.send(ciphertext: ciphertext, conversationId: self.conversationId)
+                } else {
+                    try await self.client.send(text: plain, conversationId: self.conversationId, key: self.key)
+                }
             } catch {
                 await MainActor.run {
                     if let draft = restoreDraftOnFailure { self.draft = draft }
@@ -401,6 +440,8 @@ func brocolisJPEG(from image: UIImage, maxDimension: CGFloat = 1280, quality: CG
 
 struct MessagingHomeView: View {
     @State private var keys: [NamedKey] = BrocolisKeyStore.keys
+    /// La protection de chaque correspondant (§8.8), relue à l'affichage.
+    @State private var protections: [String: BrocolisProtection] = [:]
     @State private var serverURL: String = MessagingPrefs.serverURL
     @State private var showServerEdit = false
 
@@ -452,7 +493,10 @@ struct MessagingHomeView: View {
                 } label: { Image(systemName: "gearshape") }
             }
         }
-        .onAppear { keys = BrocolisKeyStore.keys }
+        .onAppear {
+            keys = BrocolisKeyStore.keys
+            protections = BrocolisV3.protections(keys)
+        }
         .alert(loc("Serveur de messagerie", "Messaging server", "Servidor de mensajería"), isPresented: $showServerEdit) {
             TextField("https://…", text: $serverURL)
                 .textInputAutocapitalization(.never)
@@ -476,10 +520,9 @@ struct MessagingHomeView: View {
                 Text(key.name).font(.headline)
                 if let phone = BrocolisKeyStore.keyPhone(key.id) {
                     Text(phone).font(.caption).foregroundStyle(.secondary)
-                } else {
-                    Label(loc("Chiffré avec sa clé", "Encrypted with their key", "Cifrado con su clave"), systemImage: "lock.fill")
-                        .font(.caption).foregroundStyle(.secondary).labelStyle(.titleAndIcon)
                 }
+                Text((protections[key.id] ?? .legacy).label)
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
         .padding(.vertical, 2)
@@ -557,6 +600,11 @@ private struct ChatScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            Text(store.protection.label)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 2)
             banner
             messages
             Divider()
