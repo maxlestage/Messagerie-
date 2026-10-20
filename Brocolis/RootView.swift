@@ -47,6 +47,8 @@ struct RootView: View {
     @Environment(\.colorScheme) private var colorScheme
 
     @State private var keys: [NamedKey] = BrocolisKeyStore.keys
+    /// La protection de chaque clé (docs/SECURITE.md §8.8).
+    @State private var protections: [String: BrocolisProtection] = [:]
     @State private var selectedId: String? = BrocolisKeyStore.selectedKeyId
     @State private var recipientIds: [String] = BrocolisKeyStore.recipientKeyIds
     @State private var isActive = BrocolisKeyStore.isActive
@@ -205,7 +207,10 @@ struct RootView: View {
                                      set: { if !$0 { deleteTarget = nil } })
             ) {
                 Button(loc("Supprimer", "Delete", "Eliminar"), role: .destructive) {
-                    if let t = deleteTarget { BrocolisKeyStore.deleteKey(id: t.id) }
+                    if let t = deleteTarget {
+                        BrocolisKeyStore.deleteKey(id: t.id)
+                        BrocolisV3.forget(keyId: t.id)
+                    }
                     deleteTarget = nil
                     reload()
                 }
@@ -472,6 +477,8 @@ struct RootView: View {
                         if let phone = BrocolisKeyStore.keyPhone(key.id) {
                             Text(phone).font(.caption).foregroundStyle(.secondary)
                         }
+                        Text((protections[key.id] ?? .legacy).label)
+                            .font(.caption2).foregroundStyle(.secondary)
                     }
                     Spacer()
                     // Menu VISIBLE (⋯) : renommer / supprimer, en plus du balayage.
@@ -593,6 +600,27 @@ struct RootView: View {
         if let sel = selected {
             Section {
                 Text(sel.name).font(.headline)
+                Text((protections[sel.id] ?? .legacy).label)
+                    .font(.footnote).foregroundStyle(.secondary)
+                // Une clé sans appairage v3, partagée avec UNE personne à jour :
+                // le double cliquet à partir de la clé (PSK, §8.5). Jamais
+                // automatique : un ancien correspondant ne lirait plus rien.
+                if sel.v3Bundle == nil && sel.duo != false {
+                    Toggle(isOn: Binding(
+                        get: { sel.psk == true },
+                        set: { on in
+                            BrocolisKeyStore.setPsk(on, forKeyId: sel.id)
+                            reload()
+                        })) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(loc("Double cliquet avec cette clé (PSK)", "Double ratchet with this key (PSK)", "Doble trinquete con esta clave (PSK)"))
+                            Text(loc("Seulement si cette clé est partagée avec UNE personne dont l’app Brocolis est à jour. Ses réponses suivront toutes seules.",
+                                     "Only if this key is shared with ONE person whose Brocolis app is up to date. Their replies will follow on their own.",
+                                     "Solo si esta clave se comparte con UNA persona cuya app Brocolis está actualizada. Sus respuestas seguirán solas."))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
                 // Partage RECOMMANDÉ : la clé part chiffrée par une phrase
                 // secrète, donnée à part (de vive voix).
                 Button {
@@ -898,6 +926,7 @@ struct RootView: View {
 
     private func reload() {
         keys = BrocolisKeyStore.keys
+        protections = BrocolisV3.protections(keys)
         selectedId = BrocolisKeyStore.selectedKeyId ?? keys.first?.id
         recipientIds = BrocolisKeyStore.recipientKeyIds
         isActive = BrocolisKeyStore.isActive
@@ -976,8 +1005,8 @@ struct RootView: View {
         }
     }
 
-    /// Déchiffre la clé protégée collée avec la phrase saisie (PBKDF2 600 000
-    /// itérations : hors du fil principal). Phrase fausse ou jeton abîmé :
+    /// Déchiffre la clé protégée collée avec la phrase saisie (v2 Argon2id ou
+    /// v1 PBKDF2 : hors du fil principal). Phrase fausse ou jeton abîmé :
     /// message d'erreur, rien n'est importé.
     private func importProtectedKey() {
         let token = importText
@@ -1133,7 +1162,7 @@ struct ProtectedKeyShareView: View {
         working = true
         let keyBase64 = key.base64
         let phrase = passphrase
-        // PBKDF2 (600 000 itérations) : hors du fil principal.
+        // Argon2id (64 Mio, clé protégée v2) : hors du fil principal.
         Task {
             let result = await BrocolisKeyToken.sealInBackground(keyBase64: keyBase64, passphrase: phrase)
             await MainActor.run {

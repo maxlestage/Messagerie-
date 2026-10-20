@@ -6,12 +6,22 @@
 //  deux) et distribue les clés de groupe emballées (X25519). Le serveur ne voit
 //  que des clés publiques et des blobs chiffrés.
 //
+//  v3 (docs/SECURITE.md §8.4) : chaque publication porte aussi le paquet de
+//  clés v3 de l'appareil (`bundle`, public et signé), et la liste des
+//  participants rend celui des autres. Champ optionnel : un ancien client
+//  n'en envoie pas, un ancien serveur l'ignore.
+//
 
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 struct PairingPeer: Decodable {
     let peerId: String
     let pub: String
+    /// Son paquet de clés v3 (base64), s'il en a publié un.
+    let bundle: String?
 }
 
 struct WrapItem {
@@ -23,6 +33,28 @@ struct WrapInbox: Decodable {
     let from: String
     let fromPub: String
     let blob: String
+}
+
+/// Ce que l'appairage dit du correspondant v3 (docs/SECURITE.md §8.4).
+struct BrocolisV3Contact {
+    /// Son paquet, s'il en a publié un ET que j'ai publié le mien.
+    let bundle: String?
+    /// À deux (sinon : clé de groupe, jamais de v3).
+    let duo: Bool
+
+    /// L'empreinte à comparer : celle qui couvre les identités v3 si l'on est
+    /// à deux avec un appareil v3, sinon celle d'avant.
+    func fingerprint(key: String, legacy: String) -> String {
+        guard duo, let fp = BrocolisV3.pairingFingerprint(keyBase64: key, peerBundle: bundle) else { return legacy }
+        return fp
+    }
+
+    /// Celui qui rejoint : l'invitant est `wrap.from` / `wrap.fromPub` ; à
+    /// deux si le salon ne compte qu'un autre participant (moi exclu).
+    static func joining(room: [PairingPeer], wrap: WrapInbox, myBundle: String?) -> BrocolisV3Contact {
+        let inviter = room.first { $0.peerId == wrap.from && $0.pub == wrap.fromPub }
+        return BrocolisV3Contact(bundle: myBundle == nil ? nil : inviter?.bundle, duo: room.count <= 1)
+    }
 }
 
 private struct PairingResponse: Decodable { let peers: [PairingPeer] }
@@ -47,9 +79,12 @@ struct PairingClient {
 
     /// Publie sa clé publique ; renvoie les clés publiques des autres participants.
     /// `host` : c'est l'invitant — le serveur ne laisse que lui remettre la clé.
-    func publish(code: String, peerId: String, pub: String, host: Bool = false) async throws -> [PairingPeer] {
-        let data = try await raw(method: "POST", path: "/pair",
-                                 body: ["code": code, "peerId": peerId, "pub": pub, "host": host])
+    /// `bundle` : mon paquet de clés v3 (`BrocolisV3.myBundle()`), s'il y en a.
+    func publish(code: String, peerId: String, pub: String, host: Bool = false,
+                 bundle: String? = nil) async throws -> [PairingPeer] {
+        var body: [String: Any] = ["code": code, "peerId": peerId, "pub": pub, "host": host]
+        if let bundle { body["bundle"] = bundle }
+        let data = try await raw(method: "POST", path: "/pair", body: body)
         return try JSONDecoder().decode(PairingResponse.self, from: data).peers
     }
 

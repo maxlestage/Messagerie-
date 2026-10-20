@@ -21,7 +21,11 @@
 //
 
 import Foundation
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 #if canImport(Security)
 import Security
 #endif
@@ -34,25 +38,44 @@ struct NamedKey: Identifiable, Equatable {
     var ttlSeconds: Int     // 0 = jamais d'expiration
     var expiresAt: Date?    // calculée à l'ajout / au changement de TTL
 
+    // v3 (docs/SECURITE.md §8.4, §8.5) — données PUBLIQUES, rangées avec la
+    // clé : le paquet de clés du correspondant reçu à l'appairage (base64)
+    // et sa date d'arrivée ; `duo` : appairés à deux (`true`) ou clé de
+    // groupe (`false`, jamais de v3), inconnu (`nil`) pour une clé créée ou
+    // importée ; `psk` : l'utilisateur l'a marquée « à deux, double cliquet ».
+    var v3Bundle: String?
+    var v3Since: Date?
+    var duo: Bool?
+    var psk: Bool?
+
     init(
         id: String = UUID().uuidString,
         name: String,
         base64: String,
         ttlSeconds: Int = 0,
-        expiresAt: Date? = nil
+        expiresAt: Date? = nil,
+        v3Bundle: String? = nil,
+        v3Since: Date? = nil,
+        duo: Bool? = nil,
+        psk: Bool? = nil
     ) {
         self.id = id
         self.name = name
         self.base64 = base64
         self.ttlSeconds = ttlSeconds
         self.expiresAt = expiresAt
+        self.v3Bundle = v3Bundle
+        self.v3Since = v3Since
+        self.duo = duo
+        self.psk = psk
     }
 }
 
-// Codable tolérant : les anciennes clés stockées (sans ttl/expiresAt) restent
-// décodables.
+// Codable tolérant : les anciennes clés stockées (sans ttl/expiresAt, sans
+// champs v3) restent décodables ; une ancienne version de l'app ignore les
+// champs v3.
 extension NamedKey: Codable {
-    enum CodingKeys: String, CodingKey { case id, name, base64, ttlSeconds, expiresAt }
+    enum CodingKeys: String, CodingKey { case id, name, base64, ttlSeconds, expiresAt, v3Bundle, v3Since, duo, psk }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -61,6 +84,10 @@ extension NamedKey: Codable {
         base64 = try c.decode(String.self, forKey: .base64)
         ttlSeconds = try c.decodeIfPresent(Int.self, forKey: .ttlSeconds) ?? 0
         expiresAt = try c.decodeIfPresent(Date.self, forKey: .expiresAt)
+        v3Bundle = try c.decodeIfPresent(String.self, forKey: .v3Bundle)
+        v3Since = try c.decodeIfPresent(Date.self, forKey: .v3Since)
+        duo = try c.decodeIfPresent(Bool.self, forKey: .duo)
+        psk = try c.decodeIfPresent(Bool.self, forKey: .psk)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -70,6 +97,10 @@ extension NamedKey: Codable {
         try c.encode(base64, forKey: .base64)
         try c.encode(ttlSeconds, forKey: .ttlSeconds)
         try c.encodeIfPresent(expiresAt, forKey: .expiresAt)
+        try c.encodeIfPresent(v3Bundle, forKey: .v3Bundle)
+        try c.encodeIfPresent(v3Since, forKey: .v3Since)
+        try c.encodeIfPresent(duo, forKey: .duo)
+        try c.encodeIfPresent(psk, forKey: .psk)
     }
 }
 
@@ -221,6 +252,36 @@ enum BrocolisKeyStore {
         saveKeys(ks)
         selectKey(key.id)
         return key.id
+    }
+
+    // MARK: v3 (docs/SECURITE.md §8.4, §8.5)
+
+    /// Le contact v3 d'une clé appairée : le paquet du correspondant (ou
+    /// `nil` : un ancien client) et « à deux » / « en groupe ».
+    static func setV3Contact(keyId id: String, bundle: String?, duo: Bool) {
+        updateKey(id) { k in
+            k.v3Bundle = bundle
+            k.v3Since = bundle == nil ? nil : Date()
+            k.duo = duo
+        }
+    }
+
+    /// La clé devient une clé de groupe (une deuxième personne l'a reçue) :
+    /// plus jamais de v3 avec elle.
+    static func markGroup(keyId id: String) {
+        updateKey(id) { k in k.duo = false }
+    }
+
+    /// « À deux, double cliquet » (PSK) pour une clé sans appairage v3.
+    static func setPsk(_ on: Bool, forKeyId id: String) {
+        updateKey(id) { k in k.psk = on ? true : nil }
+    }
+
+    private static func updateKey(_ id: String, _ change: (inout NamedKey) -> Void) {
+        var ks = loadKeysAfterMigration()
+        guard let i = ks.firstIndex(where: { $0.id == id }) else { return }
+        change(&ks[i])
+        saveKeys(ks)
     }
 
     static func renameKey(id: String, name: String) {
