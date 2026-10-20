@@ -238,14 +238,16 @@ grands groupes.
 
 | Brique | Rust (référence) | Swift | Kotlin |
 |---|---|---|---|
-| Jetons v1/v2, clé protégée v1 | `talka-web::jetons` | TalkaKit `Brocolis`, Brocolis `BrocolisCrypto`, `BrocolisProto` | `BrocolisCrypto.kt` |
-| Clé protégée v2 (Argon2id), padding | `brocolis-proto` (`proto/`) | `BrocolisProto` (`proto-swift/`) | |
-| v3 (établissement, ratchet, Sender Keys) | `brocolis-proto` (`proto/`) | `BrocolisProto` (`proto-swift/`) | |
+| Jetons v1/v2, clé protégée v1 | `talka-web::jetons` | TalkaKit `Brocolis`, Brocolis `BrocolisCrypto`, `BrocolisProto` | `BrocolisCrypto.kt`, `rs.brocolis.messagerie.proto` |
+| Clé protégée v2 (Argon2id), padding | `brocolis-proto` (`proto/`) | `BrocolisProto` (`proto-swift/`) | `rs.brocolis.messagerie.proto` (`android/proto/`) |
+| v3 (établissement, ratchet, Sender Keys) | `brocolis-proto` (`proto/`) | `BrocolisProto` (`proto-swift/`) | `rs.brocolis.messagerie.proto` (`android/proto/`) |
 | v3 dans Brocolis (§8 : appairage, choix du format, messages ouverts, transaction) | `site/src/v3.rs` (discussion du site) | `Shared/BrocolisV3.swift`, `BrocolisV3Store.swift` (app, clavier, Partager, iMessage) | à porter (§8) |
 
 `BrocolisProto` est le paquet SwiftPM à la racine du dépôt (`Package.swift`),
 que les apps (Brocolis, Talka) prennent par l'URL du dépôt et une révision ;
 ses écarts imposés par CryptoKit sont dans `proto-swift/README.md`.
+Le portage Kotlin est le module Gradle `:proto` de l'app Android
+(BouncyCastle) ; ses écarts sont dans `android/proto/README.md`.
 
 Les vecteurs de référence sont `proto/vectors.json` (regénérés par
 `cargo run --example vectors`, vérifiés indépendamment par
