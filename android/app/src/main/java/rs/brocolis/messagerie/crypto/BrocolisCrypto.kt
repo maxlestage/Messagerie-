@@ -1,7 +1,7 @@
 package rs.brocolis.messagerie.crypto
 
-import android.util.Base64
 import java.security.SecureRandom
+import java.util.Base64
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
@@ -22,6 +22,9 @@ import javax.crypto.spec.SecretKeySpec
  *
  * Port fidèle de Shared/BrocolisCrypto.swift. Les clés sont des `ByteArray` de
  * 32 octets ; on les passe/retourne en base64 standard (sans retour à la ligne).
+ *
+ * Sans `android.*` (java.util.Base64, javax.crypto) : se teste tel quel sur la
+ * JVM, avec le v3 (`BrocolisV3`), qui s'en sert pour l'enveloppe des médias.
  */
 object BrocolisCrypto {
 
@@ -43,10 +46,14 @@ object BrocolisCrypto {
 
     // MARK: Base64 (standard, sans wrap — comme base64EncodedString d'iOS)
 
-    fun b64encode(data: ByteArray): String = Base64.encodeToString(data, Base64.NO_WRAP)
+    fun b64encode(data: ByteArray): String = Base64.getEncoder().encodeToString(data)
 
+    /**
+     * Décodage tolérant, comme `android.util.Base64` avant lui : tout caractère
+     * hors de l'alphabet (blancs, retours à la ligne collés) est ignoré.
+     */
     fun b64decode(s: String): ByteArray? =
-        try { Base64.decode(s.trim(), Base64.NO_WRAP) } catch (_: Exception) { null }
+        try { Base64.getMimeDecoder().decode(s.trim()) } catch (_: Exception) { null }
 
     // MARK: Clé
 
@@ -177,7 +184,14 @@ object BrocolisCrypto {
     data class Marked(val text: String, val count: Int)
 
     /** Chiffre chaque `((segment))` pour TOUTES les clés (v2 si plusieurs, v1 sinon). */
-    fun encryptMarked(input: String, keys: List<ByteArray>): Marked {
+    fun encryptMarked(input: String, keys: List<ByteArray>): Marked =
+        encryptMarked(input) { sealTokenOrNull(it.toByteArray(Charsets.UTF_8), keys) }
+
+    /**
+     * Chiffre chaque `((segment))` avec `seal` (le codec : v3 pour une clé qui
+     * le permet, sinon v1/v2) ; un segment que `seal` refuse reste tel quel.
+     */
+    fun encryptMarked(input: String, seal: (String) -> String?): Marked {
         val out = StringBuilder()
         var count = 0
         var rest = input
@@ -191,7 +205,7 @@ object BrocolisCrypto {
             val secret = afterOpen.substring(0, close)
 
             out.append(rest, 0, open)
-            val token = sealTokenOrNull(secret.toByteArray(Charsets.UTF_8), keys)
+            val token = seal(secret)
             if (token != null) {
                 out.append(token); count++
             } else {
@@ -209,8 +223,11 @@ object BrocolisCrypto {
      * Déchiffre chaque jeton en essayant plusieurs clés : pour chaque jeton, la
      * 1re clé qui réussit gagne. Un jeton qu'aucune clé n'ouvre est laissé tel
      * quel (message « pour les autres »).
+     *
+     * `other` lit les jetons d'une autre version (le v3 : `BrocolisV3`), le
+     * jeton entier en argument : son clair, ou `null` pour le laisser tel quel.
      */
-    fun decryptTokens(input: String, keys: List<ByteArray>): Decrypted {
+    fun decryptTokens(input: String, keys: List<ByteArray>, other: ((String) -> String?)? = null): Decrypted {
         val out = StringBuilder()
         var count = 0
         var rest = input
@@ -236,6 +253,8 @@ object BrocolisCrypto {
                 val b64 = inner.substring(3)
                 val plain = decryptTokenV2OrNull(b64, keys)
                 if (plain != null) decrypted = String(plain, Charsets.UTF_8)
+            } else if (other != null) {
+                decrypted = other(TOKEN_HEAD + inner + TOKEN_SUFFIX)
             }
 
             if (decrypted != null) {
@@ -265,5 +284,22 @@ object BrocolisCrypto {
             rest = afterHead.substring(end + TOKEN_SUFFIX.length)
         }
         return count
+    }
+}
+
+/**
+ * Ce qui chiffre et ce qui lit un texte (port de `BrocolisCodec`, iOS) :
+ * `BrocolisV3Api.codec` (v3 pour UNE clé qui le permet, docs/SECURITE.md §8.5)
+ * ou `legacy` (v1 pour une clé, v2 pour plusieurs).
+ */
+class BrocolisCodec(
+    val seal: (String) -> String?,
+    val open: (String) -> BrocolisCrypto.Decrypted
+) {
+    companion object {
+        fun legacy(keys: List<ByteArray>) = BrocolisCodec(
+            seal = { BrocolisCrypto.sealTokenOrNull(it.toByteArray(Charsets.UTF_8), keys) },
+            open = { BrocolisCrypto.decryptTokens(it, keys) }
+        )
     }
 }

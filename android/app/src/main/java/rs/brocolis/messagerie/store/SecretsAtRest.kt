@@ -119,6 +119,56 @@ internal object SecretsAtRest {
         prefs.edit().remove(name).commit()
     }
 
+    // MARK: Octets (appareil et clé de l'état v3, docs/SECURITE.md §8.1)
+
+    /** Ce que donne l'ouverture d'une valeur scellée. */
+    sealed class Opened {
+        class Ok(val data: ByteArray) : Opened()
+        /** Clé Keystore absente ou changée, valeur abîmée : illisible pour toujours. */
+        object Unreadable : Opened()
+        /** Le Keystore ne répond pas (pour l'instant). */
+        object Unavailable : Opened()
+    }
+
+    /**
+     * Scelle des octets par la clé du Keystore : nonce (12) ‖ chiffré ‖ tag
+     * (16), `name` en données associées. `null` si le Keystore est
+     * indisponible — SANS repli en clair (le v3 passe alors en v1/v2).
+     */
+    @Synchronized
+    fun sealBytes(plain: ByteArray, name: String): ByteArray? {
+        val key = key() ?: return null
+        return try {
+            val cipher = Cipher.getInstance(TRANSFORMATION)
+            cipher.init(Cipher.ENCRYPT_MODE, key) // nonce tiré par le Keystore
+            cipher.updateAAD(name.toByteArray(Charsets.UTF_8))
+            val nonce = cipher.iv
+            if (nonce == null || nonce.size != NONCE_LENGTH) null else nonce + cipher.doFinal(plain)
+        } catch (e: Exception) {
+            Log.w(TAG, "Chiffrement Keystore impossible : ${e.javaClass.simpleName}")
+            null
+        }
+    }
+
+    /** Ouvre des octets scellés par [sealBytes]. */
+    @Synchronized
+    fun openBytes(sealed: ByteArray, name: String): Opened {
+        if (sealed.size < NONCE_LENGTH + TAG_BITS / 8) return Opened.Unreadable
+        if (keyStore() == null) return Opened.Unavailable
+        val key = existingKey() ?: return Opened.Unreadable
+        return try {
+            val cipher = Cipher.getInstance(TRANSFORMATION)
+            cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(TAG_BITS, sealed, 0, NONCE_LENGTH))
+            cipher.updateAAD(name.toByteArray(Charsets.UTF_8))
+            Opened.Ok(cipher.doFinal(sealed, NONCE_LENGTH, sealed.size - NONCE_LENGTH))
+        } catch (_: javax.crypto.AEADBadTagException) {
+            Opened.Unreadable
+        } catch (e: Exception) {
+            Log.w(TAG, "Déchiffrement Keystore impossible : ${e.javaClass.simpleName}")
+            Opened.Unavailable
+        }
+    }
+
     // MARK: Keystore
 
     private fun seal(plain: String, name: String): String? {
