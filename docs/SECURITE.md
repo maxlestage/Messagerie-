@@ -394,3 +394,245 @@ Comparaisons de secrets en temps constant (tags GCM, identifiants dérivés
 d'une clé partagée), secrets effacés (`zeroize`), aucune panique sur une
 entrée hostile, aucune heure ni hasard implicite (passés par l'appelant :
 `wasm32-unknown-unknown` n'a pas d'horloge).
+
+## 8. Intégration dans Brocolis
+
+Comment l'app iPhone, le site (discussion en ligne) et, à leur suite,
+l'app Android passent au v3 sans casser ce qui existe. Comme le §7, chaque
+point fait partie du contrat : un portage fait **exactement** pareil (format
+des échanges, choix du format d'envoi, empreinte). Ce qui reste local à une
+plateforme (forme du stockage, verrou) est dit comme tel.
+
+### 8.1 L'appareil v3
+
+- **Un `Device` par installation** (iPhone : partagé par l'app et ses
+  extensions ; un navigateur ; une app Android). Créé au premier besoin, avec
+  ML-KEM-768 si la plateforme l'a (iPhone : iOS 26 ; navigateur : toujours ;
+  Android : selon la bibliothèque), sinon en X25519 seul.
+- **Entretien à chaque transaction (§8.3)** : SPK et PQPK neuves chaque
+  semaine (`needs_rotation` → `rotate`), ML-KEM ajouté dès qu'il devient
+  disponible (iPhone passé à iOS 26 : `enable_pq`), purge des clés
+  remplacées depuis 30 jours et de la mémoire des premiers messages.
+- **Où** :
+
+  | Plateforme | `Device` (JSON de la référence) | Sessions et messages ouverts (§8.2) |
+  |---|---|---|
+  | iPhone | Trousseau, service `rs.brocolis.messagerie.secrets`, compte `v3_device`, groupe d'accès = l'App Group, `AfterFirstUnlockThisDeviceOnly` | fichier `BrocolisV3/etat.bin` du conteneur de l'App Group, chiffré AES-256-GCM par une clé de 32 octets du Trousseau (compte `v3_state_key`, mêmes attributs) ; dossier exclu des sauvegardes |
+  | Navigateur | coffre (`coffre.rs`), entrée `brocolis.web.v3.device` | coffre, entrée `brocolis.web.v3.state` |
+  | Android | valeur chiffrée par la clé `AndroidKeyStore` (§3.1) | idem |
+
+  Sur l'iPhone, **aucun repli** vers les `UserDefaults` pour ces secrets
+  (contrairement aux clés nommées) : Trousseau illisible (appareil jamais
+  déverrouillé depuis le démarrage, clavier sans « accès complet ») = v3
+  indisponible pour cette opération, qui se fait alors en v1/v2 (§8.5).
+  Fichier d'état : `nonce (12) ‖ AES-256-GCM(JSON) ‖ tag (16)`, données
+  associées `brocolis-v3-etat-v1` ; écrit dans un fichier temporaire puis
+  renommé (jamais à moitié écrit). Un fichier illisible (clé perdue,
+  sauvegarde restaurée) est remplacé par un état vide : les sessions se
+  rouvrent (§8.6).
+
+### 8.2 L'état : sessions et messages ouverts
+
+- **Sessions par contact** : la clé du contact est son IK X25519 (en
+  hexadécimal). Au plus **deux** sessions par contact (celle que j'ai
+  ouverte, celle qu'il a ouverte : AD = IK de l'initiateur ‖ IK du
+  répondeur, donc deux identifiants au plus) ; ranger une session remplace
+  celle de même identifiant et retire la plus ancienne au-delà de deux. La
+  **session d'envoi** est la dernière qui a servi (à l'envoi comme à la
+  réception). C'est le choix de Talka : si les deux écrivent en même temps
+  leur premier message, chacun lit l'autre.
+- **Sessions à clé partagée (PSK)** : rangées par identifiant de clé
+  nommée, mêmes règles (deux au plus, la dernière qui a servi). On garde
+  aussi la liste des clés sur lesquelles un message PSK est **arrivé**
+  (§8.5) et la mémoire des clés éphémères PSK déjà vues (`ReplayGuard`,
+  §7.4).
+- **Messages ouverts** : un message v3 ne se déchiffre qu'**une** fois (la
+  clé de message est effacée). Son clair est donc gardé, dans le même état
+  chiffré, sous `h = hex(SHA-256(jeton normalisé))` — le jeton
+  `[[BROCOLIS:v3:…]]` dont on a retiré tout blanc (une messagerie peut
+  couper une longue ligne). Mes propres envois y entrent au chiffrement.
+  2 000 entrées et 1 Mio de clair au plus ; les plus anciennes partent
+  d'abord. C'est ce qui permet de relire une conversation, de rouvrir le
+  clavier sur un message déjà lu, de recharger la page du site.
+
+### 8.3 Une transaction à la fois (app, clavier, Partager, iMessage…)
+
+Plusieurs processus (l'app et ses extensions) écrivent le même état. Un
+message ne doit **jamais** être chiffré deux fois avec la même clé de
+message, ni déchiffré avec deux états différents. Toute opération qui lit ou
+change l'appareil ou l'état est donc une **transaction** :
+
+    verrou exclusif → lire Device et état → entretien (§8.1)
+      → chiffrer / déchiffrer (et ranger le clair, §8.2)
+      → écrire Device s'il a changé → écrire l'état s'il a changé
+      → lâcher le verrou → seulement alors rendre le jeton (ou le clair)
+
+- iPhone : `flock(LOCK_EX)` sur `BrocolisV3/verrou` du conteneur de l'App
+  Group, un descripteur ouvert **par transaction** (deux fils d'un même
+  processus s'excluent donc aussi). La transaction est synchrone (aucune
+  attente réseau dedans) : le verrou dure quelques millisecondes, iOS ne
+  suspend pas l'app en le tenant.
+- Le `Device` est écrit **avant** l'état : sa mémoire des premiers messages
+  n'est jamais en retard sur les sessions (un premier message rejoué reste
+  refusé). Si une écriture échoue, l'opération échoue : un jeton n'est
+  jamais rendu sans que l'état qui l'a produit soit écrit (« état écrit
+  avant l'envoi »).
+- Navigateur : `navigator.locks.request("brocolis-v3", …)` (plusieurs
+  onglets), sinon (navigateur ancien) sans verrou entre onglets.
+- Android : un verrou du processus et `FileChannel.lock()` sur un fichier de
+  verrou (le clavier peut tourner dans un autre processus).
+
+### 8.4 Appairage → session v3
+
+Le salon (`/pair`, `/wrap`) ne change pas pour un ancien client : tout ce qui
+suit est **optionnel**.
+
+- **Publier son paquet** : `POST /pair` porte en plus
+  `"bundle": "<base64 du paquet §7.3>"` (166 ou 1 418 octets), à chaque
+  publication (invitation, réponse, mode compatible, reprise à l'ouverture).
+  Le serveur vérifie le paquet (`KeyBundle::from_bytes` : format, clés,
+  signatures) — invalide : `400` —, le garde avec le participant et le
+  rend dans la liste des participants (`{ "peerId", "pub", "bundle" }`, sans
+  `bundle` s'il n'en a pas). Le republier avec la même identité
+  (`IK X25519 ‖ IK Ed25519`) le remplace (rotation) ; avec une autre identité
+  : `409`, comme une autre clé publique. Republier sans `bundle` garde celui
+  qui est connu.
+- **Retrouver le paquet du correspondant** : l'invitant prend celui du
+  participant à qui il remet la clé ; celui qui rejoint prend celui du
+  participant `peerId = wrap.from` et `pub = wrap.fromPub` (liste relue
+  après l'arrivée de la clé, `GET /pair`).
+- **À deux ou en groupe** (`duo`) : l'invitant est « à deux » tant qu'il a
+  remis la clé à **une** personne ; à la deuxième, la clé devient une clé
+  de groupe, pour toujours. Celui qui rejoint est « à deux » si le salon
+  compte exactement un autre participant quand la clé arrive ; pendant les
+  8 jours suivants, à chaque ouverture de l'app, il relit le salon et passe
+  en groupe s'il y voit plus d'un autre participant. Le mode compatible
+  (« Appairer à deux ») est toujours à deux.
+- **Empreinte** (comparée de vive voix) : à deux, avec les deux paquets,
+
+      P   = IK X25519 ‖ IK Ed25519 de chaque appareil (64 octets)
+      F   = SHA-256("Brocolis_v3_Appairage" ‖ K ‖ min(P_A, P_B) ‖ max(P_A, P_B))[0..8]
+      affichée XXXX-XXXX-XXXX-XXXX (hexadécimal majuscule)
+
+  avec K la clé partagée (32 octets) et min/max dans l'ordre
+  lexicographique des 64 octets. Elle couvre la clé **et** les deux
+  identités v3 : un paquet substitué change l'empreinte d'un côté au moins.
+  Sinon (groupe, ou un côté sans paquet) : l'empreinte d'avant
+  (`SHA-256(K)[0..8]`, ou celle du mode compatible). Un serveur qui retire
+  le paquet d'un seul côté fait afficher deux empreintes différentes ; s'il
+  les retire des deux, l'appairage reste en ancien format, **affiché** comme
+  tel (§8.8).
+
+  Vecteur : K = 32 × `0x07`, P_A = 64 × `0x01`, P_B = 64 × `0x02` →
+  `F = 1D47-6221-06A0-8AC5`.
+
+- **Le contact** : la clé nommée garde le paquet du correspondant, sa date
+  d'arrivée et `duo` (données publiques ; sur l'iPhone, avec la clé au
+  Trousseau). L'invitant ouvre aussitôt la session (`initiate`, hybride si
+  le paquet et l'appareil ont ML-KEM) : elle part avec son premier message
+  (0x01). Celui qui rejoint ouvre la sienne au premier envoi, s'il n'a rien
+  reçu avant.
+
+### 8.5 Le format d'un envoi
+
+Pour **une** clé destinataire K (clavier, Partager, iMessage, écran
+Conversation, messagerie, site), dans cet ordre :
+
+1. K a un contact v3 **à deux** : sa session d'envoi ; sans session, une
+   session neuve vers son paquet **s'il a moins de 30 jours** (au-delà, sa
+   SPK a pu être effacée : on passe au 3).
+2. Sinon, **PSK** si K est marquée « à deux, double cliquet » par
+   l'utilisateur, ou si un message PSK est déjà arrivé sur K (l'autre est à
+   jour et s'en sert : on suit) : sa session PSK d'envoi, ou
+   `initiate_psk(K)`. Jamais de PSK automatique sur une clé sans signe que
+   l'autre est à jour : un ancien client ne lirait rien.
+3. Sinon : v1 — v2 pour plusieurs clés. Une clé de groupe (3 personnes ou
+   plus) reste toujours en v1/v2 (§7.4) ; tout ce qui ne tient pas dans un
+   jeton v3 (200 Kio) aussi.
+
+Le v3 indisponible (Trousseau fermé, état illisible et non réécrivable)
+fait passer au 3. Les jetons v1/v2 restent lisibles pour toujours.
+
+### 8.6 La réception d'un jeton v3
+
+1. Normaliser le jeton, chercher `h` dans les messages ouverts (§8.2) :
+   trouvé, c'est le clair.
+2. Décoder ; chercher la session par son identifiant parmi celles des
+   contacts et des clés PSK ; `decrypt`. Réussi : ranger le clair, la
+   session devient celle d'envoi.
+3. Session inconnue (ou `NouvelleSession`) et premier message (0x01) :
+   - mode `0x02` (PSK) : essayer `accept_psk` clé par clé (la mémoire PSK
+     des clés éphémères en garde) ; la clé qui l'ouvre reçoit la session et
+     passe en PSK (§8.5, 2) ;
+   - modes `0x00`/`0x01` : **seulement** si `IK_A` est l'IK X25519 d'un
+     contact (un paquet reçu à l'appairage) — sinon refusé, expéditeur
+     inconnu —, puis `Device::accept`.
+4. `Rejoue` sans clair gardé : « déjà lu sur cet appareil ». Toute autre
+   erreur : le jeton reste chiffré.
+5. **Réparation** (comme Talka, `needs_repair`) : seulement dans une
+   conversation de la messagerie (la clé du correspondant est connue), pour
+   un message **de l'autre**, et seulement si l'erreur est `SessionInconnue`
+   ou `CleInconnue` : on oublie les sessions de ce contact, le prochain
+   envoi en ouvre une neuve (0x01) que l'autre accepte. Un échec de
+   déchiffrement sur une session connue (rejeu d'un vieux message,
+   falsification) ne répare **rien** : sinon rejouer suffirait à faire
+   tomber la session.
+
+### 8.7 La messagerie (serveur) et la discussion du site
+
+- L'identifiant de conversation ne change pas (dérivé de K) ; le serveur
+  transporte des jetons v3 au lieu de v1, sans le savoir.
+- **Mes messages** reviennent du serveur : ils ne sont jamais déchiffrés
+  (impossible, et ce n'est pas de l'autre), seulement relus dans les
+  messages ouverts ; à défaut : « 🔐 envoyé depuis cet appareil ».
+- **Photos, vocaux, longs textes** (clair commençant par `BRCM1:` ou de plus
+  de 16 Kio) : une clé de média `K_m` (32 octets aléatoires) part dans le
+  message v3, le média dans un jeton v1 sous `K_m`, collé derrière :
+
+      clair v3          = "BRCM3:" ‖ base64(K_m)
+      champ ciphertext  = [[BROCOLIS:v3:…]][[BROCOLIS:v1:…]]   (v1 = AES-256-GCM sous K_m du clair « BRCM1:img:… »)
+
+  La confidentialité persistante couvre le média (K_m n'existe que dans un
+  message à cliquet). À la lecture : ouvrir le v3, puis le v1 qui suit avec
+  `K_m`.
+- **La montre** n'a pas les sessions (elles ne quittent pas l'iPhone : deux
+  appareils sur un même état réutiliseraient des clés de message) : un
+  message v3 y reste « 🔐 à lire sur l'iPhone », et ce qu'elle envoie part
+  en v1.
+- Le site garde le même modèle pour sa discussion : un appareil par
+  navigateur, le paquet échangé dans le salon, sessions et messages ouverts
+  au coffre ; « Quitter » efface la clé et l'état v3 de la discussion
+  (l'appareil reste).
+
+### 8.8 Ce que l'interface affiche
+
+Partout où s'affiche une clé ou un contact (liste des clés, correspondants
+de la messagerie, en-tête d'une conversation, fin d'appairage, clavier,
+Partager, iMessage, site) :
+
+| Cas | Libellé |
+|---|---|
+| contact v3 à deux, session (ou session à venir) hybride | 🔐 double cliquet (post-quantique) |
+| contact v3 à deux, X25519 seul (iPhone avant iOS 26, paquet sans ML-KEM) | 🔐 double cliquet (classique) |
+| PSK (§8.5, 2) | 🔐 double cliquet, clé partagée (PSK) |
+| tout le reste (groupe, ancien client, paquet trop vieux) | ancien format |
+
+Sans session encore, le libellé dit ce que ferait le prochain envoi.
+
+### 8.9 Clé protégée par une phrase
+
+L'export écrit la **v2** (Argon2id, m = 64 Mio, t = 3, p = 1 ; §3.2) ;
+l'import lit v1 et v2. L'iPhone refuse en plus, à l'import, une v2 qui
+demanderait plus de 256 Mio (le système tuerait l'app avant la fin) — en
+deçà de la borne du §3.2, sans effet sur ce qu'écrit un client conforme.
+
+### 8.10 Ce que voit le serveur, ce qui reste à faire
+
+- Le serveur voit en plus les **paquets de clés publiques** (publics par
+  nature, signés) ; ni clé privée, ni clé de session, ni clair.
+- Restent en v1/v2 : les clés de groupe (Sender Keys par sessions à deux,
+  §4.5, à venir), ce que la montre envoie, ce qui dépasse 200 Kio hors
+  messagerie.
+- Pas encore : rafraîchir le paquet d'un contact sans réappairer (au-delà de
+  30 jours sans session, l'envoi repasse en v1 et l'affiche) ; chiffrement
+  des en-têtes (§5).
