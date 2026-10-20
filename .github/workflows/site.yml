@@ -9,11 +9,13 @@ on:
     branches: [master]
     paths:
       - 'site/**'
+      - 'proto/**'
       - 'README.md'
       - '.github/workflows/site.yml'
   pull_request:
     paths:
       - 'site/**'
+      - 'proto/**'
       - 'README.md'
       - '.github/workflows/site.yml'
   workflow_dispatch:

@@ -392,6 +392,115 @@ async fn pairing_and_group_key_relay() {
     assert_eq!(res.status(), 404);
 }
 
+/// L'appairage v3 (`docs/SECURITE.md` §8.4) : chacun publie son paquet de
+/// clés avec sa clé publique ; le salon le vérifie, le rend aux autres, et
+/// un ancien client continue de s'appairer sans rien voir changer. Puis les
+/// deux ouvrent une session à double cliquet avec ce que le salon leur a
+/// donné et se parlent par la messagerie : le serveur ne voit que des
+/// paquets publics et des jetons v3.
+#[tokio::test]
+async fn pairing_exchanges_v3_bundles_then_a_ratchet_session_talks() {
+    use brocolis_proto::{hasard, Content, Device, KeyBundle, Token};
+    let client = client().await;
+    let rng = &mut hasard::system();
+    let now = 1_800_000_000;
+    let alice = Device::generate(rng, now, true);
+    let mut bob = Device::generate(rng, now, false);
+    let bundle_a = alice.bundle().unwrap().to_base64();
+    let bundle_b = bob.bundle().unwrap().to_base64();
+    const PUB_A: &str = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=";
+    const PUB_B: &str = "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=";
+    const PUB_C: &str = "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM=";
+    const CODE: &str = "V3PAIRAB";
+
+    let res = client
+        .post("/pair")
+        .json(&json!({ "code": CODE, "peerId": "alice", "pub": PUB_A, "host": true, "bundle": bundle_a }))
+        .await;
+    assert_eq!(res.status(), 200, "{}", res.text());
+    // Un ancien client (sans paquet) s'inscrit comme avant.
+    let res = client
+        .post("/pair")
+        .json(&json!({ "code": CODE, "peerId": "carol", "pub": PUB_C }))
+        .await;
+    assert_eq!(res.status(), 200);
+    let res: Value = client
+        .post("/pair")
+        .json(&json!({ "code": CODE, "peerId": "bob", "pub": PUB_B, "bundle": bundle_b }))
+        .await
+        .json();
+    let peers = res["peers"].as_array().unwrap();
+    let seen_a = peers.iter().find(|p| p["peerId"] == "alice").unwrap();
+    assert_eq!(seen_a["pub"], PUB_A);
+    let carol = peers.iter().find(|p| p["peerId"] == "carol").unwrap();
+    assert!(carol.get("bundle").is_none());
+    let seen_a = KeyBundle::from_base64(seen_a["bundle"].as_str().unwrap()).unwrap();
+    assert_eq!(seen_a.identity, alice.identity());
+    assert!(seen_a.pq.is_some(), "le paquet garde sa clé ML-KEM");
+    let res: Value = client.get(&format!("/pair?code={CODE}&peerId=alice")).await.json();
+    let seen_b = res["peers"].as_array().unwrap().iter().find(|p| p["peerId"] == "bob").unwrap();
+    let seen_b = KeyBundle::from_base64(seen_b["bundle"].as_str().unwrap()).unwrap();
+    assert_eq!(seen_b.identity, bob.identity());
+
+    // ── Tricheurs ──
+    // Un paquet abîmé (une signature fausse) : refusé, le salon ne change pas.
+    let mut bytes = alice.bundle().unwrap().to_bytes();
+    bytes[120] ^= 1;
+    assert!(KeyBundle::from_bytes(&bytes).is_err());
+    let forged = Some(brocolis_site::crypto::b64(&bytes));
+    let res = client
+        .post("/pair")
+        .json(&json!({ "code": CODE, "peerId": "dave", "pub": PUB_C, "bundle": forged.unwrap() }))
+        .await;
+    assert_eq!(res.status(), 400);
+    let res = client
+        .post("/pair")
+        .json(&json!({ "code": CODE, "peerId": "dave", "pub": PUB_C, "bundle": "pas un paquet" }))
+        .await;
+    assert_eq!(res.status(), 400);
+    // Le paquet d'une autre identité sous le peerId de Bob : refusé.
+    let mallory = Device::generate(rng, now, false).bundle().unwrap().to_base64();
+    let res = client
+        .post("/pair")
+        .json(&json!({ "code": CODE, "peerId": "bob", "pub": PUB_B, "bundle": mallory }))
+        .await;
+    assert_eq!(res.status(), 409);
+    // Republier sans paquet (ancienne version de la même app) : il reste.
+    let res: Value = client
+        .post("/pair")
+        .json(&json!({ "code": CODE, "peerId": "bob", "pub": PUB_B }))
+        .await
+        .json();
+    let again = res["peers"].as_array().unwrap().iter().find(|p| p["peerId"] == "alice").unwrap();
+    assert!(again["bundle"].is_string());
+    let res: Value = client.get(&format!("/pair?code={CODE}&peerId=alice")).await.json();
+    let still_b = res["peers"].as_array().unwrap().iter().find(|p| p["peerId"] == "bob").unwrap();
+    assert_eq!(KeyBundle::from_base64(still_b["bundle"].as_str().unwrap()).unwrap().identity, bob.identity());
+
+    // ── La session, par la messagerie ──
+    let mut a = alice.initiate(&seen_b, seen_b.pq.is_some(), rng).unwrap();
+    assert!(!a.is_post_quantum(), "Bob n'a pas ML-KEM : X25519 seul");
+    let first = a.encrypt("Salut Bob 🥦").unwrap();
+    post_msg(&client, "alice-device", "conv-v3", "m1", &first).await;
+    let page: Value = client
+        .get("/v1/messages?conversationId=conv-v3&after=0")
+        .header("x-user-id", "bob-device")
+        .await
+        .json();
+    let ct = page["messages"][0]["ciphertext"].as_str().unwrap();
+    assert!(ct.starts_with("[[BROCOLIS:v3:"));
+    let Token::Initial(initial) = Token::decode(ct).unwrap() else { panic!("premier message attendu") };
+    assert_eq!(initial.identity, seen_a.identity.dh, "IK_A est celle du paquet vu au salon");
+    let (mut b, content) = bob.accept(&initial, now, rng).unwrap();
+    assert_eq!(content, Content::Text("Salut Bob 🥦".into()));
+    let reply = b.encrypt("Bien reçu").unwrap();
+    post_msg(&client, "bob-device", "conv-v3", "m2", &reply).await;
+    assert_eq!(a.decrypt_text(&reply, now, rng).unwrap(), Content::Text("Bien reçu".into()));
+    assert!(a.is_confirmed());
+    // Le serveur renvoie le premier message : rejeu ignoré.
+    assert!(b.decrypt_text(&first, now, rng).is_err());
+}
+
 /// Accès offert par e-mail : un appareil rattaché à un e-mail Apple listé dans
 /// `BROCOLIS_PRO_EMAILS` obtient Pro ; retirer l'e-mail de la liste ou
 /// détacher l'appareil le retire. Seul ce test touche à ces variables.
