@@ -55,7 +55,9 @@ jobs:
           git diff --exit-code vectors.json
       - name: Vérification indépendante des vecteurs (Python, OpenSSL)
         run: |
-          python3 -m pip install --quiet 'cryptography>=45'
+          # ML-KEM n'est dans `cryptography` que depuis peu : la version
+          # préinstallée du runner ne l'a pas, d'où --upgrade.
+          python3 -m pip install --quiet --upgrade 'cryptography>=50'
           python3 -I scripts/verifier_vecteurs.py vectors.json
       - name: WebAssembly
         run: cargo build --locked --release --target wasm32-unknown-unknown
@@ -88,5 +90,7 @@ jobs:
       - name: Fuzzing
         run: |
           for cible in decodage_jetons dechiffrement_v3 groupe; do
-            cargo fuzz run "$cible" -- -max_total_time=60
+            # cargo-fuzz installé tout fait vise par défaut sa propre cible
+            # (musl) : on impose celle du runner.
+            cargo fuzz run --target x86_64-unknown-linux-gnu "$cible" -- -max_total_time=60
           done
