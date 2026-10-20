@@ -538,7 +538,8 @@ final class StoreBox: ObservableObject {
 private struct ChatScreen: View {
     @ObservedObject var store: BrocolisChatStore
     @Environment(\.scenePhase) private var scenePhase
-    @State private var invite: InvitePayload?
+    /// Clé à envoyer au correspondant, protégée par une phrase secrète.
+    @State private var protectedShare: NamedKey?
     @StateObject private var recorder = VoiceRecorder()
     @StateObject private var player = VoicePlayer()
     @State private var photoItem: PhotosPickerItem?
@@ -586,11 +587,8 @@ private struct ChatScreen: View {
         .sheet(item: $store.paywallReason) { reason in
             PaywallView(reason: reason)
         }
-        .sheet(item: $invite) { payload in
-            MessageComposeView(recipients: payload.recipients, body: payload.body) {
-                invite = nil
-            }
-            .ignoresSafeArea()
+        .sheet(item: $protectedShare) { key in
+            ProtectedKeyShareView(key: key)
         }
     }
 
@@ -617,22 +615,19 @@ private struct ChatScreen: View {
         }
     }
 
-    @ViewBuilder private var inviteButton: some View {
-        if let phone = BrocolisKeyStore.keyPhone(store.correspondent.id), canSendMessages() {
-            Button {
-                invite = InvitePayload(
-                    recipients: [phone],
-                    body: brocolisInviteBody(contactName: store.correspondent.name,
-                                             keyBase64: store.correspondent.base64)
-                )
-            } label: {
-                Label(loc("Inviter par iMessage", "Invite via iMessage", "Invitar por iMessage"), systemImage: "paperplane.fill")
-                    .font(.caption).bold()
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-            .padding(.top, 2)
+    // La clé ne part plus en clair : elle est protégée par une phrase secrète
+    // (donnée à part, de vive voix). La feuille propose iMessage si le
+    // correspondant a un numéro, et le partage iOS sinon.
+    private var inviteButton: some View {
+        Button {
+            protectedShare = store.correspondent
+        } label: {
+            Label(loc("Envoyer ma clé (protégée)", "Send my key (protected)", "Enviar mi clave (protegida)"), systemImage: "lock.shield.fill")
+                .font(.caption).bold()
         }
+        .buttonStyle(.borderedProminent)
+        .controlSize(.small)
+        .padding(.top, 2)
     }
 
     private func bannerBox<Content: View>(color: Color, icon: String,
