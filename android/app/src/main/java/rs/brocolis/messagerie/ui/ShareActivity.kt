@@ -26,7 +26,11 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import rs.brocolis.messagerie.crypto.BrocolisCrypto
+import rs.brocolis.messagerie.crypto.BrocolisV3
 import rs.brocolis.messagerie.i18n.loc
 import rs.brocolis.messagerie.store.BrocolisKeyStore
 import rs.brocolis.messagerie.ui.theme.BrocolisTheme
@@ -35,6 +39,9 @@ import rs.brocolis.messagerie.ui.theme.BrocolisTheme
  * Équivalent Android de l'extension « Partager » iOS : reçoit du texte partagé
  * (ACTION_SEND) ou sélectionné (ACTION_PROCESS_TEXT) depuis n'importe quelle app,
  * et propose de le CHIFFRER (avec la/les clés destinataires) ou de le DÉCHIFFRER.
+ *
+ * v3 (docs/SECURITE.md §8.5, §8.6) : pour UNE clé destinataire qui le permet,
+ * le texte part en double cliquet ; la lecture ouvre v3, v2 et v1.
  */
 class ShareActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -56,6 +63,7 @@ private fun ShareScreen(incoming: String, onClose: () -> Unit) {
     var info by remember { mutableStateOf<String?>(null) }
     val clipboard = LocalClipboardManager.current
     val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
 
     Scaffold(
         topBar = {
@@ -79,26 +87,36 @@ private fun ShareScreen(incoming: String, onClose: () -> Unit) {
                 Button(
                     modifier = Modifier.weight(1f),
                     onClick = {
-                        val keys = BrocolisKeyStore.encryptionKeyBytes()
-                        if (keys.isEmpty()) {
+                        val recipients = BrocolisKeyStore.encryptionNamedKeys()
+                        if (recipients.isEmpty()) {
                             info = loc("Aucune clé utilisable.", "No usable key.", "Ninguna clave utilizable.")
                             return@Button
                         }
-                        result = if (BrocolisKeyStore.encryptWholeAlways) {
-                            BrocolisCrypto.sealTokenOrNull(text.toByteArray(Charsets.UTF_8), keys) ?: text
-                        } else {
-                            BrocolisCrypto.encryptMarked(text, keys).text
+                        val whole = BrocolisKeyStore.encryptWholeAlways
+                        scope.launch {
+                            // v3 pour UNE clé qui le permet (§8.5), sinon v1/v2.
+                            val (out, used) = withContext(Dispatchers.IO) {
+                                val codec = BrocolisV3.codec(recipients, BrocolisKeyStore.keys)
+                                val sealed = if (whole) codec.seal(text) ?: text
+                                             else BrocolisCrypto.encryptMarked(text, codec.seal).text
+                                sealed to BrocolisV3.protectionUsed(sealed, recipients)
+                            }
+                            result = out
+                            info = loc("Chiffré.", "Encrypted.", "Cifrado.") + " " + used.label
                         }
-                        info = loc("Chiffré.", "Encrypted.", "Cifrado.")
                     }
                 ) { Text(loc("Chiffrer", "Encrypt", "Cifrar")) }
 
                 OutlinedButton(
                     modifier = Modifier.weight(1f),
                     onClick = {
-                        val (out, count) = BrocolisCrypto.decryptTokens(text, BrocolisKeyStore.allKeyBytes())
-                        result = out
-                        info = loc("$count déchiffré(s).", "$count decrypted.", "$count descifrado(s).")
+                        scope.launch {
+                            val (out, count) = withContext(Dispatchers.IO) {
+                                BrocolisV3.openTokens(text, BrocolisKeyStore.keys)
+                            }
+                            result = out
+                            info = loc("$count déchiffré(s).", "$count decrypted.", "$count descifrado(s).")
+                        }
                     }
                 ) { Text(loc("Déchiffrer", "Decrypt", "Descifrar")) }
             }
