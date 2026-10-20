@@ -91,8 +91,12 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:okhttp-sse:4.12.0")
-    implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
+    // Même version que le module :proto (ML-KEM FIPS 203 final).
+    implementation("org.bouncycastle:bcprov-jdk18on:1.86")
     implementation("androidx.biometric:biometric:1.1.0")
+    // Le protocole v3 (docs/SECURITE.md) : compilé dans l'app, pas encore
+    // utilisé par l'interface ni le stockage.
+    implementation(project(":proto"))
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 

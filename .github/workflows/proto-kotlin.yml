@@ -1,0 +1,57 @@
+name: Protocole (Kotlin)
+
+# Le portage Kotlin du protocole (module Gradle :proto de l'app Android,
+# android/proto/) : sur la JVM, il doit retrouver les vecteurs de la référence
+# Rust (proto/vectors.json), passer les vecteurs Wycheproof et relire les
+# états JSON écrits par Rust (Fixtures/reference-rust.json).
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'android/proto/**'
+      - 'android/build.gradle.kts'
+      - 'android/settings.gradle.kts'
+      - 'android/gradle.properties'
+      - 'proto/vectors.json'
+      - 'proto/tests/wycheproof/**'
+      - 'proto-swift/Tests/BrocolisProtoTests/Fixtures/reference-rust.json'
+      - '.github/workflows/proto-kotlin.yml'
+  pull_request:
+    paths:
+      - 'android/proto/**'
+      - 'android/build.gradle.kts'
+      - 'android/settings.gradle.kts'
+      - 'android/gradle.properties'
+      - 'proto/vectors.json'
+      - 'proto/tests/wycheproof/**'
+      - 'proto-swift/Tests/BrocolisProtoTests/Fixtures/reference-rust.json'
+      - '.github/workflows/proto-kotlin.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: proto-kotlin-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: gradle :proto:testDebugUnitTest
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      # Pas de gradlew dans le dépôt : la version de gradle-wrapper.properties.
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - name: Tests (vecteurs, Wycheproof, propriétés, interop Rust) et lint
+        run: gradle :proto:testDebugUnitTest :proto:lintDebug --stacktrace
