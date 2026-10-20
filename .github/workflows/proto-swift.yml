@@ -1,0 +1,45 @@
+name: Protocole (Swift)
+
+# Le portage Swift du protocole (paquet BrocolisProto, proto-swift/) : sous
+# Linux avec swift-crypto, il doit retrouver les vecteurs de la référence
+# Rust (proto/vectors.json) et passer les vecteurs Wycheproof. La branche
+# CryptoKit (iPhone, Mac) est compilée par les apps qui en dépendent.
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'Package.swift'
+      - 'Package.resolved'
+      - 'proto-swift/**'
+      - 'proto/vectors.json'
+      - 'proto/tests/wycheproof/**'
+      - '.github/workflows/proto-swift.yml'
+  pull_request:
+    paths:
+      - 'Package.swift'
+      - 'Package.resolved'
+      - 'proto-swift/**'
+      - 'proto/vectors.json'
+      - 'proto/tests/wycheproof/**'
+      - '.github/workflows/proto-swift.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: proto-swift-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: swift test (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    container: swift:6.1-noble
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tests (debug)
+        run: swift test
+      - name: Tests (release)
+        run: swift test -c release
