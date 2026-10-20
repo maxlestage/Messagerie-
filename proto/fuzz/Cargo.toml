@@ -1,0 +1,36 @@
+[package]
+name = "brocolis-proto-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+# Hors de tout workspace, comme la crate.
+[workspace]
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+brocolis-proto = { path = ".." }
+
+[[bin]]
+name = "decodage_jetons"
+path = "fuzz_targets/decodage_jetons.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "dechiffrement_v3"
+path = "fuzz_targets/dechiffrement_v3.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "groupe"
+path = "fuzz_targets/groupe.rs"
+test = false
+doc = false
+bench = false

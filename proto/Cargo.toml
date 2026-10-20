@@ -1,0 +1,49 @@
+[package]
+name = "brocolis-proto"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Le protocole de sécurité de Brocolis 🥦 et Talka, implémentation de référence : clés protégées (PBKDF2, Argon2id), jetons v1/v2/v3, paquets de clés X25519 + ML-KEM-768 + Ed25519, établissement façon PQXDH, Double Ratchet, Sender Keys. Les autres implémentations (Swift, Kotlin, WebAssembly) retrouvent ses vecteurs octet pour octet."
+license = "UNLICENSED"
+publish = false
+
+# Crate autonome : elle n'appartient à aucun workspace du dépôt (sa propre
+# Cargo.lock est commitée). Compilée aussi en wasm32-unknown-unknown pour Talka
+# et le site.
+[workspace]
+
+[lib]
+name = "brocolis_proto"
+path = "src/lib.rs"
+
+[dependencies]
+# Uniquement RustCrypto et dalek, en versions stables publiées.
+aes-gcm = { version = "0.11", default-features = false, features = ["aes", "alloc", "zeroize"] }
+hkdf = "0.13"
+hmac = "0.13"
+sha2 = "0.11"
+pbkdf2 = { version = "0.13", default-features = false, features = ["hmac"] }
+argon2 = { version = "0.6", default-features = false, features = ["alloc", "zeroize"] }
+x25519-dalek = { version = "3", default-features = false, features = ["static_secrets", "zeroize", "precomputed-tables"] }
+ed25519-dalek = { version = "3", default-features = false, features = ["fast", "zeroize"] }
+ml-kem = { version = "0.3", default-features = false, features = ["alloc", "zeroize", "hazmat"] }
+subtle = "2.6"
+zeroize = { version = "1.8", features = ["derive"] }
+rand_core = "0.10"
+getrandom = { version = "0.4", features = ["sys_rng"] }
+base64 = "0.22"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Le navigateur : le hasard vient de `crypto.getRandomValues`.
+[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
+getrandom = { version = "0.4", features = ["wasm_js"] }
+
+# Argon2id (64 Mio) et PBKDF2 (600 000 tours) sont lents sans optimisation :
+# les dépendances sont optimisées même en debug pour que `cargo test` reste
+# rapide.
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.test.package."*"]
+opt-level = 3
