@@ -1,0 +1,92 @@
+name: Protocole
+
+# L'implémentation de référence du protocole de sécurité (proto/,
+# docs/SECURITE.md) : format, clippy, tests (debug et release, vecteurs
+# Wycheproof compris), vecteurs à jour et vérifiés indépendamment (Python +
+# OpenSSL), compilation WebAssembly, cargo audit et cargo deny, et quelques
+# minutes de fuzzing.
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'proto/**'
+      - 'docs/SECURITE.md'
+      - '.github/workflows/proto.yml'
+  pull_request:
+    paths:
+      - 'proto/**'
+      - 'docs/SECURITE.md'
+      - '.github/workflows/proto.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: proto-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: proto
+
+jobs:
+  test:
+    name: fmt, clippy, tests, wasm
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: proto
+      - name: Format
+        run: cargo fmt --check
+      - name: Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Tests
+        run: cargo test --locked
+      - name: Tests (release)
+        run: cargo test --locked --release
+      - name: Vecteurs à jour
+        run: |
+          cargo run --locked --release --example vectors
+          git diff --exit-code vectors.json
+      - name: Vérification indépendante des vecteurs (Python, OpenSSL)
+        run: |
+          python3 -m pip install --quiet 'cryptography>=45'
+          python3 -I scripts/verifier_vecteurs.py vectors.json
+      - name: WebAssembly
+        run: cargo build --locked --release --target wasm32-unknown-unknown
+
+  audit:
+    name: cargo audit, cargo deny
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit,cargo-deny
+      - name: cargo audit
+        run: cargo audit
+      - name: cargo deny
+        run: cargo deny check
+
+  fuzz:
+    name: fuzzing (3 × 60 s)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-fuzz
+      - name: Fuzzing
+        run: |
+          for cible in decodage_jetons dechiffrement_v3 groupe; do
+            cargo fuzz run "$cible" -- -max_total_time=60
+          done
