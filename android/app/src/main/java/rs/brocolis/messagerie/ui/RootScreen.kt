@@ -49,6 +49,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import rs.brocolis.messagerie.crypto.BrocolisCrypto
 import rs.brocolis.messagerie.crypto.BrocolisKeyProtection
+import rs.brocolis.messagerie.crypto.BrocolisProtection
+import rs.brocolis.messagerie.crypto.BrocolisV3
 import rs.brocolis.messagerie.i18n.loc
 import rs.brocolis.messagerie.store.BrocolisKeyStore
 import rs.brocolis.messagerie.store.MessagingPrefs
@@ -71,6 +73,10 @@ fun RootScreen(
     val isActive = remember(version) { BrocolisKeyStore.isActive }
     val encryptWhole = remember(version) { BrocolisKeyStore.encryptWholeAlways }
     val recipientIds = remember(version) { BrocolisKeyStore.recipientKeyIds }
+    // La protection de chaque clé (docs/SECURITE.md §8.8), en une transaction.
+    val protections by produceState(emptyMap<String, BrocolisProtection>(), keys) {
+        value = withContext(Dispatchers.IO) { BrocolisV3.protections(keys) }
+    }
 
     var lockEnabled by remember { mutableStateOf(MessagingPrefs.lockEnabled) }
     var eraseOnClose by remember { mutableStateOf(MessagingPrefs.eraseOnClose) }
@@ -84,7 +90,7 @@ fun RootScreen(
     // Partage : protégé par une phrase secrète (recommandé) ou en clair (avec avertissement).
     var protectTarget by remember { mutableStateOf<NamedKey?>(null) }
     var plainShare by remember { mutableStateOf<Pair<NamedKey, Boolean>?>(null) } // (clé, true = copier)
-    // Import d'un jeton `[[BROCOLIS-CLE:v1:…]]` : (nom, texte collé) en attente de la phrase.
+    // Import d'un jeton `[[BROCOLIS-CLE:v1:…]]` ou `v2` : (nom, texte collé) en attente de la phrase.
     var protectedImport by remember { mutableStateOf<Pair<String, String>?>(null) }
 
     val clipboard = LocalClipboardManager.current
@@ -232,6 +238,7 @@ fun RootScreen(
                 keys.forEach { key ->
                     KeyRow(
                         key = key,
+                        protection = protections[key.id],
                         selected = key.id == selectedId,
                         onSelect = { BrocolisKeyStore.selectKey(key.id); reload() },
                         onRename = { renameTarget = key },
@@ -299,6 +306,8 @@ fun RootScreen(
             if (selected != null) {
                 SelectedKeyCard(
                     key = selected,
+                    protection = protections[selected.id],
+                    onPsk = { on -> BrocolisKeyStore.setPsk(on, selected.id); reload() },
                     onProtectedShare = { protectTarget = selected },
                     onCopy = { plainShare = selected to true },
                     onShare = { plainShare = selected to false },
@@ -507,7 +516,7 @@ private fun ToggleRow(title: String, subtitle: String, checked: Boolean, onChang
 
 @Composable
 private fun KeyRow(
-    key: NamedKey, selected: Boolean,
+    key: NamedKey, protection: BrocolisProtection?, selected: Boolean,
     onSelect: () -> Unit, onRename: () -> Unit, onDelete: () -> Unit
 ) {
     Row(Modifier.fillMaxWidth().clickable { onSelect() }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -521,6 +530,9 @@ private fun KeyRow(
             BrocolisKeyStore.keyPhone(key.id)?.let {
                 Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            protection?.let {
+                Text(it.label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
         IconButton(onClick = onRename) { Icon(Icons.Default.Edit, loc("Renommer", "Rename", "Renombrar")) }
         IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, loc("Supprimer", "Delete", "Eliminar")) }
@@ -529,7 +541,8 @@ private fun KeyRow(
 
 @Composable
 private fun SelectedKeyCard(
-    key: NamedKey, onProtectedShare: () -> Unit, onCopy: () -> Unit, onShare: () -> Unit, onTTL: (Int) -> Unit
+    key: NamedKey, protection: BrocolisProtection?, onPsk: (Boolean) -> Unit,
+    onProtectedShare: () -> Unit, onCopy: () -> Unit, onShare: () -> Unit, onTTL: (Int) -> Unit
 ) {
     val ttlOptions = listOf(
         loc("Jamais", "Never", "Nunca") to 0,
@@ -539,6 +552,24 @@ private fun SelectedKeyCard(
     )
     SectionCard(loc("Clé sélectionnée", "Selected key", "Clave seleccionada")) {
         Text(key.name, style = MaterialTheme.typography.titleMedium)
+        protection?.let {
+            Text(it.label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        // Une clé sans appairage v3, partagée avec UNE personne à jour : le
+        // double cliquet à partir de la clé (PSK, §8.5). Jamais automatique :
+        // un ancien correspondant ne lirait plus rien.
+        if (key.v3Bundle == null && key.duo != false) {
+            ToggleRow(
+                title = loc("Double cliquet avec cette clé (PSK)", "Double ratchet with this key (PSK)", "Doble trinquete con esta clave (PSK)"),
+                subtitle = loc(
+                    "Seulement si cette clé est partagée avec UNE personne dont l’app Brocolis est à jour. Ses réponses suivront toutes seules.",
+                    "Only if this key is shared with ONE person whose Brocolis app is up to date. Their replies will follow on their own.",
+                    "Solo si esta clave se comparte con UNA persona cuya app Brocolis está actualizada. Sus respuestas seguirán solas."
+                ),
+                checked = key.psk == true,
+                onChange = onPsk
+            )
+        }
         SelectionContainer {
             Text(key.base64, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
@@ -616,8 +647,9 @@ private fun PassphraseField(value: String, onChange: (String) -> Unit, label: St
 
 /**
  * Export d'une clé protégée par une phrase secrète (format commun
- * `[[BROCOLIS-CLE:v1:…]]`) : phrase de 8 caractères au moins, saisie deux fois.
- * La dérivation (PBKDF2, 600 000 tours) tourne hors du fil principal.
+ * `[[BROCOLIS-CLE:v2:…]]`, docs/SECURITE.md §8.9) : phrase de 8 caractères au
+ * moins, saisie deux fois. La dérivation (Argon2id, 64 Mio) tourne hors du fil
+ * principal.
  */
 @Composable
 private fun ProtectedExportDialog(
@@ -708,8 +740,9 @@ private fun ProtectedExportDialog(
 }
 
 /**
- * Import d'une clé protégée `[[BROCOLIS-CLE:v1:…]]` : on demande la phrase et on
- * déchiffre ; phrase fausse ou jeton abîmé → message d'erreur, rien d'importé.
+ * Import d'une clé protégée `[[BROCOLIS-CLE:v1:…]]` ou `v2` : on demande la
+ * phrase et on déchiffre (hors du fil principal) ; phrase fausse ou jeton
+ * abîmé → message d'erreur, rien d'importé.
  */
 @Composable
 private fun ProtectedImportDialog(text: String, onImported: (String) -> Unit, onCancel: () -> Unit) {

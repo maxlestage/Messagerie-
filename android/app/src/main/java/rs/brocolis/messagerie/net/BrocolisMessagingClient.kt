@@ -1,6 +1,5 @@
 package rs.brocolis.messagerie.net
 
-import android.util.Base64
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -72,16 +71,21 @@ class BrocolisMessagingClient(private val baseURL: String, private val deviceId:
             md.update("brocolis-conv-v1".toByteArray(Charsets.UTF_8))
             md.update(key)
             val digest = md.digest()
-            return Base64.encodeToString(digest, Base64.NO_WRAP)
-                .replace("+", "-").replace("/", "_").replace("=", "")
+            return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(digest)
         }
     }
 
     private fun urlFor(path: String): String = baseURL.trimEnd('/') + "/" + path.trimStart('/')
 
-    suspend fun send(text: String, conversationId: String, key: ByteArray) = withContext(Dispatchers.IO) {
-        val token = BrocolisCrypto.encryptToken(text.toByteArray(Charsets.UTF_8), key)
-        val body = SendBody(UUID.randomUUID().toString(), conversationId, deviceId, token)
+    suspend fun send(text: String, conversationId: String, key: ByteArray) =
+        send(BrocolisCrypto.encryptToken(text.toByteArray(Charsets.UTF_8), key), conversationId)
+
+    /**
+     * Envoie un champ `ciphertext` déjà chiffré (jetons v3 :
+     * `BrocolisV3.sealMessage`). Le serveur ne voit que des jetons.
+     */
+    suspend fun send(ciphertext: String, conversationId: String) = withContext(Dispatchers.IO) {
+        val body = SendBody(UUID.randomUUID().toString(), conversationId, deviceId, ciphertext)
         val req = Request.Builder()
             .url(urlFor("v1/messages"))
             .header("X-User-Id", deviceId)
