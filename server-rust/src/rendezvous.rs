@@ -2,7 +2,8 @@
 //!
 //! Le serveur ne relaie que des CLÉS PUBLIQUES et des blobs déjà chiffrés — il
 //! ne détient aucune clé secrète. Tout est en mémoire avec expiration (TTL) :
-//! `/pair` (échange de clés publiques par code), `/wrap`
+//! `/pair` (échange de clés publiques par code, et des paquets de clés v3
+//! quand le client en publie un : `docs/SECURITE.md` §8.4), `/wrap`
 //! (clés de groupe emballées) et les push tokens de Live Activity.
 
 use std::collections::HashMap;
@@ -15,7 +16,17 @@ const TTL: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
 struct Peer {
     pub_key: String,
+    /// Le paquet de clés v3 (base64), s'il en a publié un, et son identité
+    /// (IK X25519 ‖ IK Ed25519) : une rotation garde la même.
+    bundle: Option<(String, [u8; 64])>,
     ts: Instant,
+}
+
+/// Un paquet de clés v3 déjà vérifié (`brocolis_proto::KeyBundle`), tel que
+/// le salon le garde : son base64 et son identité.
+pub struct PublishedBundle {
+    pub base64: String,
+    pub identity: [u8; 64],
 }
 struct Wrap {
     from: String,
@@ -37,6 +48,10 @@ pub enum PairError {
     /// personne remplacer la clé d'un participant (sinon l'invitant
     /// remettrait la clé de groupe à l'usurpateur).
     KeyMismatch,
+    /// Ce participant a déjà publié un paquet v3 d'une AUTRE identité : on
+    /// ne laisse personne glisser ses clés à la place des siennes (une
+    /// rotation, elle, garde l'identité).
+    BundleMismatch,
 }
 
 pub struct Rendezvous {
@@ -60,7 +75,9 @@ impl Rendezvous {
         }
     }
 
-    /// Pairs d'un code, en excluant `peer_id`. → [{ peerId, pub }]
+    /// Pairs d'un code, en excluant `peer_id`. → [{ peerId, pub, bundle? }]
+    /// (`bundle` seulement pour qui en a publié un : un ancien client ne le
+    /// voit pas et n'en a pas besoin).
     pub fn peers_excluding(&self, code: &str, peer_id: &str) -> serde_json::Value {
         let map = self.codes.lock().unwrap();
         let list: Vec<serde_json::Value> = map
@@ -69,7 +86,10 @@ impl Rendezvous {
                 peers
                     .iter()
                     .filter(|(id, _)| id.as_str() != peer_id)
-                    .map(|(id, p)| serde_json::json!({ "peerId": id, "pub": p.pub_key }))
+                    .map(|(id, p)| match &p.bundle {
+                        Some((b, _)) => serde_json::json!({ "peerId": id, "pub": p.pub_key, "bundle": b }),
+                        None => serde_json::json!({ "peerId": id, "pub": p.pub_key }),
+                    })
                     .collect()
             })
             .unwrap_or_default();
@@ -81,9 +101,7 @@ impl Rendezvous {
         self.add_peer_as(code, peer_id, pub_key, false)
     }
 
-    /// POST /pair : enregistre (code, peerId, pub). `host` : c'est l'invitant
-    /// (le premier à le revendiquer le reste ; sans revendication, le premier
-    /// inscrit fait office d'hôte, pour les anciennes versions).
+    /// POST /pair, sans paquet v3 : voir [`add_peer_with`](Self::add_peer_with).
     pub fn add_peer_as(
         &self,
         code: &str,
@@ -91,14 +109,41 @@ impl Rendezvous {
         pub_key: &str,
         host: bool,
     ) -> Result<serde_json::Value, PairError> {
+        self.add_peer_with(code, peer_id, pub_key, host, None)
+    }
+
+    /// POST /pair : enregistre (code, peerId, pub) et, s'il y en a un, le
+    /// paquet de clés v3 (déjà vérifié). `host` : c'est l'invitant (le
+    /// premier à le revendiquer le reste ; sans revendication, le premier
+    /// inscrit fait office d'hôte, pour les anciennes versions). Republier
+    /// sans paquet garde celui qui est connu ; un paquet d'une autre
+    /// identité est refusé.
+    pub fn add_peer_with(
+        &self,
+        code: &str,
+        peer_id: &str,
+        pub_key: &str,
+        host: bool,
+        bundle: Option<PublishedBundle>,
+    ) -> Result<serde_json::Value, PairError> {
         {
             let mut map = self.codes.lock().unwrap();
             let peers = map.entry(code.to_string()).or_default();
+            let mut kept = None;
             match peers.get(peer_id) {
                 Some(p) if p.pub_key != pub_key => return Err(PairError::KeyMismatch),
+                Some(p) => {
+                    if let (Some((_, known)), Some(new)) = (&p.bundle, &bundle) {
+                        if *known != new.identity {
+                            return Err(PairError::BundleMismatch);
+                        }
+                    }
+                    kept = p.bundle.clone();
+                }
                 None if peers.len() >= self.max_peers => return Err(PairError::Full),
-                _ => {}
+                None => {}
             }
+            let bundle = bundle.map(|b| (b.base64, b.identity)).or(kept);
             let mut hosts = self.hosts.lock().unwrap();
             match hosts.get(code) {
                 None => {
@@ -111,7 +156,7 @@ impl Rendezvous {
             }
             peers.insert(
                 peer_id.to_string(),
-                Peer { pub_key: pub_key.to_string(), ts: Instant::now() },
+                Peer { pub_key: pub_key.to_string(), bundle, ts: Instant::now() },
             );
         }
         Ok(self.peers_excluding(code, peer_id))
@@ -238,6 +283,43 @@ mod tests {
         let a2 = rdv.peers_excluding("4813", "alice");
         assert_eq!(peer_ids(&a2), vec!["bob"]);
         assert_eq!(a2["peers"][0]["pub"], "PUB_B");
+    }
+
+    fn bundle(b: &str, id: u8) -> Option<PublishedBundle> {
+        Some(PublishedBundle { base64: b.into(), identity: [id; 64] })
+    }
+
+    #[test]
+    fn v3_bundles_travel_with_the_public_keys() {
+        let rdv = Rendezvous::new(16);
+        rdv.add_peer_with("c", "alice", "A", true, bundle("BUNDLE_A", 1)).unwrap();
+        // Un ancien client : pas de paquet, et il ne voit qu'un champ de plus.
+        let old = rdv.add_peer("c", "carol", "C").unwrap();
+        assert_eq!(old["peers"][0]["bundle"], "BUNDLE_A");
+        let b = rdv.add_peer_with("c", "bob", "B", false, bundle("BUNDLE_B", 2)).unwrap();
+        let peers = b["peers"].as_array().unwrap();
+        let alice = peers.iter().find(|p| p["peerId"] == "alice").unwrap();
+        let carol = peers.iter().find(|p| p["peerId"] == "carol").unwrap();
+        assert_eq!(alice["bundle"], "BUNDLE_A");
+        assert!(carol.get("bundle").is_none(), "pas de champ pour qui n'a rien publié");
+        // Rotation (même identité) : le paquet est remplacé.
+        rdv.add_peer_with("c", "alice", "A", true, bundle("BUNDLE_A2", 1)).unwrap();
+        // Republier sans paquet le garde.
+        rdv.add_peer_as("c", "alice", "A", true).unwrap();
+        let v = rdv.peers_excluding("c", "bob");
+        let alice = v["peers"].as_array().unwrap().iter().find(|p| p["peerId"] == "alice").unwrap().clone();
+        assert_eq!(alice["bundle"], "BUNDLE_A2");
+        // Glisser le paquet d'une autre identité sous le peerId d'Alice : refusé.
+        assert_eq!(
+            rdv.add_peer_with("c", "alice", "A", true, bundle("EVIL", 9)),
+            Err(PairError::BundleMismatch)
+        );
+        let v = rdv.peers_excluding("c", "bob");
+        let alice = v["peers"].as_array().unwrap().iter().find(|p| p["peerId"] == "alice").unwrap().clone();
+        assert_eq!(alice["bundle"], "BUNDLE_A2");
+        // Un premier paquet pour un participant qui n'en avait pas : accepté.
+        rdv.add_peer_with("c", "carol", "C", false, bundle("BUNDLE_C", 3)).unwrap();
+        assert!(rdv.peers_excluding("c", "bob")["peers"].as_array().unwrap().iter().any(|p| p["bundle"] == "BUNDLE_C"));
     }
 
     #[test]

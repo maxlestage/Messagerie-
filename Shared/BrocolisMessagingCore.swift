@@ -10,7 +10,14 @@
 //
 
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 
 // MARK: - Préférences messagerie (App Group)
 
@@ -363,6 +370,12 @@ struct BrocolisMessagingClient {
     /// Brocolis (interopérable avec le reste de l'app).
     func send(text: String, conversationId: String, key: SymmetricKey) async throws {
         let token = try BrocolisCrypto.encryptToken(Data(text.utf8), key: key)
+        try await send(ciphertext: token, conversationId: conversationId)
+    }
+
+    /// Envoie un champ `ciphertext` déjà chiffré (jetons v3 de l'iPhone :
+    /// `BrocolisV3.sealMessage`). Le serveur ne voit que des jetons.
+    func send(ciphertext token: String, conversationId: String) async throws {
         var req = request("v1/messages", method: "POST")
         let body: [String: Any] = [
             "id": UUID().uuidString,

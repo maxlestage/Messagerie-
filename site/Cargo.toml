@@ -25,6 +25,12 @@ sha2 = "0.10"
 base64 = "0.22"
 rand_core = { version = "0.6", features = ["getrandom"] }
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+# Le protocole v3 (docs/SECURITE.md) : la référence Rust du dépôt, par son
+# chemin (une seule source, la même que les vecteurs des portages).
+# `serde_json` lit et écrit les états qu'elle sauve (appareil, sessions).
+brocolis-proto = { path = "../proto" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Les pages sont servies par Vitesse (routes ajoutées à l'app du serveur).

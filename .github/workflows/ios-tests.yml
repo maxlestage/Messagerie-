@@ -27,6 +27,9 @@ on:
       - 'Shared/**'
       - 'project.yml'
       - 'Brocolis.xcodeproj/**'
+      - 'Package.swift'
+      - 'Package.resolved'
+      - 'proto-swift/Sources/**'
       - '.github/workflows/ios-tests.yml'
       - '.github/scripts/**'
   pull_request:
@@ -41,6 +44,9 @@ on:
       - 'Shared/**'
       - 'project.yml'
       - 'Brocolis.xcodeproj/**'
+      - 'Package.swift'
+      - 'Package.resolved'
+      - 'proto-swift/Sources/**'
       - '.github/workflows/ios-tests.yml'
       - '.github/scripts/**'
   workflow_dispatch:
