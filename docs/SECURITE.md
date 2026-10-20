@@ -238,9 +238,13 @@ grands groupes.
 
 | Brique | Rust (référence) | Swift | Kotlin |
 |---|---|---|---|
-| Jetons v1/v2, clé protégée v1 | `talka-web::jetons` | TalkaKit `Brocolis`, Brocolis `BrocolisCrypto` | `BrocolisCrypto.kt` |
-| Clé protégée v2 (Argon2id), padding | `brocolis-proto` (`proto/`) | | |
-| v3 (établissement, ratchet, Sender Keys) | `brocolis-proto` (`proto/`) | | |
+| Jetons v1/v2, clé protégée v1 | `talka-web::jetons` | TalkaKit `Brocolis`, Brocolis `BrocolisCrypto`, `BrocolisProto` | `BrocolisCrypto.kt` |
+| Clé protégée v2 (Argon2id), padding | `brocolis-proto` (`proto/`) | `BrocolisProto` (`proto-swift/`) | |
+| v3 (établissement, ratchet, Sender Keys) | `brocolis-proto` (`proto/`) | `BrocolisProto` (`proto-swift/`) | |
+
+`BrocolisProto` est le paquet SwiftPM à la racine du dépôt (`Package.swift`),
+que les apps (Brocolis, Talka) prennent par l'URL du dépôt et une révision ;
+ses écarts imposés par CryptoKit sont dans `proto-swift/README.md`.
 
 Les vecteurs de référence sont `proto/vectors.json` (regénérés par
 `cargo run --example vectors`, vérifiés indépendamment par
