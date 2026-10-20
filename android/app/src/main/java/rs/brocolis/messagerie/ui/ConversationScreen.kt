@@ -22,7 +22,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import rs.brocolis.messagerie.crypto.BrocolisConversation
+import rs.brocolis.messagerie.crypto.BrocolisV3
 import rs.brocolis.messagerie.i18n.loc
 import rs.brocolis.messagerie.store.BrocolisKeyStore
 
@@ -32,9 +35,11 @@ fun ConversationScreen(onBack: () -> Unit) {
     var input by remember { mutableStateOf("") }
     val clipboard = LocalClipboardManager.current
 
-    val keys = remember { BrocolisKeyStore.allKeyBytes() }
-    val rendered = remember(input) {
-        if (input.isBlank()) null else BrocolisConversation.render(input, keys)
+    // Toutes les clés : v3 (transaction, hors du fil principal), v2 et v1.
+    val keys = remember { BrocolisKeyStore.keys }
+    val codec = remember(keys) { BrocolisV3.codec(emptyList(), keys) }
+    val rendered by produceState<BrocolisConversation.Rendered?>(null, input) {
+        value = if (input.isBlank()) null else withContext(Dispatchers.IO) { BrocolisConversation.render(input, codec) }
     }
 
     Scaffold(

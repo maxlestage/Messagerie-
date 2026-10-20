@@ -21,6 +21,6 @@ dependencyResolutionManagement {
 
 rootProject.name = "Brocolis"
 include(":app")
-// Le protocole v3 (docs/SECURITE.md), porté de proto/ (Rust) ; pas encore
-// branché sur l'interface ni sur le stockage.
+// Le protocole v3 (docs/SECURITE.md), porté de proto/ (Rust) ; branché dans
+// l'app par crypto/BrocolisV3*.kt (docs/SECURITE.md §8).
 include(":proto")

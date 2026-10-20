@@ -11,8 +11,9 @@ import java.util.Base64
 
 /**
  * Tests JVM (sans appareil) de la clé protégée par une phrase secrète — format
- * commun Talka / Brocolis iOS / Android / site. Le vecteur fixe garantit
- * l'interopérabilité octet pour octet avec les autres plateformes.
+ * commun Talka / Brocolis iOS / Android / site. Le vecteur fixe (v1, encore
+ * lue) garantit l'interopérabilité octet pour octet avec les autres
+ * plateformes ; l'export écrit la v2 (vecteurs dans le module `:proto`).
  */
 class BrocolisKeyProtectionTest {
 
@@ -48,7 +49,8 @@ class BrocolisKeyProtectionTest {
         val key = ByteArray(32).also { java.security.SecureRandom().nextBytes(it) }
         val a = BrocolisKeyProtection.seal(key, "une phrase assez longue")
         val b = BrocolisKeyProtection.seal(key, "une phrase assez longue")
-        assertTrue(a.startsWith(BrocolisKeyProtection.TOKEN_PREFIX) && a.endsWith(BrocolisKeyProtection.TOKEN_SUFFIX))
+        // L'export écrit la v2 (Argon2id, docs/SECURITE.md §8.9).
+        assertTrue(a.startsWith(BrocolisKeyProtection.TOKEN_PREFIX_V2) && a.endsWith(BrocolisKeyProtection.TOKEN_SUFFIX))
         assertNotEquals(a, b) // sel et nonce neufs à chaque export
         assertArrayEquals(key, BrocolisKeyProtection.open(a, "une phrase assez longue"))
         assertArrayEquals(key, BrocolisKeyProtection.open(b, "une phrase assez longue"))

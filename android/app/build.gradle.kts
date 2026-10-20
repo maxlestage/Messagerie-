@@ -69,6 +69,22 @@ android {
     packaging {
         resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" }
     }
+
+    testOptions {
+        unitTests.all {
+            // Argon2id (64 Mio), sous-processus du test de concurrence, et
+            // essais d'interopérabilité (variables BROCOLIS_INTEROP_*).
+            it.maxHeapSize = "1g"
+            listOf("BROCOLIS_INTEROP_SERVER", "BROCOLIS_SWIFT_CLIENT").forEach { name ->
+                System.getenv(name)?.let { value -> it.environment(name, value) }
+            }
+            it.testLogging {
+                events("failed")
+                showStandardStreams = true
+                exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+            }
+        }
+    }
 }
 
 dependencies {
@@ -94,13 +110,14 @@ dependencies {
     // Même version que le module :proto (ML-KEM FIPS 203 final).
     implementation("org.bouncycastle:bcprov-jdk18on:1.86")
     implementation("androidx.biometric:biometric:1.1.0")
-    // Le protocole v3 (docs/SECURITE.md) : compilé dans l'app, pas encore
-    // utilisé par l'interface ni le stockage.
+    // Le protocole v3 (docs/SECURITE.md §8) : appareil, sessions, appairage,
+    // messagerie (crypto/BrocolisV3*.kt, store/BrocolisV3Store.kt).
     implementation(project(":proto"))
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 
-    // Tests unitaires JVM (clé protégée par phrase secrète) : `gradle testDebugUnitTest`.
+    // Tests unitaires JVM (clé protégée, v3 : moteur, magasin, concurrence,
+    // interopérabilité) : `gradle testDebugUnitTest`.
     testImplementation("junit:junit:4.13.2")
 
     // Tests instrumentés (interop crypto) : s'exécutent sur appareil/émulateur.

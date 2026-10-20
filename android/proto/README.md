@@ -8,9 +8,11 @@ Ed25519 et chiffrés ML-KEM compris), passe les vecteurs Wycheproof des
 primitives et relit les états JSON écrits par Rust.
 
 Bibliothèque Android (`minSdk 26`), paquet `rs.brocolis.messagerie.proto`,
-sans aucune dépendance à `android.*` : tout se teste sur la JVM. L'app en
-dépend déjà (`implementation(project(":proto"))`) mais **ne s'en sert pas
-encore** : ni l'interface ni le stockage n'y sont branchés.
+sans aucune dépendance à `android.*` : tout se teste sur la JVM. L'app s'en
+sert pour le v3 (docs/SECURITE.md §8) : `crypto/BrocolisV3Engine.kt` (la
+logique, comme `Shared/BrocolisV3.swift`), `store/BrocolisV3Store.kt`
+(Keystore, verrou entre fils et processus) et la façade
+`crypto/BrocolisV3.kt` (Partager, Conversation, messagerie, appairage).
 
 | Kotlin | Rust (`brocolis_proto::`) | Spec |
 |---|---|---|
