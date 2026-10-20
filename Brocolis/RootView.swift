@@ -64,6 +64,11 @@ struct RootView: View {
     @State private var showImport = false
     @State private var importName = ""
     @State private var importText = ""
+    /// Clé collée PROTÉGÉE (`[[BROCOLIS-CLE:v1:…]]`) : on demande sa phrase.
+    @State private var showImportPassphrase = false
+    @State private var importPassphrase = ""
+    /// Clé à partager protégée par une phrase secrète (feuille dédiée).
+    @State private var protectedShareKey: NamedKey?
     @State private var showContacts = false
     @State private var invite: InvitePayload?
     @State private var renameTarget: NamedKey?
@@ -155,6 +160,9 @@ struct RootView: View {
                 }
                 .ignoresSafeArea()
             }
+            .sheet(item: $protectedShareKey) { key in
+                ProtectedKeyShareView(key: key)
+            }
             .alert(loc("Nouvelle clé", "New key", "Nueva clave"), isPresented: $showGenerate) {
                 TextField(loc("Nom (ex. Maman)", "Name (e.g. Mom)", "Nombre (ej. Mamá)"), text: $newKeyName)
                 Button(loc("Générer", "Generate", "Generar")) {
@@ -169,11 +177,18 @@ struct RootView: View {
             }
             .alert(loc("Importer une clé", "Import a key", "Importar una clave"), isPresented: $showImport) {
                 TextField(loc("Nom", "Name", "Nombre"), text: $importName)
-                TextField(loc("Clé base64 (32 octets)", "Base64 key (32 bytes)", "Clave base64 (32 bytes)"), text: $importText)
+                TextField(loc("Clé reçue (protégée ou base64)", "Received key (protected or base64)", "Clave recibida (protegida o base64)"), text: $importText)
                 Button(loc("Importer", "Import", "Importar")) { importKey() }
                 Button(loc("Annuler", "Cancel", "Cancelar"), role: .cancel) {}
             } message: {
-                Text(loc("Colle la clé reçue d’un correspondant.", "Paste the key received from a contact.", "Pega la clave recibida de un contacto."))
+                Text(loc("Colle la clé reçue d’un correspondant. Si elle est protégée ([[BROCOLIS-CLE:…]]), Brocolis te demandera sa phrase secrète.", "Paste the key received from a contact. If it is protected ([[BROCOLIS-CLE:…]]), Brocolis will ask for its passphrase.", "Pega la clave recibida de un contacto. Si está protegida ([[BROCOLIS-CLE:…]]), Brocolis te pedirá su frase secreta."))
+            }
+            .alert(loc("Clé protégée", "Protected key", "Clave protegida"), isPresented: $showImportPassphrase) {
+                SecureField(loc("Phrase secrète", "Passphrase", "Frase secreta"), text: $importPassphrase)
+                Button(loc("Déverrouiller", "Unlock", "Desbloquear")) { importProtectedKey() }
+                Button(loc("Annuler", "Cancel", "Cancelar"), role: .cancel) { importPassphrase = "" }
+            } message: {
+                Text(loc("Tape la phrase secrète que ton correspondant t’a donnée (de vive voix).", "Type the passphrase your contact gave you (in person).", "Escribe la frase secreta que te dio tu contacto (de viva voz)."))
             }
             .alert(loc("Renommer la clé", "Rename key", "Renombrar clave"), isPresented: renameBinding) {
                 TextField(loc("Nom", "Name", "Nombre"), text: $renameText)
@@ -576,30 +591,55 @@ struct RootView: View {
 
     @ViewBuilder private var selectedKeySection: some View {
         if let sel = selected {
-            Section(loc("Clé sélectionnée", "Selected key", "Clave seleccionada")) {
+            Section {
                 Text(sel.name).font(.headline)
-                Text(sel.base64)
-                    .font(.system(.footnote, design: .monospaced))
-                    .textSelection(.enabled)
+                // Partage RECOMMANDÉ : la clé part chiffrée par une phrase
+                // secrète, donnée à part (de vive voix).
                 Button {
-                    UIPasteboard.general.string = sel.base64
-                    alertMessage = loc("Clé copiée dans le presse-papiers.", "Key copied to the clipboard.", "Clave copiada en el portapapeles.")
+                    protectedShareKey = sel
                 } label: {
-                    Label(loc("Copier la clé", "Copy key", "Copiar clave"), systemImage: "doc.on.doc")
+                    Label(loc("Partager protégée par une phrase secrète", "Share protected by a passphrase", "Compartir protegida con una frase secreta"), systemImage: "lock.shield.fill")
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
                 }
-                ShareLink(item: sel.base64) {
-                    Label(loc("Partager la clé", "Share key", "Compartir clave"), systemImage: "square.and.arrow.up")
-                }
-                if let phone = BrocolisKeyStore.keyPhone(sel.id), canSendMessages() {
+                .buttonStyle(.borderedProminent)
+                .tint(.green)
+                .listRowInsets(EdgeInsets(top: 10, leading: 14, bottom: 6, trailing: 14))
+
+                // Ancien partage EN CLAIR : toujours possible, mais replié et
+                // signalé — quiconque voit ce texte peut lire vos messages.
+                DisclosureGroup {
+                    Label(loc("En clair, la clé est lisible par quiconque voit le message, le presse-papiers ou une sauvegarde. Préfère le partage protégé.", "In the clear, the key is readable by anyone who sees the message, the clipboard or a backup. Prefer protected sharing.", "En claro, la clave es legible por cualquiera que vea el mensaje, el portapapeles o una copia de seguridad. Prefiere el envío protegido."), systemImage: "exclamationmark.triangle.fill")
+                        .font(.footnote)
+                        .foregroundStyle(.orange)
+                    Text(sel.base64)
+                        .font(.system(.footnote, design: .monospaced))
+                        .textSelection(.enabled)
                     Button {
-                        invite = InvitePayload(
-                            recipients: [phone],
-                            body: brocolisInviteBody(contactName: sel.name, keyBase64: sel.base64)
-                        )
+                        UIPasteboard.general.string = sel.base64
+                        alertMessage = loc("Clé copiée EN CLAIR dans le presse-papiers.", "Key copied IN THE CLEAR to the clipboard.", "Clave copiada EN CLARO en el portapapeles.")
                     } label: {
-                        Label(loc("Inviter \(sel.name) par iMessage", "Invite \(sel.name) by iMessage", "Invitar a \(sel.name) por iMessage"), systemImage: "paperplane.fill")
+                        Label(loc("Copier la clé en clair", "Copy key in the clear", "Copiar clave en claro"), systemImage: "doc.on.doc")
                     }
+                    ShareLink(item: sel.base64) {
+                        Label(loc("Partager la clé en clair", "Share key in the clear", "Compartir clave en claro"), systemImage: "square.and.arrow.up")
+                    }
+                    if let phone = BrocolisKeyStore.keyPhone(sel.id), canSendMessages() {
+                        Button {
+                            invite = InvitePayload(
+                                recipients: [phone],
+                                body: brocolisInviteBody(contactName: sel.name, keyBase64: sel.base64)
+                            )
+                        } label: {
+                            Label(loc("Inviter \(sel.name) par iMessage (clé en clair)", "Invite \(sel.name) by iMessage (key in the clear)", "Invitar a \(sel.name) por iMessage (clave en claro)"), systemImage: "paperplane")
+                        }
+                    }
+                } label: {
+                    Label(loc("Partage en clair (déconseillé)", "Share in the clear (not recommended)", "Compartir en claro (desaconsejado)"), systemImage: "lock.open")
+                        .foregroundStyle(.secondary)
                 }
+            } header: {
+                Text(loc("Clé sélectionnée", "Selected key", "Clave seleccionada"))
             }
 
             Section {
@@ -917,18 +957,52 @@ struct RootView: View {
 
     private func importKey() {
         let trimmed = importText.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Clé PROTÉGÉE par une phrase secrète : on demande la phrase. Petit
+        // délai : l'alerte d'import doit avoir fini de se fermer.
+        if BrocolisKeyToken.containsToken(trimmed) {
+            guard canAddKey() else { return }
+            importPassphrase = ""
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                showImportPassphrase = true
+            }
+            return
+        }
         do {
             _ = try BrocolisCrypto.symmetricKey(fromBase64: trimmed)
             guard canAddKey() else { return }
-            BrocolisKeyStore.addKey(name: importName, base64: trimmed)
-            BrocolisKeyStore.setActive(true) // activation auto
-            importText = ""
-            importName = ""
-            reload()
-            alertMessage = loc("Clé importée — Brocolis est prêt.", "Key imported — Brocolis is ready.", "Clave importada — Brocolis está listo.")
+            finishImport(base64: trimmed)
         } catch {
             alertMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
+    }
+
+    /// Déchiffre la clé protégée collée avec la phrase saisie (PBKDF2 600 000
+    /// itérations : hors du fil principal). Phrase fausse ou jeton abîmé :
+    /// message d'erreur, rien n'est importé.
+    private func importProtectedKey() {
+        let token = importText
+        let passphrase = importPassphrase
+        importPassphrase = ""
+        Task {
+            let result = await BrocolisKeyToken.openInBackground(token: token, passphrase: passphrase)
+            await MainActor.run {
+                switch result {
+                case .success(let keyBase64):
+                    finishImport(base64: keyBase64)
+                case .failure(let error):
+                    alertMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func finishImport(base64: String) {
+        BrocolisKeyStore.addKey(name: importName, base64: base64)
+        BrocolisKeyStore.setActive(true) // activation auto
+        importText = ""
+        importName = ""
+        reload()
+        alertMessage = loc("Clé importée — Brocolis est prêt.", "Key imported — Brocolis is ready.", "Clave importada — Brocolis está listo.")
     }
 }
 
@@ -937,6 +1011,144 @@ struct InvitePayload: Identifiable {
     let id = UUID()
     let recipients: [String]
     let body: String
+}
+
+// MARK: - Partage d'une clé protégée par une phrase secrète
+
+/// « Partager protégée par une phrase secrète » : on choisit une phrase (deux
+/// fois), Brocolis chiffre la clé en un jeton `[[BROCOLIS-CLE:v1:…]]` (format
+/// commun avec Talka et l'Android) qui peut voyager par n'importe quel canal.
+/// La phrase, elle, se donne À PART — de vive voix.
+struct ProtectedKeyShareView: View {
+    let key: NamedKey
+    @Environment(\.dismiss) private var dismiss
+    @State private var passphrase = ""
+    @State private var confirmation = ""
+    @State private var token: String?
+    @State private var working = false
+    @State private var errorMessage: String?
+    @State private var copied = false
+    @State private var invite: InvitePayload?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                if let token {
+                    readySection(token).listRowBackground(Color.brocoliCard)
+                } else {
+                    passphraseSection.listRowBackground(Color.brocoliCard)
+                }
+            }
+            .brocolisBackground()
+            .navigationTitle(loc("Clé protégée", "Protected key", "Clave protegida"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(loc("Fermer", "Close", "Cerrar")) { dismiss() }
+                }
+            }
+            .sheet(item: $invite) { payload in
+                MessageComposeView(recipients: payload.recipients, body: payload.body) {
+                    invite = nil
+                }
+                .ignoresSafeArea()
+            }
+        }
+    }
+
+    private var passphraseSection: some View {
+        Section {
+            SecureField(loc("Phrase secrète", "Passphrase", "Frase secreta"), text: $passphrase)
+            SecureField(loc("Confirme la phrase", "Confirm the passphrase", "Confirma la frase"), text: $confirmation)
+            Button {
+                protect()
+            } label: {
+                HStack {
+                    Label(loc("Protéger la clé", "Protect the key", "Proteger la clave"), systemImage: "lock.shield.fill")
+                    if working {
+                        Spacer()
+                        ProgressView()
+                    }
+                }
+            }
+            .disabled(working || passphrase.isEmpty || confirmation.isEmpty)
+            if let errorMessage {
+                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+            }
+        } header: {
+            Text(loc("Phrase secrète pour « \(key.name) »", "Passphrase for “\(key.name)”", "Frase secreta para «\(key.name)»"))
+        } footer: {
+            Text(loc("\(BrocolisKeyToken.minPassphraseLength) caractères au moins. Choisis plusieurs mots, faciles à dire et difficiles à deviner : sans la phrase, la clé protégée est inutilisable.",
+                     "At least \(BrocolisKeyToken.minPassphraseLength) characters. Pick several words, easy to say and hard to guess: without the passphrase, the protected key is useless.",
+                     "Al menos \(BrocolisKeyToken.minPassphraseLength) caracteres. Elige varias palabras, fáciles de decir y difíciles de adivinar: sin la frase, la clave protegida no sirve."))
+        }
+    }
+
+    private func readySection(_ token: String) -> some View {
+        Section {
+            Text(token)
+                .font(.system(.footnote, design: .monospaced))
+                .textSelection(.enabled)
+            ShareLink(item: brocolisProtectedInviteBody(contactName: key.name, token: token)) {
+                Label(loc("Partager la clé protégée", "Share the protected key", "Compartir la clave protegida"), systemImage: "square.and.arrow.up")
+            }
+            Button {
+                UIPasteboard.general.string = token
+                copied = true
+            } label: {
+                Label(copied ? loc("Copiée", "Copied", "Copiada") : loc("Copier la clé protégée", "Copy the protected key", "Copiar la clave protegida"),
+                      systemImage: copied ? "checkmark" : "doc.on.doc")
+            }
+            if let phone = BrocolisKeyStore.keyPhone(key.id), canSendMessages() {
+                Button {
+                    invite = InvitePayload(
+                        recipients: [phone],
+                        body: brocolisProtectedInviteBody(contactName: key.name, token: token)
+                    )
+                } label: {
+                    Label(loc("Inviter \(key.name) par iMessage", "Invite \(key.name) by iMessage", "Invitar a \(key.name) por iMessage"), systemImage: "paperplane.fill")
+                }
+            }
+        } header: {
+            Text(loc("Clé protégée prête", "Protected key ready", "Clave protegida lista"))
+        } footer: {
+            locText("**Donne la phrase secrète à part**, de vive voix — jamais dans le même message. Ton correspondant colle ce texte dans Brocolis → « Importer », puis tape la phrase.",
+                    "**Give the passphrase separately**, in person — never in the same message. Your contact pastes this text into Brocolis → “Import”, then types the passphrase.",
+                    "**Da la frase secreta aparte**, de viva voz — nunca en el mismo mensaje. Tu contacto pega este texto en Brocolis → «Importar» y luego escribe la frase.")
+        }
+    }
+
+    private func protect() {
+        errorMessage = nil
+        guard passphrase.count >= BrocolisKeyToken.minPassphraseLength else {
+            errorMessage = BrocolisKeyToken.KeyTokenError.passphraseTooShort.errorDescription
+            return
+        }
+        guard passphrase == confirmation else {
+            errorMessage = BrocolisKeyToken.KeyTokenError.passphraseMismatch.errorDescription
+            return
+        }
+        working = true
+        let keyBase64 = key.base64
+        let phrase = passphrase
+        // PBKDF2 (600 000 itérations) : hors du fil principal.
+        Task {
+            let result = await BrocolisKeyToken.sealInBackground(keyBase64: keyBase64, passphrase: phrase)
+            await MainActor.run {
+                working = false
+                switch result {
+                case .success(let sealed):
+                    token = sealed
+                    passphrase = ""
+                    confirmation = ""
+                case .failure(let error):
+                    errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                }
+            }
+        }
+    }
 }
 
 #Preview {
