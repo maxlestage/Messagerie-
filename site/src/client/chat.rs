@@ -5,7 +5,9 @@
 //!
 //! Gardés dans le navigateur (localStorage) : l'identité X25519, l'identifiant
 //! d'appareil et la clé de la discussion en cours (pour la retrouver en
-//! rechargeant la page). « Quitter » efface la clé.
+//! rechargeant la page). « Quitter » efface la clé. Les deux SECRETS
+//! (identité, clé de la discussion) passent par le coffre (`coffre.rs`) :
+//! chiffrés par une clé WebCrypto non exportable avant d'être écrits.
 
 use std::cell::{Cell, RefCell};
 
@@ -13,6 +15,7 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::{JsFuture, spawn_local};
 
+use super::coffre;
 use super::live::sleep;
 use super::window;
 use crate::crypto::{self, Identity};
@@ -27,6 +30,8 @@ thread_local! {
     static RUN: Cell<u32> = const { Cell::new(0) };
     static KEY: RefCell<Option<[u8; 32]>> = const { RefCell::new(None) };
     static STREAM: RefCell<Option<web_sys::EventSource>> = const { RefCell::new(None) };
+    /// L'identité X25519 une fois sortie du coffre (base64 du secret).
+    static ME: RefCell<Option<String>> = const { RefCell::new(None) };
 }
 
 fn next_run() -> u32 {
@@ -54,12 +59,21 @@ fn store(name: &str, value: &str) {
     }
 }
 
-fn identity() -> Identity {
-    if let Some(id) = stored(IDENTITY).and_then(|s| Identity::from_b64(&s)) {
+/// L'identité X25519 de ce navigateur : sortie du coffre, ou créée (puis
+/// rangée au coffre) la première fois.
+async fn identity() -> Identity {
+    if let Some(id) = ME.with(|m| m.borrow().clone()).and_then(|s| Identity::from_b64(&s)) {
         return id;
     }
-    let id = Identity::generate();
-    store(IDENTITY, &id.secret_b64());
+    let id = match coffre::load(IDENTITY).await.and_then(|s| Identity::from_b64(&s)) {
+        Some(id) => id,
+        None => {
+            let id = Identity::generate();
+            coffre::save(IDENTITY, &id.secret_b64(), || true).await;
+            id
+        }
+    };
+    ME.with(|m| *m.borrow_mut() = Some(id.secret_b64()));
     id
 }
 
@@ -146,8 +160,6 @@ async fn publish(code: &str, peer_id: &str, public: &str, host: bool) -> bool {
 pub fn invite(s: ChatStates) {
     let lang = s.lang;
     let run = next_run();
-    let me = identity();
-    let public = me.public_b64();
     let peer_id = crypto::uuid();
     let code = crypto::pairing_code();
     let origin = window().location().origin().unwrap_or_default();
@@ -161,6 +173,11 @@ pub fn invite(s: ChatStates) {
     let group_key = crypto::random_bytes::<32>();
 
     spawn_local(async move {
+        let me = identity().await;
+        let public = me.public_b64();
+        if !still(run) {
+            return;
+        }
         if !publish(&code, &peer_id, &public, true).await {
             s.status.set(lang.t("chat.offline").to_owned());
             return;
@@ -226,13 +243,16 @@ pub fn copy_link(s: ChatStates) {
 /// Rejoint l'invitation `code` et attend la clé (10 min au plus).
 pub fn join(code: String, s: ChatStates) {
     let run = next_run();
-    let me = identity();
-    let public = me.public_b64();
     let peer_id = crypto::uuid();
     s.phase.set(ChatPhase::Joining(code.clone()));
     s.status.set(String::new());
 
     spawn_local(async move {
+        let me = identity().await;
+        let public = me.public_b64();
+        if !still(run) {
+            return;
+        }
         if !publish(&code, &peer_id, &public, false).await {
             s.phase.set(ChatPhase::Setup);
             s.status.set(s.lang.t("chat.offline").to_owned());
@@ -265,16 +285,27 @@ pub fn join(code: String, s: ChatStates) {
 
 /// Reprend la discussion gardée par ce navigateur, s'il y en a une.
 pub fn resume(s: ChatStates) {
-    let key = stored(CHAT_KEY)
-        .and_then(|k| crypto::unb64(&k))
-        .and_then(|k| <[u8; 32]>::try_from(k).ok());
-    if let Some(key) = key {
-        enter(key, s, next_run());
-    }
+    let run = next_run();
+    spawn_local(async move {
+        let key = coffre::load(CHAT_KEY)
+            .await
+            .and_then(|k| crypto::unb64(&k))
+            .and_then(|k| <[u8; 32]>::try_from(k).ok());
+        // Une autre action (J'invite, Je rejoins) a pu partir pendant la lecture.
+        if let Some(key) = key
+            && still(run)
+        {
+            enter(key, s, run);
+        }
+    });
 }
 
 fn enter(key: [u8; 32], s: ChatStates, run: u32) {
-    store(CHAT_KEY, &crypto::b64(&key));
+    let saved = crypto::b64(&key);
+    spawn_local(async move {
+        // Rangée au coffre, sauf si l'on a quitté pendant le chiffrement.
+        coffre::save(CHAT_KEY, &saved, move || still(run)).await;
+    });
     KEY.with(|k| *k.borrow_mut() = Some(key));
     s.fingerprint.set(crypto::fingerprint(&key));
     s.messages.set(Vec::new());
