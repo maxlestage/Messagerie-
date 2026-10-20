@@ -16,6 +16,7 @@ pub mod demo;
 pub mod i18n;
 pub mod islands;
 pub mod routes;
+pub mod v3;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod server;
