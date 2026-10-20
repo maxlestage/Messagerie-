@@ -32,7 +32,9 @@ synchroniser Gradle, puis Run. En ligne de commande : `./gradlew assembleDebug`
 | Extension « Partager » / Action | `ui/ShareActivity.kt` (ACTION_SEND / PROCESS_TEXT) |
 | Verrou Face ID / code (LocalAuthentication) | `ui/BiometricLock.kt` (BiometricPrompt) |
 | `loc(fr,en,es)` | `i18n/Loc.kt` |
-| `BrocolisProto` (protocole v3, `proto-swift/`) | module `:proto` (`proto/`, paquet `rs.brocolis.messagerie.proto`, BouncyCastle) — pas encore branché sur l'interface : voir [`proto/README.md`](proto/README.md) |
+| `BrocolisProto` (protocole v3, `proto-swift/`) | module `:proto` (`proto/`, paquet `rs.brocolis.messagerie.proto`, BouncyCastle) : voir [`proto/README.md`](proto/README.md) |
+| `BrocolisV3` (logique v3 : `Shared/BrocolisV3.swift`) | `crypto/BrocolisV3Engine.kt` |
+| `BrocolisV3Store` (Trousseau, `flock`) + façade `BrocolisV3` | `store/BrocolisV3Store.kt` (Keystore, `FileChannel.lock()`) + `crypto/BrocolisV3.kt` |
 
 ## Interopérabilité (garantie par construction)
 
@@ -46,6 +48,33 @@ synchroniser Gradle, puis Run. En ligne de commande : `./gradlew assembleDebug`
 - **conversationId** = base64url(SHA-256("brocolis-conv-v1" ‖ clé)) sans padding.
 - **API** : `POST/GET /v1/messages`, `POST /v1/read`, SSE `/v1/stream`,
   en-tête `X-User-Id`. Serveur par défaut = l'instance Heroku du projet.
+
+## Le v3 (double cliquet, docs/SECURITE.md §8)
+
+Comme l'iPhone et le site, et **interopérable** avec eux (essayé par le vrai
+serveur contre la logique de l'iPhone : `InteropTest`) :
+
+- **Un appareil v3 par installation** (`Device`, ML-KEM-768 toujours là grâce
+  à BouncyCastle), SPK/PQPK neuves chaque semaine. Appareil et clé de l'état
+  chiffrés par la clé AES du **Keystore** (StrongBox si l'appareil en a une),
+  sans repli en clair ; sessions et messages ouverts dans
+  `no_backup/BrocolisV3/etat.bin` (AES-256-GCM), hors sauvegardes.
+- **Une transaction à la fois** : verrou du processus puis `FileChannel.lock()`
+  autour de lire → chiffrer/déchiffrer → écrire (l'appareil, puis l'état) ;
+  le jeton n'est rendu qu'après.
+- **Appairage** (« Appairer à deux », toujours à deux) : `bundle` publié avec
+  la clé publique ; avec les deux paquets, empreinte v3 (couvre les deux
+  identités), sinon celle d'avant.
+- **Choix du format** : contact v3 → PSK (clé marquée « Double cliquet avec
+  cette clé », ou un message PSK déjà reçu) → v1/v2 ; jamais de v3 pour une
+  clé de groupe. Partager, Conversation et la messagerie (photos et vocaux
+  dans l'enveloppe `BRCM3:`) passent par là ; libellés §8.8 partout où
+  s'affiche une clé.
+- **Clé protégée** : l'export écrit la v2 (Argon2id), l'import lit v1 et v2.
+
+Les tests JVM (`app/src/test/…`) couvrent le moteur, le magasin, la
+concurrence (fils et processus ; contre-essai sans verrou) et, avec
+`BROCOLIS_INTEROP_SERVER` (et `BROCOLIS_SWIFT_CLIENT`), l'interopérabilité.
 
 ## Ce qui diffère d'iOS (spécificités plateforme)
 

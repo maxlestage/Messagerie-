@@ -44,8 +44,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import okhttp3.sse.EventSource
 import rs.brocolis.messagerie.crypto.BrocolisCrypto
+import rs.brocolis.messagerie.crypto.BrocolisProtection
+import rs.brocolis.messagerie.crypto.BrocolisV3
+import rs.brocolis.messagerie.crypto.BrocolisV3Api
+import rs.brocolis.messagerie.crypto.BrocolisV3Format
+import rs.brocolis.messagerie.crypto.BrocolisV3Opened
 import rs.brocolis.messagerie.i18n.loc
 import rs.brocolis.messagerie.net.BrocolisMessagingClient
 import rs.brocolis.messagerie.net.RawMessage
@@ -99,6 +107,8 @@ class ChatController(val correspondent: NamedKey) {
     val lines: SnapshotStateList<ChatLineUi> = mutableStateListOf()
     var status by mutableStateOf<String?>(null)
     var otherReadUpTo by mutableStateOf(0L)
+    /** Ce que donnera le prochain envoi (docs/SECURITE.md §8.8). */
+    var protection by mutableStateOf<BrocolisProtection?>(null)
 
     private val key: ByteArray = BrocolisCrypto.keyBytes(correspondent.base64)
     private val conversationId: String =
@@ -111,11 +121,21 @@ class ChatController(val correspondent: NamedKey) {
     private var cursor = 0L
     private var source: EventSource? = null
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    /** Une reconstruction (une transaction v3) à la fois, dans l'ordre. */
+    private val rebuildLock = Mutex()
+
+    /**
+     * La clé du correspondant telle qu'elle est maintenant (son contact v3 a
+     * pu changer : passage en groupe…).
+     */
+    private val currentKey: NamedKey
+        get() = BrocolisKeyStore.keys.firstOrNull { it.id == correspondent.id } ?: correspondent
 
     fun start() {
         cursor = maxOf(cursor, MessagingPrefs.floor(conversationId))
         val floor = cursor
         scope.launch {
+            protection = withContext(Dispatchers.IO) { BrocolisV3.protection(currentKey) }
             try {
                 val res = client.fetch(conversationId, floor)
                 res.readers[peerReaderKey()]?.let { otherReadUpTo = maxOf(otherReadUpTo, it) }
@@ -149,31 +169,75 @@ class ChatController(val correspondent: NamedKey) {
         }
         cursor = maxOf(cursor, cur)
         if (changed) {
-            rebuild()
+            scope.launch { rebuild() }
             val top = raw.values.maxOfOrNull { it.seq } ?: 0L
             if (top > 0) scope.launch { client.markRead(conversationId, top) }
         }
     }
 
-    private fun rebuild() {
-        val sorted = raw.values.sortedBy { it.seq }
-        val ui = sorted.map { m ->
+    /**
+     * Les jetons v3 en UNE transaction (§8.6 : mes envois relus dans les
+     * messages ouverts, jamais déchiffrés ; réparation d'une session perdue),
+     * le reste en v1/v2 comme avant. Hors du fil principal.
+     */
+    private suspend fun rebuild() = rebuildLock.withLock {
+        val snapshot = raw.values.toList()
+        val (ui, shown) = withContext(Dispatchers.IO) { render(snapshot) }
+        lines.clear(); lines.addAll(ui)
+        protection = shown
+    }
+
+    private fun render(messages: List<RawMessage>): Pair<List<ChatLineUi>, BrocolisProtection> {
+        // Un même jeton v3 republié sous un autre identifiant (le serveur peut
+        // rejouer) : ignoré, seule sa première apparition s'affiche (§8.7).
+        val seenTokens = HashSet<String>()
+        val sorted = messages.sortedBy { it.seq }.filter { m ->
+            val r = BrocolisV3Format.findTokens(m.ciphertext).firstOrNull() ?: return@filter true
+            seenTokens.add(BrocolisV3Format.tokenHash(m.ciphertext.substring(r.first, r.last + 1)))
+        }
+        val k = currentKey
+        val v3 = BrocolisV3.openMessages(
+            sorted.map { BrocolisV3Api.Incoming(it.ciphertext, it.senderId == deviceId) }, k, BrocolisKeyStore.keys
+        )
+        val ui = sorted.zip(v3).map { (m, opened) ->
             val isMine = m.senderId == deviceId
-            val (text, opened) = BrocolisCrypto.decryptTokens(m.ciphertext, listOf(key))
-            val body = if (opened > 0) bodyFrom(text) else ChatBody.Locked
+            val body = when (opened) {
+                is BrocolisV3Opened.Text -> bodyFrom(opened.text)
+                BrocolisV3Opened.Replay ->
+                    ChatBody.Text(if (isMine) BrocolisV3Api.sentFromThisDevice else BrocolisV3Api.alreadyRead)
+                is BrocolisV3Opened.Failed -> ChatBody.Locked
+                null -> {
+                    val (text, n) = BrocolisCrypto.decryptTokens(m.ciphertext, listOf(key))
+                    if (n > 0) bodyFrom(text) else ChatBody.Locked
+                }
+            }
             ChatLineUi(m.id, body, isMine, m.seq, formatTime(m.sentAt))
         }
-        lines.clear(); lines.addAll(ui)
+        return ui to BrocolisV3.protection(k)
     }
 
     fun sendText(text: String) = sendClear(text)
     fun sendImage(jpeg: ByteArray) = sendClear(MediaPayload.imageClear(jpeg))
     fun sendAudio(m4a: ByteArray) = sendClear(MediaPayload.audioClear(m4a))
 
+    /**
+     * v3 si la conversation le permet (§8.5, §8.7) : l'état est écrit AVANT
+     * l'envoi. Sinon l'ancien format.
+     */
     private fun sendClear(clear: String) {
         scope.launch {
-            try { client.send(clear, conversationId, key) }
-            catch (e: Exception) { status = loc("Envoi échoué", "Send failed", "Envío fallido") }
+            try {
+                val k = currentKey
+                val v3 = withContext(Dispatchers.IO) { BrocolisV3.sealMessage(clear, k) }
+                if (v3 != null) {
+                    protection = withContext(Dispatchers.IO) { BrocolisV3.protection(k) }
+                    client.send(v3, conversationId)
+                } else {
+                    client.send(clear, conversationId, key)
+                }
+            } catch (e: Exception) {
+                status = loc("Envoi échoué", "Send failed", "Envío fallido")
+            }
         }
     }
 
@@ -197,6 +261,10 @@ class ChatController(val correspondent: NamedKey) {
 fun MessagingHomeScreen(onOpenChat: (String) -> Unit, onBack: () -> Unit) {
     LockGate {
         val keys = remember { BrocolisKeyStore.keys }
+        // La protection de chaque correspondant (§8.8), en une transaction.
+        val protections by produceState(emptyMap<String, BrocolisProtection>(), keys) {
+            value = withContext(Dispatchers.IO) { BrocolisV3.protections(keys) }
+        }
         Scaffold(
             topBar = {
                 TopAppBar(
@@ -220,7 +288,14 @@ fun MessagingHomeScreen(onOpenChat: (String) -> Unit, onBack: () -> Unit) {
                     items(keys) { key ->
                         ListItem(
                             headlineContent = { Text(key.name) },
-                            supportingContent = { BrocolisKeyStore.keyPhone(key.id)?.let { Text(it) } },
+                            supportingContent = {
+                                Column {
+                                    BrocolisKeyStore.keyPhone(key.id)?.let { Text(it) }
+                                    protections[key.id]?.let {
+                                        Text(it.label, style = MaterialTheme.typography.labelSmall)
+                                    }
+                                }
+                            },
                             leadingContent = { Avatar(key.name) },
                             modifier = Modifier.clickable { onOpenChat(key.id) }
                         )
@@ -302,7 +377,12 @@ fun ChatScreen(keyId: String, onBack: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(correspondent.name) },
+                title = {
+                    Column {
+                        Text(correspondent.name)
+                        controller.protection?.let { Text(it.label, style = MaterialTheme.typography.labelSmall) }
+                    }
+                },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } },
                 colors = rs.brocolis.messagerie.ui.theme.brocolisTopBarColors()
             )

@@ -1,6 +1,8 @@
 package rs.brocolis.messagerie.crypto
 
-import java.security.SecureRandom
+import rs.brocolis.messagerie.proto.BrocolisException
+import rs.brocolis.messagerie.proto.CleProtegee
+import rs.brocolis.messagerie.proto.Erreur
 import java.util.Base64
 import javax.crypto.Cipher
 import javax.crypto.SecretKeyFactory
@@ -13,26 +15,35 @@ import javax.crypto.spec.SecretKeySpec
  * Brocolis iOS / Android / site) pour sortir une clé de l'appareil sans jamais
  * la copier en clair. La phrase se donne à part (de vive voix).
  *
+ * L'export écrit la **v2** (docs/SECURITE.md §3.2, §7.1, §8.9) :
+ *
+ *     [[BROCOLIS-CLE:v2:<base64>]]   Argon2id (m = 64 Mio, t = 3, p = 1)
+ *
+ * (module `:proto`, `CleProtegee`). L'import lit la v2 et l'ancienne v1 :
+ *
  *     [[BROCOLIS-CLE:v1:<base64 standard, avec =>]]
  *
- * payload décodé (76 octets) = sel (16) ‖ nonce (12) ‖ AES-256-GCM(clé brute 32 octets) ‖ tag (16)
+ * payload v1 décodé (76 octets) = sel (16) ‖ nonce (12) ‖ AES-256-GCM(clé brute 32 octets) ‖ tag (16)
  *
  * - clé de chiffrement = PBKDF2-HMAC-SHA256(phrase en UTF-8 telle quelle, sel, 600 000 itérations, 32 octets)
  * - données associées (AAD) = les 15 octets ASCII `brocolis-cle-v1`
- * - sel et nonce aléatoires (CSPRNG) à chaque export
  *
- * Volontairement sans `android.*` (java.util.Base64, javax.crypto) : le module
- * se teste tel quel sur la JVM (tests unitaires) et reste identique sur Android
- * (minSdk 26 : java.util.Base64 et PBKDF2WithHmacSHA256 y sont disponibles ;
- * sur Android comme sur la JVM, PBEKeySpec encode la phrase en UTF-8).
+ * Volontairement sans `android.*` : se teste tel quel sur la JVM.
  *
- * Attention : 600 000 itérations prennent du temps (≈ 0,5 à 2 s sur téléphone) —
- * appeler `seal`/`open` hors du fil principal.
+ * Attention : Argon2id (64 Mio) comme PBKDF2 (600 000 tours) prennent du
+ * temps (≈ 0,5 à 2 s sur téléphone) — appeler `seal`/`open` hors du fil
+ * principal. À l'import, une v2 qui demanderait plus de mémoire que l'app
+ * n'en a (au plus 256 Mio, comme l'iPhone) est refusée avant tout calcul.
  */
 object BrocolisKeyProtection {
 
     const val TOKEN_PREFIX = "[[BROCOLIS-CLE:v1:"
+    const val TOKEN_PREFIX_V2 = "[[BROCOLIS-CLE:v2:"
     const val TOKEN_SUFFIX = "]]"
+
+    /** Mémoire Argon2id acceptée à l'import (Kio) : 256 Mio au plus, et la moitié du tas de l'app. */
+    val maxImportMemoryKib: Long
+        get() = minOf(256L * 1024, Runtime.getRuntime().maxMemory() / 1024 / 2)
 
     /** Longueur minimale de la phrase à l'export (à l'import, toute phrase est essayée). */
     const val MIN_PASSPHRASE_LENGTH = 8
@@ -50,27 +61,30 @@ object BrocolisKeyProtection {
     fun isPassphraseAcceptable(passphrase: String): Boolean =
         passphrase.codePointCount(0, passphrase.length) >= MIN_PASSPHRASE_LENGTH
 
-    /** Le texte contient-il un jeton de clé protégée ? */
-    fun containsToken(text: String): Boolean = text.contains(TOKEN_PREFIX)
+    /** Le texte contient-il un jeton de clé protégée (v1 ou v2) ? */
+    fun containsToken(text: String): Boolean = text.contains(TOKEN_PREFIX) || text.contains(TOKEN_PREFIX_V2)
 
     /**
      * Scelle une clé brute (32 octets) avec une phrase secrète → jeton
-     * `[[BROCOLIS-CLE:v1:…]]`. Refuse une phrase de moins de 8 caractères.
+     * `[[BROCOLIS-CLE:v2:…]]` (Argon2id). Refuse une phrase de moins de 8
+     * caractères.
      */
     @Throws(ProtectionException::class)
     fun seal(rawKey: ByteArray, passphrase: String): String {
         if (!isPassphraseAcceptable(passphrase)) {
             throw ProtectionException("Phrase secrète trop courte ($MIN_PASSPHRASE_LENGTH caractères au moins).")
         }
-        val random = SecureRandom()
-        val salt = ByteArray(SALT_LENGTH).also { random.nextBytes(it) }
-        val nonce = ByteArray(NONCE_LENGTH).also { random.nextBytes(it) }
-        return sealWith(rawKey, passphrase, salt, nonce)
+        if (rawKey.size != BrocolisCrypto.KEY_LENGTH) {
+            throw ProtectionException("Clé de ${rawKey.size} octets, ${BrocolisCrypto.KEY_LENGTH} attendus.")
+        }
+        return try { CleProtegee.protectKey(rawKey, passphrase) } catch (_: BrocolisException) {
+            throw ProtectionException("Échec du chiffrement de la clé.")
+        }
     }
 
     /**
-     * Scelle avec un sel et un nonce DONNÉS. Réservé au vecteur de test : en
-     * vrai, toujours passer par `seal` (sel et nonce neufs à chaque export).
+     * Scelle en **v1** avec un sel et un nonce DONNÉS. Réservé au vecteur de
+     * test (l'export écrit la v2) : la v1 n'est plus que lue.
      */
     @Throws(ProtectionException::class)
     internal fun sealWith(rawKey: ByteArray, passphrase: String, salt: ByteArray, nonce: ByteArray): String {
@@ -98,6 +112,7 @@ object BrocolisKeyProtection {
      */
     @Throws(ProtectionException::class)
     fun open(text: String, passphrase: String): ByteArray {
+        if (text.contains(TOKEN_PREFIX_V2)) return openV2(text, passphrase)
         val b64 = extractBase64(text) ?: throw ProtectionException("Jeton de clé introuvable ou incomplet.")
         val payload = try { Base64.getDecoder().decode(b64) } catch (_: IllegalArgumentException) {
             throw ProtectionException("Jeton de clé abîmé.")
@@ -118,6 +133,25 @@ object BrocolisKeyProtection {
         }
         if (raw.size != BrocolisCrypto.KEY_LENGTH) throw ProtectionException("Jeton de clé abîmé.")
         return raw
+    }
+
+    /** Une v2 (blancs collés retirés), paramètres Argon2id vérifiés avant tout calcul. */
+    private fun openV2(text: String, passphrase: String): ByteArray {
+        val start = text.indexOf(TOKEN_PREFIX_V2)
+        val end = text.indexOf(TOKEN_SUFFIX, start + TOKEN_PREFIX_V2.length)
+        if (end < 0) throw ProtectionException("Jeton de clé introuvable ou incomplet.")
+        val token = TOKEN_PREFIX_V2 +
+            text.substring(start + TOKEN_PREFIX_V2.length, end).filterNot { it.isWhitespace() } + TOKEN_SUFFIX
+        try {
+            if (CleProtegee.v2Params(token).mKib > maxImportMemoryKib) {
+                throw ProtectionException("Clé protégée trop coûteuse à ouvrir sur cet appareil.")
+            }
+            return CleProtegee.unprotectKey(token, passphrase)
+        } catch (e: BrocolisException) {
+            throw ProtectionException(
+                if (e.erreur == Erreur.Dechiffrement) "Phrase secrète incorrecte ou jeton abîmé." else "Jeton de clé abîmé."
+            )
+        }
     }
 
     /** Comme `open`, mais renvoie null en cas d'échec. */
