@@ -67,6 +67,12 @@ thread_local! {
     static KEY: RefCell<Option<[u8; 32]>> = const { RefCell::new(None) };
     static CONTACT: RefCell<Option<Contact>> = const { RefCell::new(None) };
     static STREAM: RefCell<Option<web_sys::EventSource>> = const { RefCell::new(None) };
+    /// Une transaction v3 en cours dans CET onglet (verrou local, en plus de
+    /// `navigator.locks` qui peut manquer).
+    static BUSY: Cell<bool> = const { Cell::new(false) };
+    /// Les jetons v3 déjà affichés : un même jeton republié par le serveur
+    /// sous un autre identifiant est ignoré (§1 : un rejeu est ignoré).
+    static SEEN_TOKENS: RefCell<std::collections::HashSet<String>> = RefCell::new(std::collections::HashSet::new());
     /// L'identité X25519 une fois sortie du coffre (base64 du secret).
     static ME: RefCell<Option<String>> = const { RefCell::new(None) };
 }
@@ -160,9 +166,30 @@ async fn web_lock() -> Option<WebLock> {
     Some(WebLock(release?))
 }
 
-/// Une transaction v3 : verrou, appareil et état sortis du coffre, `f`, puis
+/// Le verrou local de l'onglet : relâché quand il est lâché.
+struct LocalLock;
+
+impl Drop for LocalLock {
+    fn drop(&mut self) {
+        BUSY.with(|b| b.set(false));
+    }
+}
+
+/// Attend son tour dans l'onglet : sans lui, deux tâches (un envoi et un
+/// message reçu) pourraient lire le même état et servir deux fois la même
+/// clé de message. Pas d'`await` entre le test et la prise : c'est atomique.
+async fn local_lock() -> LocalLock {
+    while BUSY.with(Cell::get) {
+        sleep(5).await;
+    }
+    BUSY.with(|b| b.set(true));
+    LocalLock
+}
+
+/// Une transaction v3 : verrous, appareil et état sortis du coffre, `f`, puis
 /// l'appareil et l'état réécrits (l'appareil d'abord) avant de rendre la main.
 async fn with_engine<T>(f: impl FnOnce(&mut Engine, u64) -> T) -> T {
+    let _local = local_lock().await;
     let _lock = web_lock().await;
     let device = coffre::load(V3_DEVICE).await;
     let state = coffre::load(V3_STATE).await;
@@ -504,6 +531,7 @@ fn enter(key: [u8; 32], peer: Option<Contact>, s: ChatStates, run: u32, initiato
     let saved = crypto::b64(&key);
     KEY.with(|k| *k.borrow_mut() = Some(key));
     CONTACT.with(|c| *c.borrow_mut() = peer.clone());
+    SEEN_TOKENS.with(|seen| seen.borrow_mut().clear());
     s.messages.set(Vec::new());
     s.phase.set(ChatPhase::Chat);
     let conv = crypto::conversation_id(&key);
@@ -590,6 +618,10 @@ async fn ingest(list: Vec<JsValue>, key: [u8; 32], me: &str, s: ChatStates) {
             )
         })
         .filter(|(id, ..)| !id.is_empty() && !s.messages.with(|l| l.iter().any(|x| &x.id == id)))
+        .filter(|(.., ct)| match v3::find_tokens(ct).first() {
+            Some(&(a, b)) => SEEN_TOKENS.with(|seen| seen.borrow_mut().insert(v3::token_hash(&ct[a..b]))),
+            None => true,
+        })
         .collect();
     if fresh.is_empty() {
         return;
