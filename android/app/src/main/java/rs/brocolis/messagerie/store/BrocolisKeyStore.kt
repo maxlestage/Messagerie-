@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import rs.brocolis.messagerie.crypto.BrocolisCrypto
+import rs.brocolis.messagerie.crypto.BrocolisV3
 import rs.brocolis.messagerie.i18n.loc
 import java.util.UUID
 
@@ -111,6 +112,8 @@ object BrocolisKeyStore {
         val ks = loadKeys().toMutableList()
         ks.removeAll { it.id == id }
         saveKeys(ks)
+        // Ses sessions PSK partent avec elle (hors du fil principal).
+        Thread { BrocolisV3.forget(id) }.start()
         setKeyPhone(null, id)
         if (selectedKeyId == id) {
             val first = ks.firstOrNull()
@@ -120,6 +123,35 @@ object BrocolisKeyStore {
                 setActive(false)
             }
         }
+    }
+
+    // MARK: v3 (docs/SECURITE.md §8.4, §8.5)
+
+    /**
+     * Le contact v3 d'une clé appairée : le paquet du correspondant (ou `null` :
+     * un ancien client) et « à deux » / « en groupe ».
+     */
+    fun setV3Contact(keyId: String, bundle: String?, duo: Boolean) = updateKey(keyId) { k ->
+        k.v3Bundle = bundle
+        k.v3SinceSeconds = if (bundle == null) null else System.currentTimeMillis() / 1000
+        k.duo = duo
+    }
+
+    /**
+     * La clé devient une clé de groupe (une deuxième personne l'a reçue) : plus
+     * jamais de v3 avec elle.
+     */
+    fun markGroup(keyId: String) = updateKey(keyId) { it.duo = false }
+
+    /** « À deux, double cliquet » (PSK) pour une clé sans appairage v3. */
+    fun setPsk(on: Boolean, keyId: String) = updateKey(keyId) { it.psk = if (on) true else null }
+
+    private fun updateKey(id: String, change: (NamedKey) -> Unit) {
+        val ks = loadKeys().toMutableList()
+        val i = ks.indexOfFirst { it.id == id }
+        if (i < 0) return
+        change(ks[i])
+        saveKeys(ks)
     }
 
     // MARK: Numéro rattaché à une clé

@@ -7,4 +7,7 @@
     <exclude domain="file" path="." />
     <exclude domain="database" path="." />
     <exclude domain="root" path="." />
+    <!-- Le v3 (appareil, sessions à double cliquet) : no_backup/BrocolisV3,
+         jamais sauvegardé ni transféré (docs/SECURITE.md §8.1). -->
+    <exclude domain="root" path="no_backup/BrocolisV3/" />
 </full-backup-content>
