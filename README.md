@@ -441,10 +441,17 @@ cd site && cargo test
 
 - L'extension protège le contenu **marqué** (ou la sélection) ; elle ne chiffre
   pas automatiquement tout ce que tu envoies — c'est un geste explicite.
-- La clé est en **App Group** (`UserDefaults` du conteneur partagé) par
-  simplicité ; pour la production, préférer un groupe d'accès **Trousseau**
-  partagé.
+- Les clés (et la clé privée X25519 de l'appareil) sont dans le **Trousseau**
+  iOS, partagé avec les extensions par le groupe d'accès de l'App Group,
+  `AfterFirstUnlockThisDeviceOnly` : jamais sur iCloud, jamais restaurées sur
+  un autre appareil. Les versions précédentes les gardaient dans les
+  `UserDefaults` de l'App Group : elles y sont migrées au premier accès (cf.
+  `Shared/BrocolisKeyStore.swift`). Sur la montre, Trousseau propre à l'app.
 - Clé **symétrique** : sa diffusion doit passer par un canal sûr, comme brocolis.
+  Pour l'envoyer par un canal quelconque, « Partager protégée par une phrase
+  secrète » produit un jeton `[[BROCOLIS-CLE:v1:…]]` (PBKDF2-SHA256 600 000
+  itérations + AES-256-GCM, format commun avec Talka et l'Android) ; la phrase
+  se donne à part, de vive voix.
 
 ## Publier sur TestFlight
 
