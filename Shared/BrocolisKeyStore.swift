@@ -6,12 +6,25 @@
 //  partagées via l'App Group. La clé « sélectionnée » chiffre ; au déchiffrement
 //  l'extension essaie TOUTES les clés.
 //
-//  Note sécurité : pour la démo, `UserDefaults` de l'App Group. Les clés ne
-//  quittent jamais l'appareil. En production, préférer un Trousseau partagé.
+//  Note sécurité : les SECRETS (la liste des clés, la clé privée X25519) sont
+//  rangés dans le TROUSSEAU iOS — partagé entre l'app et ses extensions par le
+//  groupe d'accès de l'App Group, lisible après le premier déverrouillage
+//  (le clavier et les extensions en ont besoin en arrière-plan), et JAMAIS
+//  synchronisé sur iCloud ni restauré sur un autre appareil
+//  (`…ThisDeviceOnly`). Les réglages non secrets (sélection, « Actif »,
+//  validités…) restent dans les `UserDefaults` de l'App Group.
+//
+//  Les versions précédentes gardaient ces secrets en clair dans les
+//  `UserDefaults` : ils sont déplacés dans le Trousseau au premier accès (cf.
+//  `BrocolisSecretStore`), et effacés de l'ancien emplacement SEULEMENT une
+//  fois l'écriture dans le Trousseau réussie.
 //
 
 import Foundation
 import CryptoKit
+#if canImport(Security)
+import Security
+#endif
 
 /// Une clé nommée, avec sa durée de validité propre.
 struct NamedKey: Identifiable, Equatable {
@@ -97,30 +110,76 @@ enum BrocolisKeyStore {
 
     private static var defaults: UserDefaults? { sharedDefaults }
 
+    /// Service du Trousseau propre aux secrets Brocolis.
+    static let keychainService = "rs.brocolis.messagerie.secrets"
+
+    /// Les secrets : Trousseau d'abord, ancien emplacement (`UserDefaults`) en
+    /// repli. Sur iOS, groupe d'accès = l'App Group (déjà déclaré par l'app ET
+    /// chaque extension : aucun nouvel entitlement). Sur watchOS, processus
+    /// unique et aucun entitlement (cf. `sharedDefaults`) : Trousseau propre à
+    /// l'app, sans groupe d'accès.
+    static let secrets: BrocolisSecretStore = {
+        #if canImport(Security)
+        #if os(watchOS)
+        let vault = BrocolisKeychainVault(service: keychainService, accessGroup: nil)
+        #else
+        let vault = BrocolisKeychainVault(service: keychainService, accessGroup: appGroup)
+        #endif
+        return BrocolisSecretStore(vault: vault, defaults: sharedDefaults)
+        #else
+        // Hors plateformes Apple (vérifications sous Linux) : pas de Trousseau,
+        // on reste sur l'ancien emplacement.
+        return BrocolisSecretStore(vault: BrocolisUnavailableVault(), defaults: sharedDefaults)
+        #endif
+    }()
+
     // MARK: - Liste de clés
 
+    /// Ancienne clé unique (`shared_aes_key_b64`, d'avant les clés nommées) :
+    /// versée dans la liste, puis effacée des `UserDefaults` seulement si la
+    /// liste a bien été enregistrée.
     private static func migrateIfNeeded() {
-        guard let d = defaults, d.data(forKey: keysName) == nil else { return }
-        var initial: [NamedKey] = []
-        if let legacy = d.string(forKey: legacyKeyName), !legacy.isEmpty {
-            let k = NamedKey(name: loc("Ma clé", "My key", "Mi clave"), base64: legacy)
-            initial = [k]
-            d.set(k.id, forKey: selectedIdName)
-            d.removeObject(forKey: legacyKeyName)
+        guard let d = defaults, let legacy = d.string(forKey: legacyKeyName) else { return }
+        let trimmed = legacy.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            var ks = loadKeys()
+            if !ks.contains(where: { $0.base64 == trimmed }) {
+                let k = NamedKey(name: loc("Ma clé", "My key", "Mi clave"), base64: trimmed)
+                ks.insert(k, at: 0)
+                if ks.count == 1 { d.set(k.id, forKey: selectedIdName) }
+                guard saveKeys(ks) else { return }
+            }
         }
-        saveKeys(initial)
+        d.removeObject(forKey: legacyKeyName)
     }
 
     private static func loadKeys() -> [NamedKey] {
-        guard let data = defaults?.data(forKey: keysName),
+        guard let data = secrets.data(keysName, merge: mergeKeysJSON),
               let arr = try? JSONDecoder().decode([NamedKey].self, from: data) else { return [] }
         return arr
     }
 
-    private static func saveKeys(_ keys: [NamedKey]) {
-        if let data = try? JSONEncoder().encode(keys) {
-            defaults?.set(data, forKey: keysName)
-        }
+    /// Enregistre la liste. `false` seulement si elle n'a pu être écrite NULLE
+    /// PART (ni Trousseau, ni repli).
+    @discardableResult
+    private static func saveKeys(_ keys: [NamedKey]) -> Bool {
+        guard let data = try? JSONEncoder().encode(keys) else { return false }
+        return secrets.set(data, for: keysName)
+    }
+
+    /// Fusionne la liste du Trousseau et une copie restée dans les
+    /// `UserDefaults` (écrite en repli pendant que le Trousseau refusait, donc
+    /// la plus RÉCENTE). Union par identifiant, la copie de repli l'emporte :
+    /// une clé ajoutée pendant la panne n'écrase pas celles qu'on ne pouvait pas
+    /// lire. Revers assumé : une clé supprimée pendant la panne peut revenir —
+    /// mieux vaut une clé de trop qu'une clé perdue.
+    static func mergeKeysJSON(stored: Data, leftover: Data) -> Data {
+        let decoder = JSONDecoder()
+        guard let fresh = try? decoder.decode([NamedKey].self, from: leftover) else { return stored }
+        guard let old = try? decoder.decode([NamedKey].self, from: stored) else { return leftover }
+        let freshIds = Set(fresh.map(\.id))
+        let merged = fresh + old.filter { !freshIds.contains($0.id) }
+        return (try? JSONEncoder().encode(merged)) ?? leftover
     }
 
     private static func loadKeysAfterMigration() -> [NamedKey] {
@@ -326,12 +385,15 @@ enum BrocolisKeyStore {
     /// URL du serveur de rendez-vous, en dur : l'instance Heroku du projet.
     static let serverURL = "https://brocolis-serveur-839b43057467.herokuapp.com"
 
+    /// Clé privée X25519 de l'appareil : un secret, donc au Trousseau.
     static var privateKeyBase64: String? {
-        defaults?.string(forKey: privateKeyName)
+        guard let data = secrets.data(privateKeyName) else { return nil }
+        let s = String(decoding: data, as: UTF8.self)
+        return s.isEmpty ? nil : s
     }
 
     static func setPrivateKeyBase64(_ value: String) {
-        defaults?.set(value, forKey: privateKeyName)
+        secrets.set(Data(value.utf8), for: privateKeyName)
     }
 
     static var pairingFingerprint: String? {
@@ -448,13 +510,17 @@ enum BrocolisKeyStore {
     /// à l'app montre via WatchConnectivity. La montre les importe à l'identique.
     static func exportKeysJSON() -> String? {
         migrateIfNeeded()
-        return defaults?.string(forKey: keysName)
+        guard let data = secrets.data(keysName, merge: mergeKeysJSON) else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 
     /// Importe (côté montre) le JSON de clés reçu de l'iPhone, en remplaçant le
-    /// trousseau local. La sélection suit celle de l'iPhone si fournie.
+    /// trousseau local. La sélection suit celle de l'iPhone si fournie. Un JSON
+    /// illisible est ignoré : il n'écrase pas les clés déjà présentes.
     static func importKeysJSON(_ json: String, selectedId: String?) {
-        defaults?.set(json, forKey: keysName)
+        let data = Data(json.utf8)
+        guard (try? JSONDecoder().decode([NamedKey].self, from: data)) != nil else { return }
+        secrets.set(data, for: keysName)
         if let selectedId, !selectedId.isEmpty {
             defaults?.set(selectedId, forKey: selectedIdName)
         }
@@ -482,6 +548,163 @@ enum BrocolisKeyStore {
         return fire > now ? fire : nil
     }
 }
+
+// MARK: - Coffre des secrets (Trousseau, avec repli sur l'ancien emplacement)
+
+/// Résultat d'une lecture dans un coffre.
+enum BrocolisVaultRead: Equatable {
+    case found(Data)
+    /// Le coffre répond, mais n'a rien sous ce nom.
+    case notFound
+    /// Le coffre ne répond pas (entitlement absent, appareil jamais
+    /// déverrouillé depuis le démarrage…) : on ne sait RIEN de son contenu.
+    case failed
+}
+
+/// Coffre bas niveau : le Trousseau en vrai, un coffre en mémoire en test.
+protocol BrocolisSecretVault {
+    func read(_ account: String) -> BrocolisVaultRead
+    /// `true` si la valeur est bien enregistrée.
+    func write(_ data: Data, account: String) -> Bool
+    /// `true` si plus rien n'est enregistré sous ce nom (absent compris).
+    @discardableResult func delete(_ account: String) -> Bool
+}
+
+/// Les secrets Brocolis : Trousseau d'abord, `UserDefaults` (ancien
+/// emplacement) seulement en repli. Règle d'or : ne jamais rien perdre.
+///
+/// - Lecture : une valeur encore présente dans les `UserDefaults` (version
+///   précédente de l'app, ou écriture de repli pendant que le Trousseau
+///   refusait) est versée dans le Trousseau, puis effacée des `UserDefaults`
+///   SEULEMENT si l'écriture dans le Trousseau a réussi.
+/// - Écriture : Trousseau ; s'il refuse, on écrit dans les `UserDefaults`
+///   plutôt que de perdre la valeur (elle migrera à la lecture suivante).
+/// - Trousseau illisible : on se rabat sur l'ancien emplacement, sans rien
+///   effacer.
+struct BrocolisSecretStore {
+    let vault: BrocolisSecretVault
+    let defaults: UserDefaults?
+
+    /// Valeur restée dans les `UserDefaults` : `Data` (liste de clés), ou
+    /// `String` (clé privée X25519, JSON importé de l'iPhone par la montre).
+    private func leftover(_ name: String) -> Data? {
+        guard let value = defaults?.object(forKey: name) else { return nil }
+        if let data = value as? Data { return data }
+        if let string = value as? String { return Data(string.utf8) }
+        return nil
+    }
+
+    /// Lit le secret `name`. `merge(stored:leftover:)` réconcilie une valeur du
+    /// Trousseau avec une copie de repli plus récente ; par défaut, la copie de
+    /// repli (la plus récente) l'emporte.
+    func data(_ name: String,
+              merge: (_ stored: Data, _ leftover: Data) -> Data = { _, leftover in leftover }) -> Data? {
+        let old = leftover(name)
+        switch vault.read(name) {
+        case .found(let stored):
+            guard let old else { return stored }
+            let merged = merge(stored, old)
+            if vault.write(merged, account: name) { defaults?.removeObject(forKey: name) }
+            return merged
+        case .notFound:
+            guard let old else { return nil }
+            if vault.write(old, account: name) { defaults?.removeObject(forKey: name) }
+            return old
+        case .failed:
+            return old
+        }
+    }
+
+    /// Enregistre le secret `name`. `false` s'il n'a pu être écrit nulle part.
+    ///
+    /// Si le Trousseau est ILLISIBLE, on n'y écrit pas même s'il l'accepterait :
+    /// la valeur à écrire a pu être calculée sans voir son contenu (une liste
+    /// de clés amputée), elle l'écraserait. Elle va dans les `UserDefaults`, et
+    /// la lecture suivante la fusionnera avec ce que le Trousseau contient.
+    @discardableResult
+    func set(_ data: Data, for name: String) -> Bool {
+        if vault.read(name) != .failed, vault.write(data, account: name) {
+            defaults?.removeObject(forKey: name)
+            return true
+        }
+        guard let defaults else { return false }
+        defaults.set(data, forKey: name)
+        return true
+    }
+
+    /// Efface le secret `name` des DEUX emplacements.
+    func remove(_ name: String) {
+        vault.delete(name)
+        defaults?.removeObject(forKey: name)
+    }
+}
+
+/// Coffre toujours indisponible (hors plateformes Apple) : tout reste dans
+/// l'ancien emplacement.
+struct BrocolisUnavailableVault: BrocolisSecretVault {
+    func read(_ account: String) -> BrocolisVaultRead { .failed }
+    func write(_ data: Data, account: String) -> Bool { false }
+    @discardableResult func delete(_ account: String) -> Bool { false }
+}
+
+#if canImport(Security)
+/// Le Trousseau iOS / watchOS : mots de passe génériques d'un service dédié,
+/// lisibles après le premier déverrouillage, jamais synchronisés ni restaurés
+/// sur un autre appareil.
+struct BrocolisKeychainVault: BrocolisSecretVault {
+    let service: String
+    /// Groupe d'accès partagé (l'App Group sur iOS) ; `nil` = celui de l'app.
+    let accessGroup: String?
+
+    private func query(_ account: String) -> [String: Any] {
+        var q: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+        if let accessGroup { q[kSecAttrAccessGroup as String] = accessGroup }
+        return q
+    }
+
+    func read(_ account: String) -> BrocolisVaultRead {
+        var q = query(account)
+        q[kSecReturnData as String] = true
+        q[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(q as CFDictionary, &result)
+        switch status {
+        case errSecSuccess:
+            guard let data = result as? Data else { return .failed }
+            return .found(data)
+        case errSecItemNotFound:
+            return .notFound
+        default:
+            return .failed
+        }
+    }
+
+    func write(_ data: Data, account: String) -> Bool {
+        let q = query(account)
+        let attributes: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+        ]
+        var status = SecItemUpdate(q as CFDictionary, attributes as CFDictionary)
+        if status == errSecItemNotFound {
+            var add = q
+            for (k, v) in attributes { add[k] = v }
+            status = SecItemAdd(add as CFDictionary, nil)
+        }
+        return status == errSecSuccess
+    }
+
+    @discardableResult
+    func delete(_ account: String) -> Bool {
+        let status = SecItemDelete(query(account) as CFDictionary)
+        return status == errSecSuccess || status == errSecItemNotFound
+    }
+}
+#endif
 
 /// Localisation par CODE, adaptée à la langue du téléphone, avec REPLI ANGLAIS.
 /// Français et espagnol sont traduits ; toute autre langue retombe sur l'anglais.

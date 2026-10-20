@@ -47,6 +47,8 @@
 		2000000000000000000B0101 /* BrocolisLiveActivityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0101 /* BrocolisLiveActivityTests.swift */; };
 		2000000000000000000B0103 /* BrocolisWatchFeedTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0103 /* BrocolisWatchFeedTests.swift */; };
 		2000000000000000000B0105 /* BrocolisPlanTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0105 /* BrocolisPlanTests.swift */; };
+		2000000000000000000B0300 /* BrocolisKeyToken.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0300 /* BrocolisKeyToken.swift */; };
+		2000000000000000000B0301 /* BrocolisKeyProtectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0301 /* BrocolisKeyProtectionTests.swift */; };
 		2000000000000000000B001F /* KeyboardViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C001F /* KeyboardViewController.swift */; };
 		2000000000000000000B0020 /* BrocolisCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0001 /* BrocolisCrypto.swift */; };
 		2000000000000000000B0021 /* BrocolisKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1000000000000000000C0002 /* BrocolisKeyStore.swift */; };
@@ -192,6 +194,8 @@
 		1000000000000000000C0101 /* BrocolisLiveActivityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrocolisLiveActivityTests.swift; sourceTree = "<group>"; };
 		1000000000000000000C0103 /* BrocolisWatchFeedTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrocolisWatchFeedTests.swift; sourceTree = "<group>"; };
 		1000000000000000000C0105 /* BrocolisPlanTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrocolisPlanTests.swift; sourceTree = "<group>"; };
+		1000000000000000000C0300 /* BrocolisKeyToken.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrocolisKeyToken.swift; sourceTree = "<group>"; };
+		1000000000000000000C0301 /* BrocolisKeyProtectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrocolisKeyProtectionTests.swift; sourceTree = "<group>"; };
 		1000000000000000000C001F /* KeyboardViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardViewController.swift; sourceTree = "<group>"; };
 		1000000000000000000C0020 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		1000000000000000000C0021 /* BrocolisKeyboard.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = BrocolisKeyboard.entitlements; sourceTree = "<group>"; };
@@ -312,6 +316,7 @@
 				1000000000000000000C0016 /* BrocolisActivityAttributes.swift */,
 				1000000000000000000C0024 /* BrocolisWidgetIntents.swift */,
 				1000000000000000000C0104 /* BrocolisPlan.swift */,
+				1000000000000000000C0300 /* BrocolisKeyToken.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -373,6 +378,7 @@
 				1000000000000000000C0101 /* BrocolisLiveActivityTests.swift */,
 				1000000000000000000C0103 /* BrocolisWatchFeedTests.swift */,
 				1000000000000000000C0105 /* BrocolisPlanTests.swift */,
+				1000000000000000000C0301 /* BrocolisKeyProtectionTests.swift */,
 			);
 			path = BrocolisTests;
 			sourceTree = "<group>";
@@ -671,6 +677,7 @@
 				2000000000000000000B000E /* BrocolisKeyAgreement.swift in Sources */,
 				2000000000000000000B0015 /* BrocolisActivityAttributes.swift in Sources */,
 				2000000000000000000B0104 /* BrocolisPlan.swift in Sources */,
+				2000000000000000000B0300 /* BrocolisKeyToken.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -698,6 +705,7 @@
 				2000000000000000000B0101 /* BrocolisLiveActivityTests.swift in Sources */,
 				2000000000000000000B0103 /* BrocolisWatchFeedTests.swift in Sources */,
 				2000000000000000000B0105 /* BrocolisPlanTests.swift in Sources */,
+				2000000000000000000B0301 /* BrocolisKeyProtectionTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
