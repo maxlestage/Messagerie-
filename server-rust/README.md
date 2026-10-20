@@ -22,7 +22,7 @@ sans la clé), une semaine au plus.
 |---|---|---|
 | `GET` | `/health` | `ok` |
 | `GET` | `/stats` | totaux publics (messages, conversations, octets, salons, connexions, uptime) |
-| `POST` / `GET` | `/pair` | rendez-vous X25519 : publier / lire les clés publiques d'un code |
+| `POST` / `GET` | `/pair` | rendez-vous X25519 : publier / lire les clés publiques d'un code, et le paquet de clés v3 de chacun (`bundle`, optionnel, vérifié : [`docs/SECURITE.md`](../docs/SECURITE.md) §8.4) |
 | `POST` / `GET` | `/wrap` | clé de groupe emballée pour chaque membre |
 | `POST` | `/push/live-activity/token`, `/push/live-activity/update` | push Live Activity (APNs) |
 | `POST` / `GET` | `/v1/conversations` | conversations à participants |
