@@ -601,8 +601,10 @@ final class KeyboardViewController: UIInputViewController {
         let named = BrocolisKeyStore.encryptionNamedKeys()
         switch named.count {
         case 0: return loc("aucune clé", "no key", "ninguna clave")
-        case 1: return named[0].name
+        // La protection que recevra le message (docs/SECURITE.md §8.8).
+        case 1: return named[0].name + " · " + BrocolisV3.protection(named[0]).label
         default: return loc("\(named.count) personnes", "\(named.count) people", "\(named.count) personas")
+            + " · " + BrocolisProtection.legacy.label
         }
     }
 
@@ -744,7 +746,7 @@ final class KeyboardViewController: UIInputViewController {
             showReadout("", placeholder: true)
             return
         }
-        let keys = BrocolisKeyStore.allSymmetricKeys()
+        let keys = BrocolisKeyStore.keys
         guard !keys.isEmpty else {
             statusLabel.text = loc("🔑 Aucune clé configurée.", "🔑 No key configured.", "🔑 Ninguna clave configurada.")
             return
@@ -754,7 +756,8 @@ final class KeyboardViewController: UIInputViewController {
             showReadout(clip, placeholder: false)
             return
         }
-        let (text, n) = BrocolisCrypto.decryptTokens(clip, keys: keys)
+        // v3 compris : un message déjà lu ici se relit (clair gardé, §8.2).
+        let (text, n) = BrocolisV3.openTokens(clip, keys: keys)
         showReadout(text, placeholder: false)
         statusLabel.text = n > 0
             ? loc("🔓 \(n) message(s) lu(s) — tu n’as pas quitté l’app.", "🔓 \(n) message(s) read — you didn’t leave the app.", "🔓 \(n) mensaje(s) leído(s) — no saliste de la app.")
@@ -774,7 +777,9 @@ final class KeyboardViewController: UIInputViewController {
             decrypt(input)
             return
         }
-        let encKeys = BrocolisKeyStore.encryptionKeys()
+        // v3 pour un contact appairé (ou une clé « à deux » en PSK), sinon
+        // v1/v2 (docs/SECURITE.md §8.5).
+        let encKeys = BrocolisKeyStore.encryptionNamedKeys()
         guard !encKeys.isEmpty else {
             statusLabel.text = BrocolisKeyStore.hasKey
                 ? loc("⌛️ Clé(s) destinataire(s) expirée(s) — prolonge-les dans l’app.", "⌛️ Recipient key(s) expired — extend them in the app.", "⌛️ Clave(s) de destinatario expirada(s) — renuévalas en la app.")
@@ -783,14 +788,17 @@ final class KeyboardViewController: UIInputViewController {
         }
         // Des ((…)) : seuls ces passages sont chiffrés ; sinon tout le texte.
         let result = BrocolisTransform.auto(
-            input, keys: encKeys, encryptWholeAlways: BrocolisKeyStore.encryptWholeAlways)
+            input, codec: BrocolisV3.codec(recipients: encKeys, all: BrocolisKeyStore.keys),
+            encryptWholeAlways: BrocolisKeyStore.encryptWholeAlways)
         // Garde-fou : on ne remplace le champ QUE si c'est vraiment chiffré.
         guard result.isEncrypted else {
             statusLabel.text = loc("⚠️ Rien n'a été chiffré — le champ est laissé tel quel.", "⚠️ Nothing was encrypted — the field is left as is.", "⚠️ No se cifró nada — el campo se deja tal cual.")
             return
         }
         replaceFieldText(with: result.text)
-        let recipients = encKeys.count > 1 ? loc(" · \(encKeys.count) destinataires", " · \(encKeys.count) recipients", " · \(encKeys.count) destinatarios") : ""
+        let recipients = encKeys.count > 1
+            ? loc(" · \(encKeys.count) destinataires", " · \(encKeys.count) recipients", " · \(encKeys.count) destinatarios")
+            : " · " + BrocolisV3.protectionUsed(result.text, recipients: encKeys).label
         statusLabel.text = result.label + recipients + loc(" — prêt à envoyer.", " — ready to send.", " — listo para enviar.")
     }
 
@@ -805,7 +813,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func decrypt(_ input: String) {
-        let keys = BrocolisKeyStore.allSymmetricKeys()
+        let keys = BrocolisKeyStore.keys
         guard !keys.isEmpty else {
             statusLabel.text = loc("🔑 Aucune clé configurée.", "🔑 No key configured.", "🔑 Ninguna clave configurada.")
             return
@@ -814,7 +822,7 @@ final class KeyboardViewController: UIInputViewController {
             statusLabel.text = loc("Aucun message chiffré dans le champ.", "No encrypted message in the field.", "Ningún mensaje cifrado en el campo.")
             return
         }
-        let (text, n) = BrocolisCrypto.decryptTokens(input, keys: keys)
+        let (text, n) = BrocolisV3.openTokens(input, keys: keys)
         replaceFieldText(with: text)
         statusLabel.text = n > 0
             ? loc("🔓 \(n) message(s) déchiffré(s).", "🔓 \(n) message(s) decrypted.", "🔓 \(n) mensaje(s) descifrado(s).")

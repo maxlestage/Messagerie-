@@ -7,8 +7,9 @@
 //
 // Le paquet est à la racine du dépôt pour que d'autres apps (Talka…) en
 // dépendent par l'URL du dépôt et une révision ; ses sources sont dans
-// proto-swift/. Il ne touche pas au projet Xcode de l'app (Brocolis.xcodeproj,
-// project.yml), qui ne le référence pas.
+// proto-swift/. L'app Brocolis le prend par son chemin (project.yml :
+// `packages: BrocolisProto: path: .`) : l'app, le clavier, Partager et
+// iMessage parlent v3 (docs/SECURITE.md §8).
 //
 // CryptoKit sur les plateformes Apple ; ailleurs (Linux : les tests),
 // swift-crypto, la même API. ML-KEM-768 vient de CryptoKit à partir
