@@ -12,6 +12,8 @@
 //! - [`paquet`] : l'appareil, ses clés et son paquet de clés publiques (§4.1) ;
 //! - [`session`] : l'établissement (§4.2) et le Double Ratchet (§4.3) ;
 //! - [`jeton_v3`] : l'encodage strict du jeton v3 (§4.4) ;
+//! - [`session4`], [`jeton_v4`] : le protocole v4 (§9) — triple cliquet
+//!   X25519 + ML-KEM-768 à chaque tour, en-têtes chiffrés, identité cachée ;
 //! - [`groupe`] : les Sender Keys (§4.5) ;
 //! - [`kdf`] : chaque dérivation, exposée pour les vecteurs et les portages.
 //!
@@ -28,18 +30,22 @@ mod erreur;
 pub mod groupe;
 pub mod hasard;
 pub mod jeton_v3;
+pub mod jeton_v4;
 pub mod jetons;
 pub mod kdf;
 pub mod paquet;
 pub mod remplissage;
 mod serde_b64;
 pub mod session;
+pub mod session4;
 
 pub use erreur::Erreur;
 pub use groupe::{ReceivedSenderKey, SenderKeyDistribution, SenderKeyState};
 pub use jeton_v3::{Envelope, GroupMessage, Header, Initial, Mode, Token};
+pub use jeton_v4::Token4;
 pub use paquet::{Device, IdentityPublic, KeyBundle, ReplayGuard};
 pub use session::{Content, Session};
+pub use session4::{Mode4, Session4};
 
 /// Le résultat de toutes les opérations de la crate.
 pub type Resultat<T> = core::result::Result<T, Erreur>;

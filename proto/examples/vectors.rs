@@ -18,10 +18,11 @@ use brocolis_proto::cle_protegee::{self, Argon2Params};
 use brocolis_proto::groupe::SenderKeyState;
 use brocolis_proto::hasard::Deterministic;
 use brocolis_proto::jeton_v3::{TYPE_DISTRIBUTION, Token};
+use brocolis_proto::jeton_v4::{Header4, Token4};
 use brocolis_proto::kdf;
 use brocolis_proto::paquet::{IdentitySecret, mlkem_encapsulate, mlkem_public};
 use brocolis_proto::remplissage::pad;
-use brocolis_proto::{Content, Device, Session, jetons};
+use brocolis_proto::{Content, Device, Session, Session4, jetons};
 use rand_core::{TryCryptoRng, TryRng};
 use serde_json::{Value, json};
 
@@ -384,6 +385,147 @@ fn session_case(name: &str, pq: Option<bool>) -> Value {
         "setup": setup, "steps": steps })
 }
 
+// ── Protocole v4 (§9) ─────────────────────────────────────────────────────────
+
+/// L'en-tête d'un jeton v4, ouvert avec la clé d'en-tête d'envoi `hks`.
+fn header4(hks: &[u8; 32], t: &Token4) -> Value {
+    let body = t.body();
+    let plain = kdf::aes_gcm_open(hks, &body.header_nonce, &[t.kind()], &body.header).unwrap();
+    let h = Header4::from_bytes(&plain).unwrap();
+    json!({ "hk": hex(hks), "header_nonce": hex(&body.header_nonce),
+        "plain": hex(&plain), "dh": hex(&h.dh), "pn": h.pn, "n": h.n,
+        "ek": hex(&h.ek), "ct": h.ct.as_ref().map(|c| hex(c)),
+        "encrypted": hex(&body.header), "ciphertext": hex(&body.ciphertext) })
+}
+
+fn send4(s: &mut Session4, from: &str, text: &str) -> (Token4, Value) {
+    let (hks, ..) = s.debug_header_keys();
+    let t = s.encrypt_token(text).unwrap();
+    let v = json!({ "from": from, "text": text, "type": t.kind(),
+        "header": header4(&hks.unwrap(), &t), "token": t.encode() });
+    (t, v)
+}
+
+/// Une conversation v4 : établissement (paquet ou clé partagée), désordre,
+/// deux tours complets du triple cliquet.
+fn session4_case(name: &str, psk: bool) -> Value {
+    let mut steps = Vec::new();
+    let mut rng_a = Recorder::new(format!("{name}/alice/cliquet").as_bytes());
+    let mut rng_b = Recorder::new(format!("{name}/bob/cliquet").as_bytes());
+    let ek = h32(&format!("{name}/ek"));
+    let kem_seed = h64(&format!("{name}/alice/kem0"));
+    type Accept4 = Box<dyn FnMut(&Token4, &mut Recorder) -> (Session4, Content)>;
+    let (mut a, mut bob_side, setup): (Session4, Accept4, Value) = if psk {
+        let key = h32(&format!("{name}/cle"));
+        let s = Session4::initiate_psk_with(&key, &ek, &kem_seed).unwrap();
+        let sk = kdf::sk4_psk(&key);
+        let r = kdf::psk4_ratchet_secret(&sk);
+        let (hk_ab, nhk_ba) = kdf::header_keys4(&sk);
+        let first_dh = kdf::x25519(&ek, &kdf::x25519_public(&r)).unwrap();
+        let (rk, ck, nhk) = kdf::kdf_rk4(&sk, &first_dh, None);
+        let setup = json!({
+            "key": hex(&key), "ek_secret": hex(&ek), "ek_public": hex(&kdf::x25519_public(&ek)),
+            "alice_kem_seed": hex(&kem_seed), "alice_kem_public": hex(&mlkem_public(&kem_seed)),
+            "sk": hex(sk.as_ref()), "psk_ratchet_secret": hex(r.as_ref()),
+            "psk_ratchet_public": hex(&kdf::x25519_public(&r)),
+            "hk_ab": hex(hk_ab.as_ref()), "nhk_ba": hex(nhk_ba.as_ref()),
+            "ad": hex(s.associated_data()),
+            "alice_first_dh": hex(first_dh.as_ref()), "alice_root_key": hex(rk.as_ref()),
+            "alice_sending_chain": hex(ck.as_ref()), "alice_next_header_key": hex(nhk.as_ref()),
+        });
+        let accept: Accept4 = Box::new(move |t: &Token4, rng: &mut Recorder| {
+            let mut guard = brocolis_proto::ReplayGuard::default();
+            Session4::accept_psk(&[key], t, &mut guard, NOW, rng).unwrap()
+        });
+        (s, accept, setup)
+    } else {
+        let (alice, alice_v) = device("alice", true);
+        let (mut bob, bob_v) = device("bob", true);
+        let bundle = bob.bundle().unwrap();
+        let ratchet = h32(&format!("{name}/alice/cliquet0"));
+        let m = h32(&format!("{name}/mlkem_m"));
+        let s = Session4::initiate_with(
+            alice.identity_secret(),
+            &bundle,
+            &ek,
+            &ratchet,
+            &m,
+            &kem_seed,
+        )
+        .unwrap();
+        let ika = alice.identity_secret();
+        let dh1 = kdf::x25519(&ika.dh, &bundle.spk).unwrap();
+        let dh2 = kdf::x25519(&ek, &bundle.identity.dh).unwrap();
+        let dh3 = kdf::x25519(&ek, &bundle.spk).unwrap();
+        let (ct, ss) = mlkem_encapsulate(&bundle.pq.as_ref().unwrap().key, &m).unwrap();
+        let sk = kdf::sk4(&dh1, &dh2, &dh3, &ss);
+        let (k_pre, n_pre) = kdf::preamble_key4(&dh3, &ss);
+        let (hk_ab, nhk_ba) = kdf::header_keys4(&sk);
+        let first_dh = kdf::x25519(&ratchet, &bundle.spk).unwrap();
+        let (rk, ck, nhk) = kdf::kdf_rk4(&sk, &first_dh, None);
+        let setup = json!({
+            "alice": alice_v, "bob": bob_v,
+            "alice_caps": hex(&alice.caps4().unwrap()), "bob_caps": hex(&bob.caps4().unwrap()),
+            "ek_secret": hex(&ek), "ek_public": hex(&kdf::x25519_public(&ek)),
+            "alice_ratchet_secret": hex(&ratchet), "alice_ratchet_public": hex(&kdf::x25519_public(&ratchet)),
+            "alice_kem_seed": hex(&kem_seed), "alice_kem_public": hex(&mlkem_public(&kem_seed)),
+            "mlkem_m": hex(&m), "mlkem_ciphertext": hex(&ct), "mlkem_shared": hex(ss.as_ref()),
+            "dh1": hex(dh1.as_ref()), "dh2": hex(dh2.as_ref()), "dh3": hex(dh3.as_ref()),
+            "sk": hex(sk.as_ref()), "ad": hex(s.associated_data()),
+            "preamble_key": hex(k_pre.as_ref()), "preamble_nonce": hex(&n_pre),
+            "hk_ab": hex(hk_ab.as_ref()), "nhk_ba": hex(nhk_ba.as_ref()),
+            "alice_first_dh": hex(first_dh.as_ref()), "alice_root_key": hex(rk.as_ref()),
+            "alice_sending_chain": hex(ck.as_ref()), "alice_next_header_key": hex(nhk.as_ref()),
+        });
+        let accept: Accept4 =
+            Box::new(move |t: &Token4, rng: &mut Recorder| bob.accept4(t, NOW, rng).unwrap());
+        (s, accept, setup)
+    };
+
+    // A → B : deux premiers messages, le second reçu d'abord.
+    let (t1, v1) = send4(&mut a, "alice", "Salut Bob 🥦");
+    let (t2, v2) = send4(&mut a, "alice", "Tu me lis ?");
+    steps.push(v1);
+    steps.push(v2);
+    let (mut b, c) = bob_side(&t2, &mut rng_b);
+    assert_eq!(c, Content::Text("Tu me lis ?".into()));
+    let drawn = rng_b.take();
+    assert_eq!(
+        b.decrypt(&t1, NOW, &mut rng_b).unwrap(),
+        Content::Text("Salut Bob 🥦".into())
+    );
+    steps.push(
+        json!({ "event": "bob reçoit le message 2 puis le 1 (désordre)",
+        "bob_drawn": drawn, "bob_root_key": hex(&b.debug_root_key()) }),
+    );
+    // Deux tours complets : chaque nouvelle chaîne encapsule vers l'autre.
+    let script = [
+        ("bob", "Oui, cinq sur cinq."),
+        ("alice", "Parfait."),
+        ("bob", "Le code : 4291"),
+        ("alice", ""),
+    ];
+    for (from, text) in script {
+        let (s_from, s_to, rng_to) = if from == "bob" {
+            (&mut b, &mut a, &mut rng_a)
+        } else {
+            (&mut a, &mut b, &mut rng_b)
+        };
+        let (t, v) = send4(s_from, from, text);
+        steps.push(v);
+        assert_eq!(
+            s_to.decrypt(&t, NOW, rng_to).unwrap(),
+            Content::Text(text.into())
+        );
+        let to = if from == "bob" { "alice" } else { "bob" };
+        steps.push(json!({ "event": format!("{to} reçoit : le cliquet tourne"),
+            "drawn_by": to, "drawn": rng_to.take(), "root_key": hex(&s_to.debug_root_key()) }));
+    }
+    json!({ "name": name, "mode": if psk { "psk" } else { "bundle" }, "now": NOW,
+        "rng": { "alice": format!("{name}/alice/cliquet"), "bob": format!("{name}/bob/cliquet") },
+        "setup": setup, "steps": steps })
+}
+
 fn base64_std(b: &[u8]) -> String {
     use base64::Engine;
     base64::engine::general_purpose::STANDARD.encode(b)
@@ -433,6 +575,7 @@ pub fn generate() -> Value {
         "legacy_tokens": legacy_tokens(),
         "sessions": [session_case("hybride", Some(true)), session_case("classique", Some(false)), session_case("psk", None)],
         "group": group(),
+        "sessions_v4": [session4_case("v4", false), session4_case("v4-psk", true)],
     })
 }
 

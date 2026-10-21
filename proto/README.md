@@ -14,6 +14,7 @@ retrouvent ses vecteurs [`vectors.json`](vectors.json) octet pour octet.
 | `session` | établissement (X25519, hybride ML-KEM, clé partagée), Double Ratchet | §4.2–4.3 |
 | `jeton_v3` | `[[BROCOLIS:v3:…]]`, types 0x01–0x04, décodage strict | §4.4 |
 | `groupe` | Sender Keys : distribution (0x03), messages signés (0x04) | §4.5 |
+| `session4`, `jeton_v4` | **v4** : triple cliquet (X25519 + ML-KEM-768 à chaque tour), en-têtes chiffrés, identité de l'expéditeur cachée, `[[BROCOLIS:v4:…]]`, capacité signée | §9 |
 | `kdf` | chaque dérivation, exposée pour les vecteurs | — |
 
 Uniquement RustCrypto et dalek, `#![forbid(unsafe_code)]`, aucune panique sur

@@ -77,7 +77,7 @@ impl IdentitySecret {
         }
     }
 
-    fn signing_key(&self) -> SigningKey {
+    pub(crate) fn signing_key(&self) -> SigningKey {
         SigningKey::from_bytes(&self.sign)
     }
 }
@@ -159,6 +159,19 @@ fn spk_signed_message(ik: &[u8; 32], id: u32, spk: &[u8; 32]) -> Vec<u8> {
 
 fn pqpk_signed_message(ik: &[u8; 32], id: u32, pqpk: &[u8]) -> Vec<u8> {
     [SIG_CONTEXT_PQPK, ik, &id.to_be_bytes(), pqpk].concat()
+}
+
+/// `"Brocolis_v4_Caps"` : le contexte de la capacité v4 signée (§9.6).
+pub const SIG_CONTEXT_CAPS4: &[u8] = b"Brocolis_v4_Caps";
+
+fn caps4_message(ik: &[u8; 32]) -> Vec<u8> {
+    [SIG_CONTEXT_CAPS4, ik, &[0x04]].concat()
+}
+
+/// Vérifie la capacité v4 d'un correspondant (signature stricte par son IK
+/// Ed25519, sur son IK X25519).
+pub fn verify_caps4(identity: &IdentityPublic, signature: &[u8; 64]) -> Resultat<()> {
+    crate::kdf::ed25519_verify(&identity.sign, &caps4_message(&identity.dh), signature)
 }
 
 /// La partie ML-KEM d'un paquet.
@@ -560,6 +573,32 @@ impl Device {
             .find(|k| k.id == id)
             .map(|k| Zeroizing::new(k.seed))
             .ok_or(Erreur::CleInconnue)
+    }
+
+    /// Les secrets X25519 de toutes les SPK gardées (la courante d'abord).
+    pub(crate) fn spk_secrets(&self) -> Vec<[u8; 32]> {
+        self.signed_prekeys.iter().rev().map(|k| k.secret).collect()
+    }
+
+    /// Les graines ML-KEM de toutes les PQPK gardées (la courante d'abord).
+    pub(crate) fn pq_seeds(&self) -> Vec<Zeroizing<[u8; 64]>> {
+        self.pq_prekeys
+            .iter()
+            .rev()
+            .map(|k| Zeroizing::new(k.seed))
+            .collect()
+    }
+
+    /// La capacité v4 signée (§9.6) : `Ed25519(IK, "Brocolis_v4_Caps" ‖ IK
+    /// X25519 ‖ 0x04)`. Seul un appareil qui a ML-KEM la publie.
+    pub fn caps4(&self) -> Option<[u8; 64]> {
+        self.supports_pq().then(|| {
+            let ik = self.identity.public();
+            self.identity
+                .signing_key()
+                .sign(&caps4_message(&ik.dh))
+                .to_bytes()
+        })
     }
 
     pub(crate) fn replay_mut(&mut self) -> &mut ReplayGuard {
