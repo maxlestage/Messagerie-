@@ -748,6 +748,43 @@ fn features(ctx: &Ctx<'_>) -> Element {
 }
 
 /// Le protocole v3 (docs/SECURITE.md §4 et §8), expliqué.
+/// L'accueil : le v4, au-delà de Signal (§9 de `docs/SECURITE.md`).
+fn protocol_v4(ctx: &Ctx<'_>) -> Element {
+    const ICONS: [&str; 4] = ["⚛️", "🕶️", "🎭", "🛡️"];
+    section()
+        .class("section")
+        .id("v4")
+        .attr("aria-labelledby", "v4-title")
+        .child(section_head(
+            Some(ctx.t("v4.kicker")),
+            "v4-title",
+            ctx.t("v4.title"),
+            ctx.t("v4.note"),
+        ))
+        .child(
+            div()
+                .class("features v3-grid v3-plat")
+                .children(ICONS.iter().enumerate().map(|(i, icon)| {
+                    article()
+                        .class("card reveal tilt")
+                        .style(format!("--d: {}", i % 2))
+                        .child(span().class("card-shine").attr("aria-hidden", "true"))
+                        .child(div().class("card-icon").attr("aria-hidden", "true").text(*icon))
+                        .child(h3().text(ctx.t(&format!("proto.v4.card.{i}.t"))))
+                        .child(p().text(ctx.t(&format!("proto.v4.card.{i}.d"))))
+                })),
+        )
+        .child(p().class("callout reveal").text(ctx.t("proto.v4.honest")))
+        .child(
+            p().class("v3-spec reveal").child(
+                a().class("btn primary")
+                    .href(format!("{}#v4", Route::new(ctx.lang(), Page::Protocol).path()))
+                    .attr("data-burst", "")
+                    .text(ctx.t("v4.cta")),
+            ),
+        )
+}
+
 fn protocol(ctx: &Ctx<'_>) -> Element {
     section()
         .class("section")
@@ -776,15 +813,6 @@ fn protocol(ctx: &Ctx<'_>) -> Element {
                         .child(h3().text(ctx.t(title)))
                         .child(p().text(ctx.t(text)))
                 })),
-        )
-        .child(
-            p().class("callout reveal")
-                .text(ctx.t("v3.v4"))
-                .text(" ")
-                .child(
-                    a().href(format!("{}#v4", Route::new(ctx.lang(), Page::Protocol).path()))
-                        .text(ctx.t("v3.v4.cta")),
-                ),
         )
         .child(
             p().class("v3-spec reveal")
@@ -923,6 +951,7 @@ fn home(ctx: &Ctx<'_>) -> String {
                     ))
                     .child(flow(ctx)),
             )
+            .child(protocol_v4(ctx))
             .child(protocol(ctx))
             .child(features(ctx))
             .child(pricing(ctx))
@@ -1391,7 +1420,7 @@ fn protocol_page(ctx: &Ctx<'_>) -> String {
     let faq = proto_block(
         "v3-faq",
         t("proto.faq.h"),
-        (0..7)
+        (0..10)
             .map(|i| {
                 details()
                     .class("v3-faq reveal")
