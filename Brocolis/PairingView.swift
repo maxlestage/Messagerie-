@@ -588,11 +588,18 @@ struct PairingView: View {
                           keepWorking: Bool = false, v3: BrocolisV3Contact, initiate: Bool) -> String {
         let keyId = BrocolisPendingPairing.install(key: keyB64, name: keyName, fingerprint: fp, code: code,
                                                    peerId: peerId, v3: v3, initiate: initiate)
-        let shown = BrocolisKeyStore.keys.first { $0.id == keyId }.map(BrocolisV3.protection) ?? .legacy
+        let installed = BrocolisKeyStore.keys.first { $0.id == keyId }
+        let shown = installed.map(BrocolisV3.protection) ?? .legacy
+        // Un ré-appairage qui a donné une autre identité (§9.8) : l'alerte
+        // remplace le message de réussite.
+        let changed = installed.map(BrocolisV3.isBlocked) ?? false
+        let note = loc("⚠️ L’identité de \(keyName) a changé. Comparez l’empreinte de vive voix : rien ne lui sera envoyé avant votre confirmation.",
+                       "⚠️ \(keyName)’s identity changed. Compare the fingerprint out loud: nothing will be sent to them until you confirm.",
+                       "⚠️ La identidad de \(keyName) cambió. Comparad la huella en voz alta: no se le enviará nada hasta que lo confirmes.")
         Task { @MainActor in
             fingerprint = fp
             protection = shown
-            status = message
+            status = changed ? note : message
             if !keepWorking { isWorking = false }
         }
         return keyId
@@ -806,10 +813,20 @@ enum BrocolisPendingPairing {
     @discardableResult
     static func install(key: String, name: String, fingerprint: String, code: String, peerId: String,
                         v3: BrocolisV3Contact, initiate: Bool) -> String {
-        let keyId = BrocolisKeyStore.addKey(name: name, base64: key)
-        BrocolisKeyStore.setV3Contact(keyId: keyId, bundle: v3.duo ? v3.bundle : nil, caps: v3.duo ? v3.caps : nil,
-                                      duo: v3.duo)
-        if initiate, v3.duo, v3.bundle != nil, let k = BrocolisKeyStore.keys.first(where: { $0.id == keyId }) {
+        let keyId: String
+        if v3.duo, let bundle = v3.bundle, let old = BrocolisKeyStore.pairedContact(named: name) {
+            // Ré-appairage d'un contact connu (même nom) : sa clé est
+            // remplacée, et une autre identité déclenche l'alerte (§9.8).
+            keyId = old.id
+            BrocolisV3.repairContact(keyId: keyId, key: key, bundle: bundle, caps: v3.caps)
+            BrocolisKeyStore.selectKey(keyId)
+        } else {
+            keyId = BrocolisKeyStore.addKey(name: name, base64: key)
+            BrocolisKeyStore.setV3Contact(keyId: keyId, bundle: v3.duo ? v3.bundle : nil, caps: v3.duo ? v3.caps : nil,
+                                          duo: v3.duo)
+        }
+        if initiate, v3.duo, v3.bundle != nil, let k = BrocolisKeyStore.keys.first(where: { $0.id == keyId }),
+           !BrocolisV3.isBlocked(k) {
             BrocolisV3.openSession(for: k)
         }
         BrocolisKeyStore.setPairingFingerprint(fingerprint)

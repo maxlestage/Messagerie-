@@ -50,6 +50,11 @@ struct NamedKey: Identifiable, Equatable {
     // v4 (§9.6) — PUBLIQUE aussi : la capacité v4 signée du correspondant
     // (base64, 64 octets), reçue avec son paquet.
     var v3Caps: String?
+    // §9.8 : l'identité (IK X25519 ‖ IK Ed25519, base64) qu'avait ce contact
+    // avant un ré-appairage qui en a donné une autre, et l'alerte en attente
+    // (rien ne part vers lui avant « J'ai comparé l'empreinte »).
+    var v3PreviousIdentity: String?
+    var identityChanged: Bool?
 
     init(
         id: String = UUID().uuidString,
@@ -61,7 +66,9 @@ struct NamedKey: Identifiable, Equatable {
         v3Since: Date? = nil,
         duo: Bool? = nil,
         psk: Bool? = nil,
-        v3Caps: String? = nil
+        v3Caps: String? = nil,
+        v3PreviousIdentity: String? = nil,
+        identityChanged: Bool? = nil
     ) {
         self.id = id
         self.name = name
@@ -73,6 +80,8 @@ struct NamedKey: Identifiable, Equatable {
         self.duo = duo
         self.psk = psk
         self.v3Caps = v3Caps
+        self.v3PreviousIdentity = v3PreviousIdentity
+        self.identityChanged = identityChanged
     }
 }
 
@@ -80,7 +89,7 @@ struct NamedKey: Identifiable, Equatable {
 // champs v3) restent décodables ; une ancienne version de l'app ignore les
 // champs v3.
 extension NamedKey: Codable {
-    enum CodingKeys: String, CodingKey { case id, name, base64, ttlSeconds, expiresAt, v3Bundle, v3Since, duo, psk, v3Caps }
+    enum CodingKeys: String, CodingKey { case id, name, base64, ttlSeconds, expiresAt, v3Bundle, v3Since, duo, psk, v3Caps, v3PreviousIdentity, identityChanged }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -94,6 +103,8 @@ extension NamedKey: Codable {
         duo = try c.decodeIfPresent(Bool.self, forKey: .duo)
         psk = try c.decodeIfPresent(Bool.self, forKey: .psk)
         v3Caps = try c.decodeIfPresent(String.self, forKey: .v3Caps)
+        v3PreviousIdentity = try c.decodeIfPresent(String.self, forKey: .v3PreviousIdentity)
+        identityChanged = try c.decodeIfPresent(Bool.self, forKey: .identityChanged)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -108,6 +119,8 @@ extension NamedKey: Codable {
         try c.encodeIfPresent(duo, forKey: .duo)
         try c.encodeIfPresent(psk, forKey: .psk)
         try c.encodeIfPresent(v3Caps, forKey: .v3Caps)
+        try c.encodeIfPresent(v3PreviousIdentity, forKey: .v3PreviousIdentity)
+        try c.encodeIfPresent(identityChanged, forKey: .identityChanged)
     }
 }
 
@@ -272,6 +285,35 @@ enum BrocolisKeyStore {
             k.v3Caps = bundle == nil ? nil : caps
             k.v3Since = bundle == nil ? nil : Date()
             k.duo = duo
+        }
+    }
+
+    /// Remplace une clé (même identifiant) : ré-appairage d'un contact
+    /// (§9.8, `BrocolisV3.repairContact`).
+    static func replaceKey(_ k: NamedKey) {
+        var ks = loadKeysAfterMigration()
+        guard let i = ks.firstIndex(where: { $0.id == k.id }) else { return }
+        ks[i] = k
+        saveKeys(ks)
+    }
+
+    /// « J'ai comparé l'empreinte » : lève l'alerte de changement
+    /// d'identité (§9.8) ; l'envoi vers ce contact reprend.
+    static func confirmIdentity(keyId id: String) {
+        updateKey(id) { k in
+            k.identityChanged = nil
+            k.v3PreviousIdentity = nil
+        }
+    }
+
+    /// Le contact appairé à deux de ce nom (pour un ré-appairage), s'il y en
+    /// a un.
+    static func pairedContact(named name: String) -> NamedKey? {
+        let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !n.isEmpty else { return nil }
+        return keys.first {
+            $0.v3Bundle != nil && $0.duo != false
+                && $0.name.compare(n, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
         }
     }
 

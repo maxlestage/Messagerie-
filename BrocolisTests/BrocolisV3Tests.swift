@@ -449,6 +449,158 @@ final class BrocolisV3Tests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(NamedKey.self, from: try JSONEncoder().encode(k)).v3Caps, "Q0FQUw==")
     }
 
+    // MARK: Alerte de changement d'identité (§9.8)
+
+    func testARepairingWithAnotherIdentityBlocksSendingUntilConfirmed() throws {
+        let (alice, bob, newBob) = (phone(), phone(), phone())
+        let (ba, bb, bb2) = (try bundle(alice), try bundle(bob), try bundle(newBob))
+        let keyB64 = BrocolisCrypto.generateKeyBase64()
+        let k = NamedKey(id: "b", name: "Bob", base64: keyB64, v3Bundle: bb.toBase64(), v3Since: Date(), duo: true)
+        // Même identité (nouvelle clé, même téléphone) : rien ne change.
+        let same = BrocolisV3.repaired(k, key: BrocolisCrypto.generateKeyBase64(), bundle: bb.toBase64(), caps: nil)
+        XCTAssertFalse(BrocolisV3.isBlocked(same))
+        XCTAssertNil(same.v3PreviousIdentity)
+        // Un autre téléphone répond au nom de Bob : alerte, l'ancienne gardée.
+        let key2 = BrocolisCrypto.generateKeyBase64()
+        let changed = BrocolisV3.repaired(k, key: key2, bundle: bb2.toBase64(), caps: nil)
+        XCTAssertTrue(BrocolisV3.isBlocked(changed))
+        XCTAssertEqual(changed.id, k.id)
+        XCTAssertEqual(changed.base64, key2)
+        XCTAssertEqual(changed.v3PreviousIdentity, Base64.encode(BrocolisV3Format.identity(of: bb)))
+        // Encore un ré-appairage avant confirmation : l'identité d'avant la
+        // première alerte reste.
+        let again = BrocolisV3.repaired(changed, key: key2, bundle: try bundle(phone()).toBase64(), caps: nil)
+        XCTAssertTrue(BrocolisV3.isBlocked(again))
+        XCTAssertEqual(again.v3PreviousIdentity, changed.v3PreviousIdentity)
+        // Rien ne part : ni v3/v4, ni v1/v2, par aucun chemin.
+        BrocolisV3.store = alice
+        XCTAssertEqual(BrocolisV3.protection(changed), .identityChanged)
+        XCTAssertFalse(BrocolisV3.protection(changed).isRatchet)
+        XCTAssertNil(BrocolisV3.seal("x", for: changed))
+        XCTAssertNil(BrocolisV3.sealAny("x", for: changed))
+        XCTAssertNil(BrocolisV3.sealMessage("x", for: changed))
+        let codec = BrocolisV3.codec(recipients: [changed], all: [changed])
+        XCTAssertNil(codec.seal("x"))
+        let t = BrocolisTransform.auto("salut ((secret))", codec: codec)
+        XCTAssertFalse(t.isEncrypted)
+        XCTAssertEqual(try alice.transaction { e in e.seal("x", for: try XCTUnwrap(BrocolisV3.key(changed)), now: BrocolisV3.now()) }, nil)
+        // Le v3 indisponible : l'alerte reste affichée.
+        let closed = phone()
+        (closed.vault as! BrocolisDirectoryVault).readFails = true
+        BrocolisV3.store = closed
+        XCTAssertEqual(BrocolisV3.protection(changed), .identityChanged)
+        XCTAssertNil(BrocolisV3.sealAny("x", for: changed))
+        // La lecture continue : le nouveau téléphone écrit, Alice lit.
+        BrocolisV3.store = alice
+        let fromNewBob = try seal(newBob, "c'est moi", key(Array(Data(base64Encoded: key2)!), peer: ba))
+        XCTAssertEqual(BrocolisV3.openTokens(fromNewBob, keys: [changed]).text, "c'est moi")
+        // « J'ai comparé l'empreinte » : l'envoi reprend.
+        var confirmed = changed
+        confirmed.identityChanged = nil
+        confirmed.v3PreviousIdentity = nil
+        XCTAssertNotNil(BrocolisV3.sealAny("ok", for: confirmed))
+        XCTAssertTrue(BrocolisV3.protection(confirmed).isRatchet)
+        // Le tout se range avec la clé.
+        let back = try JSONDecoder().decode(NamedKey.self, from: try JSONEncoder().encode(changed))
+        XCTAssertEqual(back, changed)
+    }
+
+    // MARK: Groupes à cliquet (§9.9)
+
+    /// Ouvre chaque jeton d'un envoi de groupe : le texte du message de
+    /// groupe, et combien de chaînes étaient pour moi.
+    private func readGroup(_ store: BrocolisV3Store, _ out: String, _ keys: [BrocolisV3Key]) throws -> (String?, Int) {
+        try store.transaction { e in
+            var text: String? = nil
+            var chains = 0
+            for r in BrocolisV3Format.findTokens(out) {
+                switch e.open(String(out[r]), keys: keys, now: BrocolisV3.now()) {
+                case .hidden: chains += 1
+                case .text(let t) where !t.isEmpty: text = t
+                default: break
+                }
+            }
+            return (text, chains)
+        }
+    }
+
+    private func sealGroup(_ store: BrocolisV3Store, _ gid: [UInt8], _ members: [BrocolisV3Key], _ text: String) throws -> String? {
+        try store.transaction { $0.sealGroup(groupId: gid, members: members, text: text, now: BrocolisV3.now()) }
+    }
+
+    func testARatchetGroupHandsOutChainsAndRenewsWhenSomeoneLeaves() throws {
+        let (a, b, c) = (phone(), phone(), phone())
+        let (ba, bb, bc) = (try bundle(a), try bundle(b), try bundle(c))
+        let (kab, kac, kbc) = ([UInt8](repeating: 21, count: 32), [UInt8](repeating: 22, count: 32),
+                               [UInt8](repeating: 23, count: 32))
+        // Chacun a une session à deux possible avec chaque autre membre.
+        let aB = key(kab, peer: bb, id: "ab"), aC = key(kac, peer: bc, id: "ac")
+        let bA = key(kab, peer: ba, id: "ab"), bC = key(kbc, peer: bc, id: "bc")
+        let cA = key(kac, peer: ba, id: "ac"), cB = key(kbc, peer: bb, id: "bc")
+        let gid = [UInt8](repeating: 7, count: 16)
+        let m1 = try XCTUnwrap(try sealGroup(a, gid, [aB, aC], "salut le groupe"))
+        // Pour chacun : un premier message vide (session v3 pas encore
+        // confirmée), sa chaîne ; puis le message de groupe.
+        XCTAssertEqual(BrocolisV3Format.findTokens(m1).count, 5)
+        let r1 = try readGroup(b, m1, [bA, bC])
+        XCTAssertEqual(r1.0, "salut le groupe")
+        XCTAssertEqual(r1.1, 1)
+        let r2 = try readGroup(c, m1, [cA, cB])
+        XCTAssertEqual(r2.0, "salut le groupe")
+        XCTAssertEqual(r2.1, 1)
+        // L'auteur est celui dont la session a remis la chaîne.
+        let last = String(m1[try XCTUnwrap(BrocolisV3Format.findTokens(m1).last)])
+        XCTAssertEqual(try b.transaction { $0.sender(last, keys: [bA, bC]) }, 0)
+        XCTAssertEqual(try c.transaction { $0.sender(last, keys: [cB, cA]) }, 1)
+        // Ensuite, le message seul.
+        let m2 = try XCTUnwrap(try sealGroup(a, gid, [aB, aC], "deuxième"))
+        XCTAssertEqual(BrocolisV3Format.findTokens(m2).count, 1)
+        XCTAssertEqual(try readGroup(c, m2, [cA, cB]).0, "deuxième")
+        // B répond au groupe avec sa propre chaîne.
+        let r = try XCTUnwrap(try sealGroup(b, gid, [bA, bC], "bien reçu"))
+        XCTAssertEqual(try readGroup(a, r, [aB, aC]).0, "bien reçu")
+        XCTAssertEqual(try readGroup(c, r, [cA, cB]).0, "bien reçu")
+        // Le texte collé, par la façade : les chaînes des autres membres ne
+        // s'affichent pas ; un message d'une chaîne inconnue reste chiffré.
+        BrocolisV3.store = c
+        let named = { (id: String, raw: [UInt8], b: KeyBundle) in
+            NamedKey(id: id, name: id, base64: Base64.encode(raw), v3Bundle: b.toBase64(), v3Since: Date(), duo: true)
+        }
+        let cKeys = [named("ac", kac, ba), named("bc", kbc, bb)]
+        XCTAssertEqual(BrocolisV3.openTokens("« \(m2) »", keys: cKeys).text, "« deuxième »")
+        // C quitte le groupe : A tire une chaîne neuve, C ne lit plus rien.
+        let m3 = try XCTUnwrap(try sealGroup(a, gid, [aB], "sans C"))
+        XCTAssertEqual(BrocolisV3Format.findTokens(m3).count, 2, "B a répondu : session confirmée")
+        XCTAssertEqual(try readGroup(b, m3, [bA, bC]).0, "sans C")
+        let lost = try readGroup(c, m3, [cA, cB])
+        XCTAssertNil(lost.0)
+        XCTAssertEqual(lost.1, 0)
+        let shown = BrocolisV3.openTokens(m3, keys: cKeys).text
+        XCTAssertTrue(shown.hasPrefix("[[BROCOLIS:v3:"), "le message de groupe reste chiffré : \(shown.prefix(30))")
+        XCTAssertEqual(BrocolisV3Format.findTokens(shown).count, 1, "la chaîne remise à B est cachée")
+        // L'état se relit (un autre processus de B).
+        let m4 = try XCTUnwrap(try sealGroup(a, gid, [aB], "relu"))
+        XCTAssertEqual(try readGroup(sibling(of: b), m4, [bA, bC]).0, "relu")
+        // Un membre sans session possible : pas de groupe à cliquet…
+        let d = key([UInt8](repeating: 24, count: 32), peer: nil, id: "ad")
+        XCTAssertNil(try sealGroup(a, gid, [aB, d], "x"))
+        // …la façade repart en v2 pour les clés des membres.
+        BrocolisV3.store = a
+        let aKeys = [named("ab", kab, bb), NamedKey(id: "ad", name: "Dan", base64: Base64.encode([UInt8](repeating: 24, count: 32)))]
+        let v2 = try XCTUnwrap(BrocolisV3.sealGroup("à tous", groupId: gid, members: aKeys))
+        XCTAssertTrue(v2.hasPrefix(BrocolisCrypto.tokenPrefixV2))
+        XCTAssertEqual(BrocolisCrypto.decryptTokens(v2, keys: [SymmetricKey(data: [UInt8](repeating: 24, count: 32))]).text, "à tous")
+        // À cliquet par la façade, quand chacun le permet.
+        let aAll = [named("ab", kab, bb), named("ac", kac, bc)]
+        let viaFacade = try XCTUnwrap(BrocolisV3.sealGroup("par la façade", groupId: gid, members: aAll))
+        XCTAssertTrue(BrocolisV3Format.isGroupMessage(String(viaFacade[try XCTUnwrap(BrocolisV3Format.findTokens(viaFacade).last)])))
+        XCTAssertEqual(try readGroup(c, viaFacade, [cA, cB]).0, "par la façade")
+        // Une identité changée dans le groupe : rien ne part.
+        var blocked = aAll[1]
+        blocked.identityChanged = true
+        XCTAssertNil(BrocolisV3.sealGroup("x", groupId: gid, members: [aAll[0], blocked]))
+    }
+
     // MARK: Clé protégée (§8.9)
 
     func testProtectedKeyIsWrittenInV2AndV1StillOpens() throws {
