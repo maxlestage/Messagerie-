@@ -242,3 +242,88 @@ public enum Kdf {
         return stride(from: 0, to: 16, by: 4).map { String(c[$0..<$0 + 4]) }.joined(separator: "-")
     }
 }
+
+// MARK: - Protocole v4 (§9.1)
+
+extension Kdf {
+    /// `"Brocolis_v4_X25519_MLKEM768_SHA-256"` : l'info de SK (v4, toujours
+    /// hybride).
+    public static let info4Sk = Array("Brocolis_v4_X25519_MLKEM768_SHA-256".utf8)
+    /// `"Brocolis_v4_PSK_SHA-256"` : SK d'une session v4 à clé partagée.
+    public static let info4Psk = Array("Brocolis_v4_PSK_SHA-256".utf8)
+    /// `"Brocolis_v4_PSK_Ratchet"` : la clé de cliquet initiale du répondeur.
+    public static let info4PskRatchet = Array("Brocolis_v4_PSK_Ratchet".utf8)
+    /// `"Brocolis_v4_HeaderKeys"` : les clés d'en-tête initiales.
+    public static let info4HeaderKeys = Array("Brocolis_v4_HeaderKeys".utf8)
+    /// `"Brocolis_v4_Ratchet"` : `KDF_RK4` sans secret ML-KEM.
+    public static let info4Ratchet = Array("Brocolis_v4_Ratchet".utf8)
+    /// `"Brocolis_v4_Ratchet_MLKEM768"` : `KDF_RK4` avec secret ML-KEM.
+    public static let info4RatchetPq = Array("Brocolis_v4_Ratchet_MLKEM768".utf8)
+    /// `"Brocolis_v4_MessageKeys"` : `ENCRYPT4(mk)`.
+    public static let info4Message = Array("Brocolis_v4_MessageKeys".utf8)
+    /// `"Brocolis_v4_Preamble"` : la clé du préambule chiffré.
+    public static let info4Preamble = Array("Brocolis_v4_Preamble".utf8)
+
+    /// SK v4 : `HKDF(0³², FF³² ‖ DH1 ‖ DH2 ‖ DH3 ‖ SS, info4Sk, 32)`.
+    public static func sk4(dh1: [UInt8], dh2: [UInt8], dh3: [UInt8], ss: [UInt8]) -> [UInt8] {
+        var ikm = [UInt8](repeating: 0xFF, count: 32) + dh1 + dh2 + dh3 + ss
+        defer { effacer(&ikm) }
+        return hkdf(selNul, ikm, info4Sk, 32)
+    }
+
+    /// SK d'une session v4 à clé partagée :
+    /// `HKDF(0³², clé, "Brocolis_v4_PSK_SHA-256", 32)`.
+    public static func sk4Psk(_ key: [UInt8]) -> [UInt8] {
+        hkdf(selNul, key, info4Psk, 32)
+    }
+
+    /// Le secret X25519 de la clé de cliquet initiale du répondeur (v4, clé
+    /// partagée) : `HKDF(0³², SK_PSK, "Brocolis_v4_PSK_Ratchet", 32)`.
+    public static func psk4RatchetSecret(_ sk: [UInt8]) -> [UInt8] {
+        hkdf(selNul, sk, info4PskRatchet, 32)
+    }
+
+    /// Les clés d'en-tête initiales `(HK_AB, NHK_BA)` (§9.3) :
+    /// `HKDF(0³², SK, "Brocolis_v4_HeaderKeys", 64)`.
+    public static func headerKeys4(_ sk: [UInt8]) -> (hkAb: [UInt8], nhkBa: [UInt8]) {
+        var out = hkdf(selNul, sk, info4HeaderKeys, 64)
+        defer { effacer(&out) }
+        return (Array(out[0..<32]), Array(out[32..<64]))
+    }
+
+    /// `KDF_RK4(rk, dh, ss?) = HKDF(sel = rk, ikm = dh ‖ ss, info, 96)` →
+    /// `(rk', ck, nhk)` ; info `info4RatchetPq` avec `ss`, `info4Ratchet`
+    /// sans.
+    public static func kdfRk4(_ rk: [UInt8], _ dh: [UInt8], _ ss: [UInt8]?) -> (rk: [UInt8], ck: [UInt8], nhk: [UInt8]) {
+        var ikm = dh
+        defer { effacer(&ikm) }
+        let info: [UInt8]
+        if let ss {
+            ikm += ss
+            info = info4RatchetPq
+        } else {
+            info = info4Ratchet
+        }
+        var out = hkdf(rk, ikm, info, 96)
+        defer { effacer(&out) }
+        return (Array(out[0..<32]), Array(out[32..<64]), Array(out[64..<96]))
+    }
+
+    /// `ENCRYPT4(mk)` : `HKDF(0³², mk, "Brocolis_v4_MessageKeys", 56)` → clé
+    /// AES (32), nonce du chiffré (12), nonce de l'en-tête (12).
+    public static func messageKeys4(_ mk: [UInt8]) -> (key: [UInt8], nonce: [UInt8], headerNonce: [UInt8]) {
+        var out = hkdf(selNul, mk, info4Message, 56)
+        defer { effacer(&out) }
+        return (Array(out[0..<32]), Array(out[32..<44]), Array(out[44..<56]))
+    }
+
+    /// La clé et le nonce du préambule chiffré d'un premier message v4 :
+    /// `HKDF(0³², X25519(EK_A, SPK_B) ‖ SS, "Brocolis_v4_Preamble", 44)`.
+    public static func preambleKey4(_ dh: [UInt8], _ ss: [UInt8]) -> (key: [UInt8], nonce: [UInt8]) {
+        var ikm = dh + ss
+        defer { effacer(&ikm) }
+        var out = hkdf(selNul, ikm, info4Preamble, 44)
+        defer { effacer(&out) }
+        return (Array(out[0..<32]), Array(out[32..<44]))
+    }
+}

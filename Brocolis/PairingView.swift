@@ -440,10 +440,10 @@ struct PairingView: View {
         let priv = BrocolisKeyAgreement.loadOrCreatePrivateKey()
         let myPub = BrocolisKeyAgreement.publicKeyBase64(of: priv)
         let peerId = UUID().uuidString
-        let bundle = BrocolisV3.myBundle()
+        let (bundle, caps) = BrocolisV3.myPublication()
 
         update(loc("Publication de ta clé publique…", "Publishing your public key…", "Publicando tu clave pública…"))
-        _ = try await client.publish(code: code, peerId: peerId, pub: myPub, bundle: bundle)
+        _ = try await client.publish(code: code, peerId: peerId, pub: myPub, bundle: bundle, caps: caps)
         update(loc("En attente du correspondant…", "Waiting for the contact…", "Esperando al contacto…"))
 
         for _ in 0..<40 {
@@ -454,7 +454,7 @@ struct PairingView: View {
                 let derived = try BrocolisKeyAgreement.derive(myPrivate: priv, peerPublicBase64: peer.pub)
                 BrocolisKeyStore.setPairingPeerIds([peer.peerId])
                 // Toujours à deux : contact v3 si l'autre a publié un paquet.
-                let v3 = BrocolisV3Contact(bundle: bundle == nil ? nil : peer.bundle, duo: true)
+                let v3 = BrocolisV3Contact.with(peer, myBundle: bundle, duo: true)
                 applyKey(derived.symmetricKeyBase64,
                          fingerprint: v3.fingerprint(key: derived.symmetricKeyBase64, legacy: derived.fingerprint),
                          message: loc("✅ Appairé. Brocolis est actif.", "✅ Paired. Brocolis is active.", "✅ Emparejado. Brocolis está activo."),
@@ -477,7 +477,7 @@ struct PairingView: View {
         let myPub = BrocolisKeyAgreement.publicKeyBase64(of: priv)
         let peerId = UUID().uuidString
         let groupKey = BrocolisKeyAgreement.generateGroupKeyBase64()
-        let bundle = BrocolisV3.myBundle()
+        let (bundle, caps) = BrocolisV3.myPublication()
         // Sur cet écran, on suit les arrivées en direct pendant 10 min ; ensuite
         // l'invitation reste en attente (7 jours) et se termine à l'ouverture.
         let deadline = Date().addingTimeInterval(10 * 60)
@@ -486,7 +486,7 @@ struct PairingView: View {
         BrocolisPendingPairing.upsert(invite)
         await MainActor.run { delivered = 0; inviteDeadline = deadline }
 
-        _ = try await client.publish(code: code, peerId: peerId, pub: myPub, host: true, bundle: bundle)
+        _ = try await client.publish(code: code, peerId: peerId, pub: myPub, host: true, bundle: bundle, caps: caps)
         update(loc("Fais scanner ce QR, ou envoie le lien. Tu peux fermer l’app : l’invitation reste valable 7 jours et se termine toute seule.", "Have them scan this QR, or send the link. You can close the app: the invitation stays valid 7 days and completes on its own.", "Haz que escaneen este QR o envía el enlace. Puedes cerrar la app: la invitación es válida 7 días y se completa sola."))
 
         var wrappedTo = Set<String>()
@@ -510,8 +510,7 @@ struct PairingView: View {
                 if first {
                     // À deux tant qu'une seule personne a la clé (§8.4).
                     let duo = newPeers.count == 1
-                    let v3 = BrocolisV3Contact(
-                        bundle: bundle == nil ? nil : newPeers.first?.bundle, duo: duo)
+                    let v3 = BrocolisV3Contact.with(newPeers.first, myBundle: bundle, duo: duo)
                     invite.keyId = applyKey(
                         groupKey,
                         fingerprint: v3.fingerprint(key: groupKey,
@@ -543,11 +542,11 @@ struct PairingView: View {
         let priv = BrocolisKeyAgreement.loadOrCreatePrivateKey()
         let myPub = BrocolisKeyAgreement.publicKeyBase64(of: priv)
         let peerId = UUID().uuidString
-        let bundle = BrocolisV3.myBundle()
+        let (bundle, caps) = BrocolisV3.myPublication()
 
         update(loc("Publication de ta clé publique…", "Publishing your public key…", "Publicando tu clave pública…"))
         BrocolisPendingPairing.upsert(BrocolisPendingPairing.Join(code: code, name: keyName, peerId: peerId, created: Date()))
-        let others = try await client.publish(code: code, peerId: peerId, pub: myPub, bundle: bundle)
+        let others = try await client.publish(code: code, peerId: peerId, pub: myPub, bundle: bundle, caps: caps)
         await showPeers(others, excluding: myPub)
         update(loc("Connexion… (l’invitant doit avoir son QR affiché)", "Connecting… (the inviter must have their QR showing)", "Conectando… (quien invita debe tener su QR visible)"))
 
@@ -808,7 +807,8 @@ enum BrocolisPendingPairing {
     static func install(key: String, name: String, fingerprint: String, code: String, peerId: String,
                         v3: BrocolisV3Contact, initiate: Bool) -> String {
         let keyId = BrocolisKeyStore.addKey(name: name, base64: key)
-        BrocolisKeyStore.setV3Contact(keyId: keyId, bundle: v3.duo ? v3.bundle : nil, duo: v3.duo)
+        BrocolisKeyStore.setV3Contact(keyId: keyId, bundle: v3.duo ? v3.bundle : nil, caps: v3.duo ? v3.caps : nil,
+                                      duo: v3.duo)
         if initiate, v3.duo, v3.bundle != nil, let k = BrocolisKeyStore.keys.first(where: { $0.id == keyId }) {
             BrocolisV3.openSession(for: k)
         }
@@ -833,7 +833,7 @@ enum BrocolisPendingPairing {
         let client = PairingClient(baseURL: BrocolisKeyStore.serverURL)
         let priv = BrocolisKeyAgreement.loadOrCreatePrivateKey()
         let myPub = BrocolisKeyAgreement.publicKeyBase64(of: priv)
-        let bundle = BrocolisV3.myBundle()
+        let (bundle, caps) = BrocolisV3.myPublication()
         var done: [String] = []
 
         // À deux, toujours ? (celui qui a rejoint, §8.4)
@@ -845,7 +845,7 @@ enum BrocolisPendingPairing {
 
         for var invite in invites {
             guard let peers = try? await client.publish(code: invite.code, peerId: invite.peerId, pub: myPub,
-                                                        host: true, bundle: bundle) else { continue }
+                                                        host: true, bundle: bundle, caps: caps) else { continue }
             let others = peers.filter { $0.pub != myPub }
             guard !others.isEmpty else { continue }
             // On remet la clé à TOUS (pas seulement aux nouveaux) : après un
@@ -864,7 +864,7 @@ enum BrocolisPendingPairing {
                     done.append(limitMessage(invite.name))
                     continue
                 }
-                let v3 = BrocolisV3Contact(bundle: bundle == nil ? nil : others.first?.bundle, duo: others.count == 1)
+                let v3 = BrocolisV3Contact.with(others.first, myBundle: bundle, duo: others.count == 1)
                 invite.keyId = install(
                     key: invite.groupKey, name: invite.name,
                     fingerprint: v3.fingerprint(key: invite.groupKey,
@@ -890,7 +890,7 @@ enum BrocolisPendingPairing {
                 done.append(limitMessage(join.name))
                 continue
             }
-            _ = try? await client.publish(code: join.code, peerId: join.peerId, pub: myPub, bundle: bundle)
+            _ = try? await client.publish(code: join.code, peerId: join.peerId, pub: myPub, bundle: bundle, caps: caps)
             guard let wrap = try? await client.fetchWrap(code: join.code, peerId: join.peerId),
                   let key = try? BrocolisKeyAgreement.unwrapGroupKey(
                     blobBase64: wrap.blob, fromPeerPublicBase64: wrap.fromPub, myPrivate: priv) else { continue }

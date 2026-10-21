@@ -47,6 +47,21 @@ public enum Paquet {
     static func pqpkSignedMessage(_ ik: [UInt8], _ id: UInt32, _ pqpk: [UInt8]) -> [UInt8] {
         sigContextPqpk + ik + Octets.u32be(id) + pqpk
     }
+
+    /// Le contexte signé de la capacité v4 (§9.6).
+    public static let sigContextCaps4 = Array("Brocolis_v4_Caps".utf8)
+
+    static func caps4Message(_ ik: [UInt8]) -> [UInt8] {
+        sigContextCaps4 + ik + [0x04]
+    }
+
+    /// Vérifie la capacité v4 d'un correspondant (§9.6) : signature Ed25519
+    /// **stricte** par son IK Ed25519 de `"Brocolis_v4_Caps" ‖ IK X25519 ‖
+    /// 0x04`. Fausse : `.signature` ; clé faible : `.cleInvalide`.
+    public static func verifyCaps4(identity: IdentityPublic, signature: [UInt8]) throws {
+        guard identity.dh.count == 32 else { throw Erreur.format }
+        try Kdf.ed25519Verify(publicKey: identity.sign, message: caps4Message(identity.dh), signature: signature)
+    }
 }
 
 /// Ce que l'appareil doit garder secret de son identité.
@@ -595,6 +610,28 @@ public final class Device {
     func pqSeed(_ id: UInt32) throws -> [UInt8] {
         guard let k = state.pqPrekeys.first(where: { $0.id == id }) else { throw Erreur.cleInconnue }
         return k.seed
+    }
+
+    /// Les secrets de toutes les SPK gardées (la plus récente d'abord) : un
+    /// premier message v4 ne dit pas laquelle a servi (§9.4).
+    func spkSecrets() -> [[UInt8]] {
+        state.signedPrekeys.reversed().map { $0.secret }
+    }
+
+    /// Les graines ML-KEM de toutes les PQPK gardées (la plus récente
+    /// d'abord).
+    func pqSeeds() -> [[UInt8]] {
+        state.pqPrekeys.reversed().map { $0.seed }
+    }
+
+    /// La capacité v4 signée (§9.6), 64 octets : `Ed25519(IK, "Brocolis_v4_Caps"
+    /// ‖ IK X25519 ‖ 0x04)`, à publier avec le paquet. Seul un appareil qui a
+    /// ML-KEM (ici et dans ses clés) la publie : sinon `nil`. CryptoKit peut
+    /// rendre la signature aléatoire (toujours valide).
+    public func caps4() -> [UInt8]? {
+        guard supportsPq else { return nil }
+        let ik = Kdf.x25519Public(state.identity.dh)
+        return Kdf.ed25519Sign(seed: state.identity.sign, message: Paquet.caps4Message(ik))
     }
 
     /// La mémoire des premiers messages.

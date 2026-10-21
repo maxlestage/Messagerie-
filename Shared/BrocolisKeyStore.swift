@@ -47,6 +47,9 @@ struct NamedKey: Identifiable, Equatable {
     var v3Since: Date?
     var duo: Bool?
     var psk: Bool?
+    // v4 (§9.6) — PUBLIQUE aussi : la capacité v4 signée du correspondant
+    // (base64, 64 octets), reçue avec son paquet.
+    var v3Caps: String?
 
     init(
         id: String = UUID().uuidString,
@@ -57,7 +60,8 @@ struct NamedKey: Identifiable, Equatable {
         v3Bundle: String? = nil,
         v3Since: Date? = nil,
         duo: Bool? = nil,
-        psk: Bool? = nil
+        psk: Bool? = nil,
+        v3Caps: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -68,6 +72,7 @@ struct NamedKey: Identifiable, Equatable {
         self.v3Since = v3Since
         self.duo = duo
         self.psk = psk
+        self.v3Caps = v3Caps
     }
 }
 
@@ -75,7 +80,7 @@ struct NamedKey: Identifiable, Equatable {
 // champs v3) restent décodables ; une ancienne version de l'app ignore les
 // champs v3.
 extension NamedKey: Codable {
-    enum CodingKeys: String, CodingKey { case id, name, base64, ttlSeconds, expiresAt, v3Bundle, v3Since, duo, psk }
+    enum CodingKeys: String, CodingKey { case id, name, base64, ttlSeconds, expiresAt, v3Bundle, v3Since, duo, psk, v3Caps }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -88,6 +93,7 @@ extension NamedKey: Codable {
         v3Since = try c.decodeIfPresent(Date.self, forKey: .v3Since)
         duo = try c.decodeIfPresent(Bool.self, forKey: .duo)
         psk = try c.decodeIfPresent(Bool.self, forKey: .psk)
+        v3Caps = try c.decodeIfPresent(String.self, forKey: .v3Caps)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -101,6 +107,7 @@ extension NamedKey: Codable {
         try c.encodeIfPresent(v3Since, forKey: .v3Since)
         try c.encodeIfPresent(duo, forKey: .duo)
         try c.encodeIfPresent(psk, forKey: .psk)
+        try c.encodeIfPresent(v3Caps, forKey: .v3Caps)
     }
 }
 
@@ -257,10 +264,12 @@ enum BrocolisKeyStore {
     // MARK: v3 (docs/SECURITE.md §8.4, §8.5)
 
     /// Le contact v3 d'une clé appairée : le paquet du correspondant (ou
-    /// `nil` : un ancien client) et « à deux » / « en groupe ».
-    static func setV3Contact(keyId id: String, bundle: String?, duo: Bool) {
+    /// `nil` : un ancien client), sa capacité v4 (§9.6, ou `nil`) et « à
+    /// deux » / « en groupe ».
+    static func setV3Contact(keyId id: String, bundle: String?, caps: String? = nil, duo: Bool) {
         updateKey(id) { k in
             k.v3Bundle = bundle
+            k.v3Caps = bundle == nil ? nil : caps
             k.v3Since = bundle == nil ? nil : Date()
             k.duo = duo
         }
