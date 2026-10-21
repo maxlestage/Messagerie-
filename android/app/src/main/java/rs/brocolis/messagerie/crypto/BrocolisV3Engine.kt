@@ -6,6 +6,7 @@ import rs.brocolis.messagerie.proto.BrocolisException
 import rs.brocolis.messagerie.proto.Content
 import rs.brocolis.messagerie.proto.CryptoRng
 import rs.brocolis.messagerie.proto.Device
+import rs.brocolis.messagerie.proto.GroupMessage
 import rs.brocolis.messagerie.proto.Erreur
 import rs.brocolis.messagerie.proto.Hasard
 import rs.brocolis.messagerie.proto.Kdf
@@ -14,7 +15,10 @@ import rs.brocolis.messagerie.proto.Mode
 import rs.brocolis.messagerie.proto.Octets
 import rs.brocolis.messagerie.proto.Paquet
 import rs.brocolis.messagerie.proto.Protocole
+import rs.brocolis.messagerie.proto.ReceivedSenderKey
 import rs.brocolis.messagerie.proto.ReplayGuard
+import rs.brocolis.messagerie.proto.SenderKeyDistribution
+import rs.brocolis.messagerie.proto.SenderKeyState
 import rs.brocolis.messagerie.proto.Session
 import rs.brocolis.messagerie.proto.Session4
 import rs.brocolis.messagerie.proto.Token
@@ -58,7 +62,9 @@ enum class BrocolisProtection {
     TRIPLE,
     /** v4, à partir de la clé partagée. */
     TRIPLE_PSK,
-    POST_QUANTUM, CLASSIC, PSK, LEGACY;
+    POST_QUANTUM, CLASSIC, PSK, LEGACY,
+    /** L'identité du contact a changé sans confirmation (§9.8) : rien ne part vers lui. */
+    IDENTITY_CHANGED;
 
     /** Libellé affiché partout où s'affiche une clé ou un contact. */
     val label: String
@@ -73,9 +79,11 @@ enum class BrocolisProtection {
             CLASSIC -> loc("🔐 double cliquet (classique)", "🔐 double ratchet (classic)", "🔐 doble trinquete (clásico)")
             PSK -> loc("🔐 double cliquet, clé partagée (PSK)", "🔐 double ratchet, shared key (PSK)", "🔐 doble trinquete, clave compartida (PSK)")
             LEGACY -> loc("ancien format", "old format", "formato antiguo")
+            IDENTITY_CHANGED -> BrocolisIdentity.warning
         }
 
-    val isRatchet: Boolean get() = this != LEGACY
+    /** Un envoi à cliquet (v3 ou v4). */
+    val isRatchet: Boolean get() = this != LEGACY && this != IDENTITY_CHANGED
 }
 
 // MARK: - Une clé vue par le moteur
@@ -108,6 +116,8 @@ sealed class BrocolisV3Opened {
     data class Text(val text: String) : BrocolisV3Opened()
     /** Déjà lu, et le clair n'est plus gardé. */
     object Replay : BrocolisV3Opened()
+    /** Une chaîne de groupe reçue (§9.9) : gardée, rien à afficher. */
+    object Hidden : BrocolisV3Opened()
     /** Illisible (pas pour nous, session perdue, altéré…). */
     data class Failed(val erreur: Erreur) : BrocolisV3Opened()
 }
@@ -174,6 +184,10 @@ object BrocolisV3Format {
     fun capsValid(bundle: KeyBundle, caps: ByteArray?): Boolean =
         bundle.pq != null && caps != null && runCatching { Paquet.verifyCaps4(bundle.identity, caps) }.isSuccess
 
+    /** Un message de groupe signé (0x04, §4.5) ? */
+    fun isGroupToken(token: String): Boolean =
+        runCatching { Token.decode(normalize(token)) }.getOrNull() is Token.Group
+
     /** Un jeton v4 (§9.4) ? */
     fun isV4(token: String): Boolean = token.trimStart().startsWith(Token4.HEAD)
 
@@ -230,7 +244,22 @@ data class BrocolisV3StoredPeer(
 
 /** Un message ouvert (§8.2). */
 @Serializable
-data class BrocolisV3StoredOpened(val h: String, val text: String, val at: Long, val mine: Boolean)
+data class BrocolisV3StoredOpened(
+    val h: String,
+    val text: String,
+    val at: Long,
+    val mine: Boolean,
+    /** Qui l'a écrit : `c:` + IK du contact, `k:` + id de la clé (PSK), vide si inconnu. */
+    val from: String = "",
+)
+
+/** Ma chaîne d'un groupe (§9.9), et les membres (`c:`/`k:`) qui l'ont reçue. */
+@Serializable
+data class BrocolisV3StoredChain(val chain: String, val given: List<String> = emptyList())
+
+/** La chaîne d'un autre membre, et de qui elle vient (`c:`/`k:`). */
+@Serializable
+data class BrocolisV3StoredReceived(val from: String, val key: String)
 
 /** L'état chiffré au repos : sessions et messages ouverts. */
 @Serializable
@@ -248,7 +277,39 @@ data class BrocolisV3Stored(
     val v4Seen: List<String> = emptyList(),
     /** Les clés sur lesquelles une PSK v4 est arrivée. */
     val psk4Seen: List<String> = emptyList(),
+    /** Mes chaînes de groupe (§9.9), par identifiant de groupe (hex). */
+    val groups: Map<String, BrocolisV3StoredChain> = emptyMap(),
+    /** Les chaînes reçues des autres membres. */
+    val received: List<BrocolisV3StoredReceived> = emptyList(),
 )
+
+/** Ce qu'une session à deux transporte : un texte, ou une chaîne de groupe (§9.9). */
+private sealed class BrocolisPayload {
+    class Text(val text: String) : BrocolisPayload()
+    class Chain(val d: SenderKeyDistribution) : BrocolisPayload()
+
+    fun seal3(s: Session): String = when (this) {
+        is Text -> s.encrypt(text)
+        // Une distribution v3 (0x03) ne voyage que sur une session que l'autre
+        // a déjà : tant que la nôtre n'est pas confirmée, un premier message
+        // vide (0x01) la lui ouvre d'abord.
+        is Chain -> (if (s.isConfirmed) "" else s.encrypt("")) + s.encryptDistribution(d)
+    }
+
+    fun seal4(s: Session4): String = when (this) {
+        is Text -> s.encrypt(text)
+        is Chain -> s.encryptDistribution(d)
+    }
+}
+
+/** Ma chaîne d'un groupe. */
+private class MyChain(val chain: SenderKeyState, val given: MutableList<String>)
+
+/** Une chaîne reçue. */
+private class Received(val from: String, val key: ReceivedSenderKey)
+
+/** Les chaînes reçues gardées, au plus. */
+private const val RECEIVED_MAX = 512
 
 /** Ce que le rangement attend d'une session v3 ou v4. */
 private interface Rangement<S> {
@@ -344,6 +405,10 @@ class BrocolisV3Engine(
     private val psk4: MutableMap<String, BrocolisPeer<Session4>>
     private val v4Seen: MutableList<String>
     private val psk4Seen: MutableList<String>
+    private val groups: MutableMap<String, MyChain>
+    private val received: MutableList<Received>
+    /** L'expéditeur du dernier jeton déchiffré (voir [sender]). */
+    private var lastFrom: String = ""
     var deviceDirty: Boolean
         private set
     var stateDirty: Boolean = false
@@ -361,6 +426,14 @@ class BrocolisV3Engine(
         psk4 = s.psk4.mapValuesTo(LinkedHashMap()) { BrocolisPeer.v4(it.value) }
         v4Seen = s.v4Seen.toMutableList()
         psk4Seen = s.psk4Seen.toMutableList()
+        groups = LinkedHashMap()
+        for ((gid, c) in s.groups) {
+            val chain = runCatching { SenderKeyState.fromJson(c.chain) }.getOrNull() ?: continue
+            groups[gid] = MyChain(chain, c.given.toMutableList())
+        }
+        received = s.received.mapNotNull { r ->
+            runCatching { ReceivedSenderKey.fromJson(r.key) }.getOrNull()?.let { Received(r.from, it) }
+        }.toMutableList()
         pskSeen = s.pskSeen.toMutableList()
         pskReplay = s.pskReplay?.let { runCatching { ReplayGuard.fromJson(it) }.getOrNull() } ?: ReplayGuard()
         opened = ArrayDeque(s.opened)
@@ -401,6 +474,8 @@ class BrocolisV3Engine(
             psk4 = psk4.mapValues { it.value.stored },
             v4Seen = v4Seen.toList(),
             psk4Seen = psk4Seen.toList(),
+            groups = groups.mapValues { BrocolisV3StoredChain(it.value.chain.toJson(), it.value.given.toList()) },
+            received = received.map { BrocolisV3StoredReceived(it.from, it.key.toJson()) },
         )
 
     /** Le paquet de clés à publier dans le salon (base64). */
@@ -521,19 +596,26 @@ class BrocolisV3Engine(
      */
     fun seal(text: String, k: BrocolisV3Key, now: Long): String? {
         if (text.toByteArray(Charsets.UTF_8).size > Session.MAX_PLAINTEXT) return null
-        // Un contact v4 ne reçoit plus que du v4 (§9.6) : sans session ni
-        // paquet frais, la PSK (v4) prend le relais, jamais le v3.
-        val contact = if (contact4(k) != null) sealContact4(text, k, now) else sealContact(text, k, now)
-        val token = contact ?: (if (psk4Allowed(k, now)) sealPsk4(text, k) else sealPsk(text, k, now)) ?: return null
+        val token = sealPayload(k, BrocolisPayload.Text(text), now) ?: return null
         remember(token, text, mine = true, now = now)
         return token
     }
 
-    private fun sealContact(text: String, k: BrocolisV3Key, now: Long): String? {
+    /**
+     * Ce qu'emporte une session à deux, quelle qu'elle soit. Un contact v4 ne
+     * reçoit plus que du v4 (§9.6) : sans session ni paquet frais, la PSK
+     * (v4) prend le relais, jamais le v3.
+     */
+    private fun sealPayload(k: BrocolisV3Key, payload: BrocolisPayload, now: Long): String? {
+        val contact = if (contact4(k) != null) sealContact4(payload, k, now) else sealContact(payload, k, now)
+        return contact ?: if (psk4Allowed(k, now)) sealPsk4(payload, k) else sealPsk(payload, k, now)
+    }
+
+    private fun sealContact(payload: BrocolisPayload, k: BrocolisV3Key, now: Long): String? {
         val b = contact(k) ?: return null
         val peer = peerFor(b)
         peer.sending?.let { s ->
-            runCatching { s.encrypt(text) }.getOrNull()?.let { token ->
+            runCatching { payload.seal3(s) }.getOrNull()?.let { token ->
                 stateDirty = true
                 return token
             }
@@ -542,17 +624,17 @@ class BrocolisV3Engine(
         }
         if (!fresh(k, now)) return null
         val s = initiateBest(b) ?: return null
-        val token = runCatching { s.encrypt(text) }.getOrNull() ?: return null
+        val token = runCatching { payload.seal3(s) }.getOrNull() ?: return null
         peer.put(s)
         stateDirty = true
         return token
     }
 
-    private fun sealContact4(text: String, k: BrocolisV3Key, now: Long): String? {
+    private fun sealContact4(payload: BrocolisPayload, k: BrocolisV3Key, now: Long): String? {
         val b = contact4(k) ?: return null
         val peer = peer4For(b)
         peer.sending?.let { s ->
-            runCatching { s.encrypt(text) }.getOrNull()?.let { token ->
+            runCatching { payload.seal4(s) }.getOrNull()?.let { token ->
                 stateDirty = true
                 return token
             }
@@ -560,44 +642,115 @@ class BrocolisV3Engine(
         }
         if (!fresh(k, now)) return null
         val s = runCatching { device.initiate4(b, rng) }.getOrNull() ?: return null
-        val token = runCatching { s.encrypt(text) }.getOrNull() ?: return null
+        val token = runCatching { payload.seal4(s) }.getOrNull() ?: return null
         peer.put(s)
         stateDirty = true
         return token
     }
 
-    private fun sealPsk4(text: String, k: BrocolisV3Key): String? {
+    private fun sealPsk4(payload: BrocolisPayload, k: BrocolisV3Key): String? {
         if (k.raw.size != 32) return null
         val peer = psk4Peer(k.id)
         peer.sending?.let { s ->
-            runCatching { s.encrypt(text) }.getOrNull()?.let { token ->
+            runCatching { payload.seal4(s) }.getOrNull()?.let { token ->
                 stateDirty = true
                 return token
             }
             peer.sessions.clear()
         }
         val s = runCatching { Session4.initiatePsk(k.raw, rng) }.getOrNull() ?: return null
-        val token = runCatching { s.encrypt(text) }.getOrNull() ?: return null
+        val token = runCatching { payload.seal4(s) }.getOrNull() ?: return null
         peer.put(s)
         stateDirty = true
         return token
     }
 
-    private fun sealPsk(text: String, k: BrocolisV3Key, now: Long): String? {
+    private fun sealPsk(payload: BrocolisPayload, k: BrocolisV3Key, now: Long): String? {
         if (!pskAllowed(k, now) || k.raw.size != 32) return null
         val peer = pskPeer(k.id)
         peer.sending?.let { s ->
-            runCatching { s.encrypt(text) }.getOrNull()?.let { token ->
+            runCatching { payload.seal3(s) }.getOrNull()?.let { token ->
                 stateDirty = true
                 return token
             }
             peer.sessions.clear()
         }
         val s = runCatching { Session.initiatePsk(k.raw, rng) }.getOrNull() ?: return null
-        val token = runCatching { s.encrypt(text) }.getOrNull() ?: return null
+        val token = runCatching { payload.seal3(s) }.getOrNull() ?: return null
         peer.put(s)
         stateDirty = true
         return token
+    }
+
+    // MARK: Groupes à cliquet (§9.9)
+
+    /** Qui est ce membre d'un groupe : `c:` + son IK (contact), ou `k:` + sa clé (PSK). */
+    private fun memberTag(k: BrocolisV3Key): String =
+        contact(k)?.let { "c:" + Octets.hex(it.identity.dh) } ?: "k:${k.id}"
+
+    /**
+     * Le groupe peut-il partir à cliquet : chaque membre a une session à deux
+     * possible (contact v3/v4 ou PSK).
+     */
+    fun groupRatchet(members: List<BrocolisV3Key>, now: Long): Boolean =
+        members.isNotEmpty() && members.all { protection(it, now).isRatchet }
+
+    /**
+     * Chiffre `text` pour un groupe à cliquet (§9.9) : ma chaîne du groupe
+     * (neuve si un membre l'a quitté), remise d'abord par sa session à deux à
+     * chaque membre qui ne l'a pas encore, puis le message de groupe (0x04),
+     * le tout dans le même texte. `null` si un membre n'a pas de session
+     * possible : l'appelant reste en v2.
+     */
+    fun sealGroup(groupId: ByteArray, members: List<BrocolisV3Key>, text: String, now: Long): String? {
+        if (groupId.size != 16 || text.toByteArray(Charsets.UTF_8).size > Session.MAX_PLAINTEXT ||
+            !groupRatchet(members, now)
+        ) {
+            return null
+        }
+        val tags = members.map(::memberTag)
+        val gid = Octets.hex(groupId)
+        val current = groups[gid]
+        // Un membre est sorti : la chaîne qui lui avait été remise est abandonnée.
+        if (current == null || current.given.any { it !in tags }) {
+            groups[gid] = MyChain(SenderKeyState.generate(groupId, rng), mutableListOf())
+            stateDirty = true
+        }
+        val c = groups[gid] ?: return null
+        val d = c.chain.distribution()
+        val out = StringBuilder()
+        val newly = mutableListOf<String>()
+        for ((k, tag) in members.zip(tags)) {
+            if (tag in c.given || tag in newly) continue
+            val token = sealPayload(k, BrocolisPayload.Chain(d), now) ?: return null
+            remember(token, "", mine = true, now = now)
+            out.append(token)
+            newly.add(tag)
+        }
+        val msg = runCatching { c.chain.encrypt(text) }.getOrNull() ?: return null
+        c.given.addAll(newly)
+        stateDirty = true
+        remember(msg, text, mine = true, now = now)
+        out.append(msg)
+        return out.toString()
+    }
+
+    /** Garde la chaîne d'un membre (elle remplace celle de même groupe et même expéditeur). */
+    private fun keepChain(d: SenderKeyDistribution, from: String) {
+        val key = ReceivedSenderKey.fromDistribution(d)
+        received.removeAll { it.key.groupId.contentEquals(d.groupId) && it.key.senderId.contentEquals(d.senderId) }
+        received.add(Received(from, key))
+        while (received.size > RECEIVED_MAX) received.removeAt(0)
+        stateDirty = true
+    }
+
+    /** Un message de groupe (0x04) : la chaîne reçue de son expéditeur. */
+    private fun decryptGroup(m: GroupMessage, now: Long): Content {
+        val r = received.firstOrNull { it.key.matches(m) } ?: fail(Erreur.ExpediteurInconnu)
+        val text = r.key.decrypt(m, now)
+        lastFrom = r.from
+        stateDirty = true
+        return Content.Text(text)
     }
 
     // MARK: Messages ouverts
@@ -609,10 +762,10 @@ class BrocolisV3Engine(
     }
 
     /** Garde le clair d'un jeton (§8.2). */
-    fun remember(token: String, text: String, mine: Boolean, now: Long) {
+    fun remember(token: String, text: String, mine: Boolean, now: Long, from: String = "") {
         val h = BrocolisV3Format.tokenHash(token)
         if (opened.any { it.h == h }) return
-        opened.addLast(BrocolisV3StoredOpened(h, text, now, mine))
+        opened.addLast(BrocolisV3StoredOpened(h, text, now, mine, from))
         var total = opened.sumOf { it.text.toByteArray(Charsets.UTF_8).size.toLong() }
         while (opened.size > BrocolisV3Format.OPENED_MAX ||
             (total > BrocolisV3Format.OPENED_MAX_BYTES && opened.size > 1)
@@ -625,41 +778,81 @@ class BrocolisV3Engine(
     /** Nombre de messages ouverts gardés (tests). */
     val openedCount: Int get() = opened.size
 
+    /** Ce jeton est-il un de mes envois (gardé au chiffrement) ? */
+    fun isMine(token: String): Boolean {
+        val h = BrocolisV3Format.tokenHash(token)
+        return opened.any { it.h == h && it.mine }
+    }
+
+    /**
+     * La clé de `keys` dont la session a porté ce jeton (son contact ou sa
+     * clé partagée) : de qui vient un message. Pour un message de groupe,
+     * celui qui a remis la chaîne (§9.9).
+     */
+    fun sender(token: String, keys: List<BrocolisV3Key>): Int? {
+        val h = BrocolisV3Format.tokenHash(token)
+        val from = opened.firstOrNull { it.h == h && it.from.isNotEmpty() }?.from ?: return null
+        val kind = from.substringBefore(':')
+        val who = from.substringAfter(':')
+        val i = when (kind) {
+            "c" -> keys.indexOfFirst { k -> contact(k)?.let { Octets.hex(it.identity.dh) == who } == true }
+            "k" -> keys.indexOfFirst { it.id == who }
+            else -> -1
+        }
+        return if (i >= 0) i else null
+    }
+
     // MARK: Réception (§8.6)
 
     /**
-     * Ouvre un jeton v3 reçu : clair gardé, sinon session, sinon premier
-     * message d'un contact (ou PSK d'une de `keys`).
+     * Ouvre un jeton v3/v4 reçu : clair gardé, sinon session, sinon premier
+     * message d'un contact (ou PSK d'une de `keys`). Une chaîne de groupe
+     * reçue est gardée : [BrocolisV3Opened.Hidden].
      */
     fun open(token: String, keys: List<BrocolisV3Key>, now: Long): BrocolisV3Opened {
         recall(token)?.let { return BrocolisV3Opened.Text(it) }
         val clean = BrocolisV3Format.normalize(token)
+        lastFrom = ""
         return try {
-            val text = if (BrocolisV3Format.isV4(clean)) {
+            val content = if (BrocolisV3Format.isV4(clean)) {
                 decrypt4(Token4.decode(clean), keys, now)
             } else {
                 decrypt(Token.decode(clean), keys, now)
             }
-            remember(token, text, mine = false, now = now)
-            BrocolisV3Opened.Text(text)
+            val from = lastFrom
+            when (content) {
+                is Content.Text -> {
+                    remember(token, content.text, mine = false, now = now, from = from)
+                    BrocolisV3Opened.Text(content.text)
+                }
+                is Content.Distribution -> {
+                    keepChain(content.distribution, from)
+                    remember(token, "", mine = false, now = now, from = from)
+                    BrocolisV3Opened.Hidden
+                }
+            }
         } catch (e: BrocolisException) {
             if (e.erreur == Erreur.Rejoue) BrocolisV3Opened.Replay else BrocolisV3Opened.Failed(e.erreur)
         }
     }
 
-    private fun decrypt(token: Token, keys: List<BrocolisV3Key>, now: Long): String {
+    private fun decrypt(token: Token, keys: List<BrocolisV3Key>, now: Long): Content {
+        if (token is Token.Group) return decryptGroup(token.message, now)
         val id = token.sessionId ?: fail(Erreur.SessionInconnue)
-        search@ for (peer in peers.values + psk.values) {
-            val s = peer.get(id) ?: continue
-            try {
-                val content = s.decrypt(token, now, rng)
-                peer.current = id
-                stateDirty = true
-                return text(content)
-            } catch (e: BrocolisException) {
-                // L'autre a ouvert une session neuve (il avait perdu la sienne).
-                if (e.erreur == Erreur.NouvelleSession) break@search
-                throw e
+        search@ for ((kind, table) in listOf("c" to peers, "k" to psk)) {
+            for ((owner, peer) in table) {
+                val s = peer.get(id) ?: continue
+                try {
+                    val content = s.decrypt(token, now, rng)
+                    peer.current = id
+                    lastFrom = "$kind:$owner"
+                    stateDirty = true
+                    return content
+                } catch (e: BrocolisException) {
+                    // L'autre a ouvert une session neuve (il avait perdu la sienne).
+                    if (e.erreur == Erreur.NouvelleSession) break@search
+                    throw e
+                }
             }
         }
         val first = (token as? Token.InitialMessage)?.initial ?: fail(Erreur.SessionInconnue)
@@ -670,8 +863,9 @@ class BrocolisV3Engine(
                     val (s, content) = Session.acceptPsk(listOf(k.raw), first, pskReplay, now, rng)
                     pskPeer(k.id).put(s)
                     if (!pskSeen.contains(k.id)) pskSeen.add(k.id)
+                    lastFrom = "k:${k.id}"
                     stateDirty = true
-                    return text(content)
+                    return content
                 } catch (e: BrocolisException) {
                     if (e.erreur == Erreur.SessionInconnue) continue
                     throw e
@@ -686,8 +880,9 @@ class BrocolisV3Engine(
         val (s, content) = device.accept(first, now, rng)
         deviceDirty = true
         peerFor(b).put(s)
+        lastFrom = "c:" + Octets.hex(first.identity)
         stateDirty = true
-        return text(content)
+        return content
     }
 
     /**
@@ -695,7 +890,7 @@ class BrocolisV3Engine(
      * [Erreur.SessionInconnue] veut dire « pas celle-ci ») ; sinon un premier
      * message d'un contact, ou une PSK v4 d'une de `keys`.
      */
-    private fun decrypt4(token: Token4, keys: List<BrocolisV3Key>, now: Long): String {
+    private fun decrypt4(token: Token4, keys: List<BrocolisV3Key>, now: Long): Content {
         for ((isPsk, table) in listOf(false to peers4, true to psk4)) {
             for ((owner, peer) in table) {
                 for (s in peer.sessions) {
@@ -707,8 +902,9 @@ class BrocolisV3Engine(
                     }
                     peer.current = s.sessionId
                     if (!isPsk && !v4Seen.contains(owner)) v4Seen.add(owner)
+                    lastFrom = (if (isPsk) "k:" else "c:") + owner
                     stateDirty = true
-                    return text(content)
+                    return content
                 }
             }
         }
@@ -724,8 +920,9 @@ class BrocolisV3Engine(
                 val owner = Octets.hex(ik)
                 if (!v4Seen.contains(owner)) v4Seen.add(owner)
                 peers4.getOrPut(owner) { BrocolisPeer.v4() }.put(s)
+                lastFrom = "c:$owner"
                 stateDirty = true
-                return text(content)
+                return content
             }
             is Token4.Message -> {
                 for (k in keys) {
@@ -735,8 +932,9 @@ class BrocolisV3Engine(
                         psk4Peer(k.id).put(s)
                         if (!pskSeen.contains(k.id)) pskSeen.add(k.id)
                         if (!psk4Seen.contains(k.id)) psk4Seen.add(k.id)
+                        lastFrom = "k:${k.id}"
                         stateDirty = true
-                        return text(content)
+                        return content
                     } catch (e: BrocolisException) {
                         if (e.erreur == Erreur.SessionInconnue) continue
                         throw e
@@ -746,8 +944,6 @@ class BrocolisV3Engine(
             }
         }
     }
-
-    private fun text(content: Content): String = (content as? Content.Text)?.text ?: fail(Erreur.Format)
 
     private fun fail(e: Erreur): Nothing = throw BrocolisException(e)
 

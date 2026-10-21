@@ -106,6 +106,7 @@ class InteropTest {
                 kind to when (o) {
                     is BrocolisV3Opened.Text -> o.text
                     BrocolisV3Opened.Replay -> BrocolisV3Api.alreadyRead
+                    BrocolisV3Opened.Hidden -> ""
                     is BrocolisV3Opened.Failed -> null
                     null -> BrocolisCrypto.decryptTokens(m.ciphertext, listOf(BrocolisCrypto.keyBytes(named.base64)))
                         .takeIf { it.count > 0 }?.text
