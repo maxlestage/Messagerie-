@@ -19,6 +19,9 @@ struct Peer {
     /// Le paquet de clés v3 (base64), s'il en a publié un, et son identité
     /// (IK X25519 ‖ IK Ed25519) : une rotation garde la même.
     bundle: Option<(String, [u8; 64])>,
+    /// Sa capacité v4 signée (base64, §9.6), vérifiée contre l'identité du
+    /// paquet.
+    caps: Option<String>,
     ts: Instant,
 }
 
@@ -27,6 +30,9 @@ struct Peer {
 pub struct PublishedBundle {
     pub base64: String,
     pub identity: [u8; 64],
+    /// La capacité v4 signée (base64), déjà vérifiée, si le client en publie
+    /// une (`docs/SECURITE.md` §9.6).
+    pub caps: Option<String>,
 }
 struct Wrap {
     from: String,
@@ -75,9 +81,9 @@ impl Rendezvous {
         }
     }
 
-    /// Pairs d'un code, en excluant `peer_id`. → [{ peerId, pub, bundle? }]
-    /// (`bundle` seulement pour qui en a publié un : un ancien client ne le
-    /// voit pas et n'en a pas besoin).
+    /// Pairs d'un code, en excluant `peer_id`. → [{ peerId, pub, bundle?,
+    /// caps? }] (`bundle` et `caps` seulement pour qui en a publié : un
+    /// ancien client ne les voit pas et n'en a pas besoin).
     pub fn peers_excluding(&self, code: &str, peer_id: &str) -> serde_json::Value {
         let map = self.codes.lock().unwrap();
         let list: Vec<serde_json::Value> = map
@@ -86,9 +92,15 @@ impl Rendezvous {
                 peers
                     .iter()
                     .filter(|(id, _)| id.as_str() != peer_id)
-                    .map(|(id, p)| match &p.bundle {
-                        Some((b, _)) => serde_json::json!({ "peerId": id, "pub": p.pub_key, "bundle": b }),
-                        None => serde_json::json!({ "peerId": id, "pub": p.pub_key }),
+                    .map(|(id, p)| {
+                        let mut v = serde_json::json!({ "peerId": id, "pub": p.pub_key });
+                        if let Some((b, _)) = &p.bundle {
+                            v["bundle"] = serde_json::Value::from(b.as_str());
+                        }
+                        if let Some(c) = &p.caps {
+                            v["caps"] = serde_json::Value::from(c.as_str());
+                        }
+                        v
                     })
                     .collect()
             })
@@ -130,6 +142,7 @@ impl Rendezvous {
             let mut map = self.codes.lock().unwrap();
             let peers = map.entry(code.to_string()).or_default();
             let mut kept = None;
+            let mut kept_caps = None;
             match peers.get(peer_id) {
                 Some(p) if p.pub_key != pub_key => return Err(PairError::KeyMismatch),
                 Some(p) => {
@@ -139,11 +152,20 @@ impl Rendezvous {
                         }
                     }
                     kept = p.bundle.clone();
+                    kept_caps = p.caps.clone();
                 }
                 None if peers.len() >= self.max_peers => return Err(PairError::Full),
                 None => {}
             }
-            let bundle = bundle.map(|b| (b.base64, b.identity)).or(kept);
+            // Une capacité accompagne toujours un paquet (même identité) ;
+            // republier sans elle garde celle qui est connue.
+            let (bundle, caps) = match bundle {
+                Some(b) => {
+                    let caps = b.caps.or(kept_caps);
+                    (Some((b.base64, b.identity)), caps)
+                }
+                None => (kept, kept_caps),
+            };
             let mut hosts = self.hosts.lock().unwrap();
             match hosts.get(code) {
                 None => {
@@ -156,7 +178,7 @@ impl Rendezvous {
             }
             peers.insert(
                 peer_id.to_string(),
-                Peer { pub_key: pub_key.to_string(), bundle, ts: Instant::now() },
+                Peer { pub_key: pub_key.to_string(), bundle, caps, ts: Instant::now() },
             );
         }
         Ok(self.peers_excluding(code, peer_id))
@@ -286,7 +308,24 @@ mod tests {
     }
 
     fn bundle(b: &str, id: u8) -> Option<PublishedBundle> {
-        Some(PublishedBundle { base64: b.into(), identity: [id; 64] })
+        Some(PublishedBundle { base64: b.into(), identity: [id; 64], caps: None })
+    }
+
+    #[test]
+    fn v4_caps_travel_with_the_bundle_and_survive_republish() {
+        let rdv = Rendezvous::new(16);
+        let with_caps = Some(PublishedBundle { base64: "B".into(), identity: [1; 64], caps: Some("CAPS".into()) });
+        rdv.add_peer_with("c", "alice", "A", true, with_caps).unwrap();
+        let v = rdv.add_peer("c", "bob", "B").unwrap();
+        assert_eq!(v["peers"][0]["caps"], "CAPS");
+        // Rotation du paquet sans capacité, puis republication nue : gardée.
+        rdv.add_peer_with("c", "alice", "A", true, bundle("B2", 1)).unwrap();
+        rdv.add_peer_as("c", "alice", "A", true).unwrap();
+        let v = rdv.peers_excluding("c", "bob");
+        assert_eq!(v["peers"][0]["caps"], "CAPS");
+        assert_eq!(v["peers"][0]["bundle"], "B2");
+        // Qui n'en publie pas n'a pas de champ.
+        assert!(rdv.peers_excluding("c", "alice")["peers"][0].get("caps").is_none());
     }
 
     #[test]
