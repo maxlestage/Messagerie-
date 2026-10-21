@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import rs.brocolis.messagerie.crypto.BrocolisCrypto
+import rs.brocolis.messagerie.crypto.BrocolisIdentity
 import rs.brocolis.messagerie.crypto.BrocolisV3
 import rs.brocolis.messagerie.i18n.loc
 import java.util.UUID
@@ -137,6 +138,39 @@ object BrocolisKeyStore {
         k.v3Caps = if (bundle == null) null else caps
         k.v3SinceSeconds = if (bundle == null) null else System.currentTimeMillis() / 1000
         k.duo = duo
+    }
+
+    /**
+     * Le contact appairé (à deux) de ce nom, s'il y en a un : un nouvel
+     * appairage sous le même nom est un ré-appairage (§9.8).
+     */
+    fun pairedByName(name: String): NamedKey? =
+        loadKeys().firstOrNull { it.duo == true && it.name.trim().equals(name.trim(), ignoreCase = true) }
+
+    /**
+     * Ré-appaire un contact existant (nouvelle clé, nouveau paquet) ; `true`
+     * si son identité a changé (ou l'avait déjà fait sans confirmation) :
+     * l'envoi vers lui est bloqué (§9.8). Ses sessions PSK partent avec
+     * l'ancienne clé.
+     */
+    fun repairPaired(keyId: String, keyBase64: String, bundle: String?, duo: Boolean, caps: String?): Boolean {
+        val ks = loadKeys().toMutableList()
+        val i = ks.indexOfFirst { it.id == keyId }
+        if (i < 0) return false
+        val (k, changed) = BrocolisIdentity.repaired(ks[i], keyBase64, bundle, duo, caps, System.currentTimeMillis() / 1000)
+        ks[i] = k
+        saveKeys(ks)
+        Thread { BrocolisV3.forget(keyId) }.start()
+        return changed
+    }
+
+    /** « J'ai comparé l'empreinte » : l'alerte tombe, l'envoi reprend (§9.8). */
+    fun confirmIdentity(keyId: String) {
+        val ks = loadKeys().toMutableList()
+        val i = ks.indexOfFirst { it.id == keyId }
+        if (i < 0) return
+        ks[i] = BrocolisIdentity.confirmed(ks[i])
+        saveKeys(ks)
     }
 
     /**

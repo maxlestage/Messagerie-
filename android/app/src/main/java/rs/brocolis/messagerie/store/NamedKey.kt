@@ -12,7 +12,10 @@ import kotlinx.serialization.Serializable
  * deux (`true`) ou clé de groupe (`false`), `null` pour une clé créée ou
  * importée ; `psk` : l'utilisateur l'a marquée « à deux, double cliquet » ;
  * `v3Caps` : la capacité v4 signée du correspondant, reçue avec son paquet
- * (§9.6, base64).
+ * (§9.6, base64). `identityChanged` : un ré-appairage a donné une autre
+ * identité que celle d'avant, gardée dans `previousIdentity` (IK X25519 ‖ IK
+ * Ed25519, base64) : rien ne part vers ce contact tant que l'utilisateur n'a
+ * pas comparé l'empreinte (§9.8).
  */
 @Serializable
 data class NamedKey(
@@ -26,4 +29,6 @@ data class NamedKey(
     var duo: Boolean? = null,
     var psk: Boolean? = null,
     var v3Caps: String? = null,
+    var identityChanged: Boolean? = null,
+    var previousIdentity: String? = null,
 )

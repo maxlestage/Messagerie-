@@ -30,6 +30,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import rs.brocolis.messagerie.crypto.BrocolisCrypto
+import rs.brocolis.messagerie.crypto.BrocolisIdentity
 import rs.brocolis.messagerie.crypto.BrocolisV3
 import rs.brocolis.messagerie.i18n.loc
 import rs.brocolis.messagerie.store.BrocolisKeyStore
@@ -90,6 +91,11 @@ private fun ShareScreen(incoming: String, onClose: () -> Unit) {
                         val recipients = BrocolisKeyStore.encryptionNamedKeys()
                         if (recipients.isEmpty()) {
                             info = loc("Aucune clé utilisable.", "No usable key.", "Ninguna clave utilizable.")
+                            return@Button
+                        }
+                        // L'identité d'un destinataire a changé (§9.8) : échec fermé.
+                        if (BrocolisV3.blocked(recipients)) {
+                            info = BrocolisIdentity.warning
                             return@Button
                         }
                         val whole = BrocolisKeyStore.encryptWholeAlways
