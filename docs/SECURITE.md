@@ -839,8 +839,13 @@ contact garde `caps` avec son paquet. Envoi (§8.5, nouvelle première
 et un appareil local qui a ML-KEM → **v4** ; puis les règles du v3. Dès
 qu'un message v4 est arrivé d'un contact, on ne lui écrit plus qu'en v4.
 Clé partagée : la PSK v4 suit les mêmes règles que la PSK v3 (§8.5, 2),
-avec « un message PSK **v4** est arrivé sur K » ; sans ce signe, la PSK
-reste en v3.
+avec « un message PSK **v4** est arrivé sur K, ou le contact de K parle
+v4 » ; sans ce signe, la PSK reste en v3. Un contact v4 ne redescend jamais
+en v3 : sans session ni paquet frais, c'est la PSK v4 qui part.
+
+À la réception, un jeton v4 qu'aucune session n'ouvre ne déclenche pas de
+réparation (§8.6) : sans identifiant en clair, rien ne dit quelle session
+serait perdue ; l'envoi suivant en ouvre une s'il n'y en a plus.
 
 ### 9.7 Contre le déclassement
 

@@ -20,6 +20,11 @@
 //!
 //! Ce qui a changé se lit avec [`Engine::take_dirty`] : l'appelant l'écrit
 //! (appareil d'abord) avant de rendre le jeton (§8.3).
+//!
+//! **Le v4** (§9) passe par le même moteur : un contact dont la capacité v4
+//! signée est valide (ou dont un message v4 est déjà arrivé) reçoit des
+//! jetons `[[BROCOLIS:v4:…]]` à triple cliquet et en-têtes chiffrés ; son
+//! empreinte d'appairage prend le contexte v4 (§9.7).
 
 use std::collections::BTreeMap;
 
@@ -27,7 +32,8 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use brocolis_proto::session::MAX_PLAINTEXT;
 use brocolis_proto::{
-    Content, Device, Erreur, JOUR, KeyBundle, Mode, ReplayGuard, Session, Token, hasard, jeton_v3,
+    Content, Device, Erreur, JOUR, KeyBundle, Mode, ReplayGuard, Session, Session4, Token, Token4,
+    hasard, jeton_v3, jeton_v4, paquet,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -45,6 +51,8 @@ pub const MEDIA_THRESHOLD: usize = 16 * 1024;
 pub const BUNDLE_MAX_AGE: u64 = 30 * JOUR;
 /// Ce qui précède les deux identités dans l'empreinte d'appairage (§8.4).
 pub const FINGERPRINT_CONTEXT: &[u8] = b"Brocolis_v3_Appairage";
+/// …quand les deux côtés ont une capacité v4 valide (§9.7).
+pub const FINGERPRINT_CONTEXT_V4: &[u8] = b"Brocolis_v4_Appairage";
 /// Les messages ouverts gardés : 2 000 au plus…
 pub const OPENED_MAX: usize = 2_000;
 /// …et 1 Mio de clair (§8.2).
@@ -55,6 +63,10 @@ const SESSIONS_PER_PEER: usize = 2;
 /// La protection d'une clé, affichée partout (§8.8).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Protection {
+    /// 🔐 triple cliquet : v4, ML-KEM à chaque tour, en-têtes chiffrés.
+    Triple,
+    /// 🔐 triple cliquet, à partir de la clé partagée (v4).
+    TriplePsk,
     /// 🔐 double cliquet, établi en hybride X25519 + ML-KEM-768.
     PostQuantum,
     /// 🔐 double cliquet, X25519 seul.
@@ -69,6 +81,8 @@ impl Protection {
     /// La clé du texte affiché (`i18n`).
     pub fn i18n_key(self) -> &'static str {
         match self {
+            Protection::Triple => "chat.v4",
+            Protection::TriplePsk => "chat.v4psk",
             Protection::PostQuantum => "chat.v3pq",
             Protection::Classic => "chat.v3classic",
             Protection::Psk => "chat.v3psk",
@@ -86,6 +100,8 @@ pub struct KeyInfo<'a> {
     pub key: [u8; 32],
     /// Le paquet du correspondant reçu à l'appairage, s'il y en a un.
     pub bundle: Option<&'a KeyBundle>,
+    /// Sa capacité v4 signée, reçue avec le paquet (§9.6), vérifiée ici.
+    pub caps: Option<&'a [u8; 64]>,
     /// Quand ce paquet est arrivé (secondes Unix).
     pub bundle_at: u64,
     /// Une clé de groupe (3 personnes ou plus) : jamais de v3.
@@ -116,9 +132,19 @@ pub fn needs_repair(e: &Erreur) -> bool {
 /// `SHA-256("Brocolis_v3_Appairage" ‖ K ‖ min(P_A, P_B) ‖ max(P_A, P_B))[0..8]`,
 /// P = IK X25519 ‖ IK Ed25519.
 pub fn pairing_fingerprint(key: &[u8; 32], a: &[u8; 64], b: &[u8; 64]) -> String {
+    fingerprint_with(FINGERPRINT_CONTEXT, key, a, b)
+}
+
+/// L'empreinte d'appairage v4 (§9.7) : la même, sous
+/// `"Brocolis_v4_Appairage"`.
+pub fn pairing_fingerprint4(key: &[u8; 32], a: &[u8; 64], b: &[u8; 64]) -> String {
+    fingerprint_with(FINGERPRINT_CONTEXT_V4, key, a, b)
+}
+
+fn fingerprint_with(context: &[u8], key: &[u8; 32], a: &[u8; 64], b: &[u8; 64]) -> String {
     let (lo, hi) = if a <= b { (a, b) } else { (b, a) };
     let mut h = Sha256::new();
-    h.update(FINGERPRINT_CONTEXT);
+    h.update(context);
     h.update(key);
     h.update(lo);
     h.update(hi);
@@ -149,13 +175,25 @@ pub fn token_hash(token: &str) -> String {
     hex(&Sha256::digest(normalize(token).as_bytes()))
 }
 
-/// Les jetons v3 d'un texte (début, fin), dans l'ordre.
+/// La capacité v4 du paquet est-elle valide (§9.6) : 64 octets signés par
+/// son identité, et un paquet qui propose ML-KEM.
+pub fn caps_valid(bundle: &KeyBundle, caps: Option<&[u8; 64]>) -> bool {
+    bundle.pq.is_some() && caps.is_some_and(|c| paquet::verify_caps4(&bundle.identity, c).is_ok())
+}
+
+/// Les jetons v3 et v4 d'un texte (début, fin), dans l'ordre (les jetons v1
+/// de l'enveloppe des médias n'en sont pas).
 pub fn find_tokens(text: &str) -> Vec<(usize, usize)> {
     let mut out = Vec::new();
     let mut from = 0;
-    while let Some(start) = text[from..].find(jeton_v3::HEAD) {
+    while let Some(start) = text[from..].find("[[BROCOLIS:v") {
         let start = from + start;
-        let Some(end) = text[start..].find("]]") else {
+        let rest = &text[start..];
+        if !rest.starts_with(jeton_v3::HEAD) && !rest.starts_with(jeton_v4::HEAD) {
+            from = start + 2;
+            continue;
+        }
+        let Some(end) = rest.find("]]") else {
             break;
         };
         let end = start + end + 2;
@@ -165,15 +203,65 @@ pub fn find_tokens(text: &str) -> Vec<(usize, usize)> {
     out
 }
 
+fn is_v4(token: &str) -> bool {
+    token.trim_start().starts_with(jeton_v4::HEAD)
+}
+
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// Ce que le rangement attend d'une session v3 ou v4.
+trait Stockable: Sized {
+    fn id(&self) -> [u8; 8];
+    fn json(&self) -> String;
+    fn parse(json: &str) -> Option<Self>;
+    fn purge_at(&mut self, now: u64);
+}
+
+impl Stockable for Session {
+    fn id(&self) -> [u8; 8] {
+        self.session_id()
+    }
+    fn json(&self) -> String {
+        self.to_json().to_string()
+    }
+    fn parse(json: &str) -> Option<Self> {
+        Session::from_json(json).ok()
+    }
+    fn purge_at(&mut self, now: u64) {
+        self.purge(now);
+    }
+}
+
+impl Stockable for Session4 {
+    fn id(&self) -> [u8; 8] {
+        self.session_id()
+    }
+    fn json(&self) -> String {
+        self.to_json().to_string()
+    }
+    fn parse(json: &str) -> Option<Self> {
+        Session4::from_json(json).ok()
+    }
+    fn purge_at(&mut self, now: u64) {
+        self.purge(now);
+    }
+}
+
 /// Les sessions d'un contact (ou d'une clé PSK).
-#[derive(Default)]
-struct Peer {
-    sessions: Vec<Session>,
+struct Peer<S = Session> {
+    sessions: Vec<S>,
     current: Option<[u8; 8]>,
+}
+
+impl<S> Default for Peer<S> {
+    fn default() -> Self {
+        Peer {
+            sessions: Vec::new(),
+            current: None,
+        }
+    }
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -183,17 +271,17 @@ struct StoredPeer {
     sessions: Vec<Value>,
 }
 
-impl Peer {
-    fn from_stored(stored: &StoredPeer) -> Peer {
-        let sessions: Vec<Session> = stored
+impl<S: Stockable> Peer<S> {
+    fn from_stored(stored: &StoredPeer) -> Peer<S> {
+        let sessions: Vec<S> = stored
             .sessions
             .iter()
-            .filter_map(|v| Session::from_json(&v.to_string()).ok())
+            .filter_map(|v| S::parse(&v.to_string()))
             .take(SESSIONS_PER_PEER)
             .collect();
         let current = sessions
             .iter()
-            .map(Session::session_id)
+            .map(S::id)
             .find(|id| hex(id) == stored.current);
         Peer { sessions, current }
     }
@@ -204,31 +292,31 @@ impl Peer {
             sessions: self
                 .sessions
                 .iter()
-                .filter_map(|s| serde_json::from_str(&s.to_json()).ok())
+                .filter_map(|s| serde_json::from_str(&s.json()).ok())
                 .collect(),
         }
     }
 
-    fn get(&mut self, id: &[u8; 8]) -> Option<&mut Session> {
-        self.sessions.iter_mut().find(|s| s.session_id() == *id)
+    fn get(&mut self, id: &[u8; 8]) -> Option<&mut S> {
+        self.sessions.iter_mut().find(|s| s.id() == *id)
     }
 
     fn sending_id(&self) -> Option<[u8; 8]> {
         self.current
-            .filter(|id| self.sessions.iter().any(|s| s.session_id() == *id))
-            .or_else(|| self.sessions.last().map(Session::session_id))
+            .filter(|id| self.sessions.iter().any(|s| s.id() == *id))
+            .or_else(|| self.sessions.last().map(S::id))
     }
 
-    fn sending(&mut self) -> Option<&mut Session> {
+    fn sending(&mut self) -> Option<&mut S> {
         let id = self.sending_id()?;
         self.get(&id)
     }
 
     /// Range une session (elle remplace celle de même identifiant, la plus
     /// ancienne part au-delà de deux) et en fait la session d'envoi.
-    fn put(&mut self, s: Session) {
-        let id = s.session_id();
-        self.sessions.retain(|x| x.session_id() != id);
+    fn put(&mut self, s: S) {
+        let id = s.id();
+        self.sessions.retain(|x| x.id() != id);
         self.sessions.push(s);
         while self.sessions.len() > SESSIONS_PER_PEER {
             self.sessions.remove(0);
@@ -256,6 +344,14 @@ struct Stored {
     psk_seen: Vec<String>,
     psk_replay: ReplayGuard,
     opened: Vec<OpenedEntry>,
+    /// Les sessions v4 (§9), rangées comme les v3.
+    peers4: BTreeMap<String, StoredPeer>,
+    psk4: BTreeMap<String, StoredPeer>,
+    /// Les contacts (IK X25519, hex) dont un message v4 est arrivé : on ne
+    /// leur écrit plus qu'en v4 (§9.6).
+    v4_seen: Vec<String>,
+    /// Les clés sur lesquelles une PSK v4 est arrivée.
+    psk4_seen: Vec<String>,
 }
 
 /// Ce qu'il faut écrire après une opération, dans cet ordre (§8.3).
@@ -275,6 +371,10 @@ pub struct Engine {
     psk_seen: Vec<String>,
     psk_replay: ReplayGuard,
     opened: Vec<OpenedEntry>,
+    peers4: BTreeMap<String, Peer<Session4>>,
+    psk4: BTreeMap<String, Peer<Session4>>,
+    v4_seen: Vec<String>,
+    psk4_seen: Vec<String>,
     device_dirty: bool,
     state_dirty: bool,
 }
@@ -292,19 +392,15 @@ impl Engine {
             .unwrap_or_default();
         let mut engine = Engine {
             device,
-            peers: stored
-                .peers
-                .iter()
-                .map(|(k, v)| (k.clone(), Peer::from_stored(v)))
-                .collect(),
-            psk: stored
-                .psk
-                .iter()
-                .map(|(k, v)| (k.clone(), Peer::from_stored(v)))
-                .collect(),
+            peers: load_table(&stored.peers),
+            psk: load_table(&stored.psk),
             psk_seen: stored.psk_seen,
             psk_replay: stored.psk_replay,
             opened: stored.opened,
+            peers4: load_table(&stored.peers4),
+            psk4: load_table(&stored.psk4),
+            v4_seen: stored.v4_seen,
+            psk4_seen: stored.psk4_seen,
             device_dirty: created,
             state_dirty: false,
         };
@@ -326,7 +422,12 @@ impl Engine {
         self.device.purge(now);
         for peer in self.peers.values_mut().chain(self.psk.values_mut()) {
             for s in &mut peer.sessions {
-                s.purge(now);
+                s.purge_at(now);
+            }
+        }
+        for peer in self.peers4.values_mut().chain(self.psk4.values_mut()) {
+            for s in &mut peer.sessions {
+                s.purge_at(now);
             }
         }
     }
@@ -343,19 +444,15 @@ impl Engine {
     pub fn state_json(&self) -> String {
         let stored = Stored {
             v: 1,
-            peers: self
-                .peers
-                .iter()
-                .map(|(k, p)| (k.clone(), p.to_stored()))
-                .collect(),
-            psk: self
-                .psk
-                .iter()
-                .map(|(k, p)| (k.clone(), p.to_stored()))
-                .collect(),
+            peers: store_table(&self.peers),
+            psk: store_table(&self.psk),
             psk_seen: self.psk_seen.clone(),
             psk_replay: self.psk_replay.clone(),
             opened: self.opened.clone(),
+            peers4: store_table(&self.peers4),
+            psk4: store_table(&self.psk4),
+            v4_seen: self.v4_seen.clone(),
+            psk4_seen: self.psk4_seen.clone(),
         };
         serde_json::to_string(&stored).unwrap_or_default()
     }
@@ -363,6 +460,24 @@ impl Engine {
     /// Le paquet de clés à publier dans le salon (base64).
     pub fn bundle_b64(&self) -> Option<String> {
         self.device.bundle().ok().map(|b| b.to_base64())
+    }
+
+    /// Ma capacité v4 signée, à publier avec le paquet (§9.6, base64).
+    pub fn caps_b64(&self) -> Option<String> {
+        self.device.caps4().map(|c| STANDARD.encode(c))
+    }
+
+    /// L'empreinte d'appairage à comparer pour la clé `k` (§8.4, §9.7) :
+    /// sous le contexte v4 si le contact a une capacité valide (la mienne
+    /// est toujours publiée), sinon v3. `None` sans paquet.
+    pub fn fingerprint(&self, k: &KeyInfo<'_>) -> Option<String> {
+        let b = Self::contact(k)?;
+        let (mine, theirs) = (self.identity(), identity_of(b));
+        Some(if caps_valid(b, k.caps) && self.device.supports_pq() {
+            pairing_fingerprint4(&k.key, &mine, &theirs)
+        } else {
+            pairing_fingerprint(&k.key, &mine, &theirs)
+        })
     }
 
     /// Mon identité : IK X25519 ‖ IK Ed25519.
@@ -382,6 +497,22 @@ impl Engine {
         k.bundle_at.saturating_add(BUNDLE_MAX_AGE) > now
     }
 
+    /// Le paquet du contact s'il parle v4 (§9.6) : ML-KEM, et une capacité
+    /// valide ou un message v4 déjà reçu de lui (on ne redescend pas).
+    fn contact4<'a>(&self, k: &KeyInfo<'a>) -> Option<&'a KeyBundle> {
+        let b = Self::contact(k)?;
+        b.pq.as_ref()?;
+        let sticky = self.v4_seen.contains(&hex(&b.identity.dh));
+        (self.device.supports_pq() && (sticky || caps_valid(b, k.caps))).then_some(b)
+    }
+
+    /// La PSK part-elle en v4 : une PSK v4 est arrivée sur la clé, ou le
+    /// contact parle v4.
+    fn psk4_allowed(&self, k: &KeyInfo<'_>, now: u64) -> bool {
+        self.psk_allowed(k, now)
+            && (self.psk4_seen.iter().any(|id| id == k.id) || self.contact4(k).is_some())
+    }
+
     fn psk_allowed(&self, k: &KeyInfo<'_>, now: u64) -> bool {
         !k.group
             && (k.psk
@@ -393,7 +524,15 @@ impl Engine {
 
     /// La protection de la clé, telle que le prochain envoi la donnera (§8.8).
     pub fn protection(&self, k: &KeyInfo<'_>, now: u64) -> Protection {
-        if let Some(b) = Self::contact(k) {
+        if let Some(b) = self.contact4(k) {
+            let live = self
+                .peers4
+                .get(&hex(&b.identity.dh))
+                .is_some_and(|p| p.sending_id().is_some());
+            if live || Self::fresh(k, now) {
+                return Protection::Triple;
+            }
+        } else if let Some(b) = Self::contact(k) {
             let owner = hex(&b.identity.dh);
             if let Some(peer) = self.peers.get(&owner)
                 && let Some(id) = peer.sending_id()
@@ -413,7 +552,9 @@ impl Engine {
                 };
             }
         }
-        if self.psk_allowed(k, now) {
+        if self.psk4_allowed(k, now) {
+            Protection::TriplePsk
+        } else if self.psk_allowed(k, now) {
             Protection::Psk
         } else {
             Protection::Legacy
@@ -424,6 +565,23 @@ impl Engine {
     /// à la fin de l'appairage : §8.4). Rien ne part : le premier message
     /// (0x01) la portera.
     pub fn open_session(&mut self, k: &KeyInfo<'_>, now: u64) -> bool {
+        if let Some(b) = self.contact4(k) {
+            let peer = self.peers4.entry(hex(&b.identity.dh)).or_default();
+            if peer.sending_id().is_some() {
+                return true;
+            }
+            if !Self::fresh(k, now) {
+                return false;
+            }
+            return match self.device.initiate4(b, &mut hasard::system()) {
+                Ok(s) => {
+                    peer.put(s);
+                    self.state_dirty = true;
+                    true
+                }
+                Err(_) => false,
+            };
+        }
         let Some(b) = Self::contact(k).filter(|_| Self::fresh(k, now)) else {
             return false;
         };
@@ -451,9 +609,20 @@ impl Engine {
         if text.len() > MAX_PLAINTEXT {
             return None;
         }
-        let token = self
-            .seal_contact(k, text, now)
-            .or_else(|| self.seal_psk(k, text, now))?;
+        // Un contact v4 ne reçoit plus que du v4 (§9.6) : sans session ni
+        // paquet frais, la PSK (v4) prend le relais, jamais le v3.
+        let contact = if self.contact4(k).is_some() {
+            self.seal_contact4(k, text, now)
+        } else {
+            self.seal_contact(k, text, now)
+        };
+        let token = contact.or_else(|| {
+            if self.psk4_allowed(k, now) {
+                self.seal_psk4(k, text)
+            } else {
+                self.seal_psk(k, text, now)
+            }
+        })?;
         self.remember(&token, text, true, now);
         Some(token)
     }
@@ -479,6 +648,47 @@ impl Engine {
             .device
             .initiate(b, b.pq.is_some(), &mut hasard::system())
             .ok()?;
+        let token = s.encrypt(text).ok()?;
+        peer.put(s);
+        self.state_dirty = true;
+        Some(token)
+    }
+
+    fn seal_contact4(&mut self, k: &KeyInfo<'_>, text: &str, now: u64) -> Option<String> {
+        let b = self.contact4(k)?;
+        let fresh = Self::fresh(k, now);
+        let peer = self.peers4.entry(hex(&b.identity.dh)).or_default();
+        if let Some(s) = peer.sending() {
+            match s.encrypt(text) {
+                Ok(token) => {
+                    self.state_dirty = true;
+                    return Some(token);
+                }
+                Err(_) => peer.sessions.clear(),
+            }
+        }
+        if !fresh {
+            return None;
+        }
+        let mut s = self.device.initiate4(b, &mut hasard::system()).ok()?;
+        let token = s.encrypt(text).ok()?;
+        peer.put(s);
+        self.state_dirty = true;
+        Some(token)
+    }
+
+    fn seal_psk4(&mut self, k: &KeyInfo<'_>, text: &str) -> Option<String> {
+        let peer = self.psk4.entry(k.id.to_owned()).or_default();
+        if let Some(s) = peer.sending() {
+            match s.encrypt(text) {
+                Ok(token) => {
+                    self.state_dirty = true;
+                    return Some(token);
+                }
+                Err(_) => peer.sessions.clear(),
+            }
+        }
+        let mut s = Session4::initiate_psk(&k.key, &mut hasard::system()).ok()?;
         let token = s.encrypt(text).ok()?;
         peer.put(s);
         self.state_dirty = true;
@@ -541,11 +751,13 @@ impl Engine {
         if let Some(text) = self.recall(token) {
             return Opened::Text(text.to_owned());
         }
-        let decoded = match Token::decode(&normalize(token)) {
-            Ok(t) => t,
-            Err(e) => return Opened::Failed(e),
+        let clean = normalize(token);
+        let result = if is_v4(&clean) {
+            Token4::decode(&clean).and_then(|t| self.decrypt4(&t, keys, now))
+        } else {
+            Token::decode(&clean).and_then(|t| self.decrypt(&t, keys, now))
         };
-        match self.decrypt(&decoded, keys, now) {
+        match result {
             Ok(text) => {
                 self.remember(token, &text, false, now);
                 Opened::Text(text)
@@ -609,13 +821,91 @@ impl Engine {
         text_of(content)
     }
 
+    /// Reçoit un jeton v4 (§9) : chaque session v4 l'essaie (une
+    /// [`Erreur::SessionInconnue`] veut dire « pas celle-ci ») ; sinon un
+    /// premier message d'un contact, ou une PSK v4 d'une de `keys`.
+    fn decrypt4(
+        &mut self,
+        token: &Token4,
+        keys: &[KeyInfo<'_>],
+        now: u64,
+    ) -> Result<String, Erreur> {
+        let rng = &mut hasard::system();
+        let mut opened = None;
+        'tables: for (psk, table) in [(false, &mut self.peers4), (true, &mut self.psk4)] {
+            for (owner, peer) in table.iter_mut() {
+                for s in peer.sessions.iter_mut() {
+                    match s.decrypt(token, now, rng) {
+                        Ok(content) => {
+                            let id = s.id();
+                            peer.current = Some(id);
+                            opened = Some((psk, owner.clone(), content));
+                            break 'tables;
+                        }
+                        Err(Erreur::SessionInconnue) => {}
+                        Err(e) => return Err(e),
+                    }
+                }
+            }
+        }
+        if let Some((psk, owner, content)) = opened {
+            if !psk && !self.v4_seen.contains(&owner) {
+                self.v4_seen.push(owner);
+            }
+            self.state_dirty = true;
+            return text_of(content);
+        }
+        match token {
+            Token4::Initial(..) => {
+                let (s, content) = self.device.accept4(token, now, rng)?;
+                // Seulement d'un contact (paquet reçu à l'appairage).
+                let ik = s.peer_identity().ok_or(Erreur::SessionInconnue)?;
+                let known = keys
+                    .iter()
+                    .any(|k| Self::contact(k).is_some_and(|b| b.identity.dh == ik));
+                if !known {
+                    return Err(Erreur::SessionInconnue);
+                }
+                self.device_dirty = true;
+                let owner = hex(&ik);
+                if !self.v4_seen.contains(&owner) {
+                    self.v4_seen.push(owner.clone());
+                }
+                self.peers4.entry(owner).or_default().put(s);
+                self.state_dirty = true;
+                text_of(content)
+            }
+            Token4::Message(_) => {
+                for k in keys.iter().filter(|k| !k.group) {
+                    match Session4::accept_psk(&[k.key], token, &mut self.psk_replay, now, rng) {
+                        Ok((s, content)) => {
+                            self.psk4.entry(k.id.to_owned()).or_default().put(s);
+                            for seen in [&mut self.psk_seen, &mut self.psk4_seen] {
+                                if !seen.iter().any(|x| x == k.id) {
+                                    seen.push(k.id.to_owned());
+                                }
+                            }
+                            self.state_dirty = true;
+                            return text_of(content);
+                        }
+                        Err(Erreur::SessionInconnue) => continue,
+                        Err(e) => return Err(e),
+                    }
+                }
+                Err(Erreur::SessionInconnue)
+            }
+        }
+    }
+
     /// Oublie les sessions du contact de `k` : le prochain envoi en ouvre une
     /// neuve (§8.6, réparation).
     pub fn repair(&mut self, k: &KeyInfo<'_>) {
-        if let Some(b) = k.bundle
-            && self.peers.remove(&hex(&b.identity.dh)).is_some()
-        {
-            self.state_dirty = true;
+        if let Some(b) = k.bundle {
+            let owner = hex(&b.identity.dh);
+            let v3 = self.peers.remove(&owner).is_some();
+            if self.peers4.remove(&owner).is_some() || v3 {
+                self.state_dirty = true;
+            }
         }
     }
 
@@ -623,21 +913,41 @@ impl Engine {
     /// sessions de contact et PSK. Les messages ouverts aussi.
     pub fn forget(&mut self, k: &KeyInfo<'_>) {
         if let Some(b) = k.bundle {
-            self.peers.remove(&hex(&b.identity.dh));
+            let owner = hex(&b.identity.dh);
+            self.peers.remove(&owner);
+            self.peers4.remove(&owner);
+            self.v4_seen.retain(|x| *x != owner);
         }
         self.psk.remove(k.id);
+        self.psk4.remove(k.id);
         self.psk_seen.retain(|x| x != k.id);
+        self.psk4_seen.retain(|x| x != k.id);
         self.opened.clear();
         self.state_dirty = true;
     }
 
     /// Le nombre de sessions avec le contact de `k` (tests, affichage).
     pub fn session_count(&self, k: &KeyInfo<'_>) -> usize {
-        k.bundle
-            .and_then(|b| self.peers.get(&hex(&b.identity.dh)))
-            .map_or(0, |p| p.sessions.len())
+        let owner = k.bundle.map(|b| hex(&b.identity.dh)).unwrap_or_default();
+        self.peers.get(&owner).map_or(0, |p| p.sessions.len())
+            + self.peers4.get(&owner).map_or(0, |p| p.sessions.len())
             + self.psk.get(k.id).map_or(0, |p| p.sessions.len())
+            + self.psk4.get(k.id).map_or(0, |p| p.sessions.len())
     }
+}
+
+fn load_table<S: Stockable>(stored: &BTreeMap<String, StoredPeer>) -> BTreeMap<String, Peer<S>> {
+    stored
+        .iter()
+        .map(|(k, v)| (k.clone(), Peer::from_stored(v)))
+        .collect()
+}
+
+fn store_table<S: Stockable>(table: &BTreeMap<String, Peer<S>>) -> BTreeMap<String, StoredPeer> {
+    table
+        .iter()
+        .map(|(k, p)| (k.clone(), p.to_stored()))
+        .collect()
 }
 
 fn text_of(content: Content) -> Result<String, Erreur> {
@@ -687,8 +997,12 @@ pub fn open_message(
             .map_or(Opened::Replay, |t| Opened::Text(t.to_owned()))
     } else {
         let opened = engine.open(token, keys, now);
+        // En v4, un jeton qu'aucune session n'ouvre ne dit pas laquelle est
+        // perdue (pas d'identifiant en clair) : pas de réparation, l'envoi
+        // suivant ouvre une session s'il n'y en a plus.
         if let Opened::Failed(e) = &opened
             && needs_repair(e)
+            && !is_v4(token)
         {
             engine.repair(k);
         }
@@ -738,6 +1052,7 @@ mod tests {
             id,
             key,
             bundle,
+            caps: None,
             bundle_at: NOW,
             group: false,
             psk: false,
@@ -939,6 +1254,132 @@ mod tests {
             open_message(&mut b.engine, &v1, &[kb], &kb, false, NOW),
             None
         );
+    }
+
+    fn caps(side: &Side) -> [u8; 64] {
+        STANDARD
+            .decode(side.engine.caps_b64().unwrap())
+            .unwrap()
+            .try_into()
+            .unwrap()
+    }
+
+    #[test]
+    fn caps_switch_a_contact_to_the_triple_ratchet() {
+        let (mut a, mut b) = (Side::new("a"), Side::new("b"));
+        let (ba, bb) = (a.bundle(), b.bundle());
+        let (ca, cb) = (caps(&a), caps(&b));
+        let key = [11u8; 32];
+        let ka = KeyInfo {
+            caps: Some(&cb),
+            ..info("k", key, Some(&bb))
+        };
+        let kb = KeyInfo {
+            caps: Some(&ca),
+            ..info("k", key, Some(&ba))
+        };
+        assert_eq!(a.engine.protection(&ka, NOW), Protection::Triple);
+        // Les deux voient la même empreinte, sous le contexte v4.
+        let fp = a.engine.fingerprint(&ka).unwrap();
+        assert_eq!(Some(fp.clone()), b.engine.fingerprint(&kb));
+        assert_eq!(
+            fp,
+            pairing_fingerprint4(&key, &a.engine.identity(), &b.engine.identity())
+        );
+        assert!(a.engine.open_session(&ka, NOW));
+        let m1 = a.engine.seal(&ka, "un", NOW).unwrap();
+        let m2 = a.engine.seal(&ka, "deux", NOW).unwrap();
+        assert!(m1.starts_with(jeton_v4::HEAD));
+        assert_eq!(find_tokens(&format!("x {m1} y")).len(), 1);
+        assert_eq!(b.engine.open(&m2, &[kb], NOW), Opened::Text("deux".into()));
+        assert_eq!(b.engine.open(&m1, &[kb], NOW), Opened::Text("un".into()));
+        assert_eq!(b.engine.protection(&kb, NOW), Protection::Triple);
+        let r = b.engine.seal(&kb, "réponse", NOW).unwrap();
+        assert!(r.starts_with(jeton_v4::HEAD));
+        assert_eq!(
+            a.engine.open(&r, &[ka], NOW),
+            Opened::Text("réponse".into())
+        );
+        // Déjà lu, sans le clair gardé.
+        b.engine.opened.clear();
+        assert_eq!(b.engine.open(&m1, &[kb], NOW), Opened::Replay);
+        // Un tiers : refusé.
+        let mut c = Side::new("c");
+        assert_eq!(
+            c.engine.open(&m1, &[info("k", key, None)], NOW),
+            Opened::Failed(Erreur::CleInconnue)
+        );
+        // L'état se relit.
+        let dirty = a.engine.take_dirty();
+        let mut a2 = Engine::load(dirty.device.as_deref(), dirty.state.as_deref(), NOW);
+        let m3 = a2.seal(&ka, "relu", NOW).unwrap();
+        assert_eq!(b.engine.open(&m3, &[kb], NOW), Opened::Text("relu".into()));
+        let _ = (a.id, c.id);
+    }
+
+    #[test]
+    fn a_removed_caps_shows_in_the_fingerprint_and_never_downgrades() {
+        let (mut a, mut b) = (Side::new("a"), Side::new("b"));
+        let (ba, bb) = (a.bundle(), b.bundle());
+        let (ca, cb) = (caps(&a), caps(&b));
+        let key = [12u8; 32];
+        // Le serveur retire la capacité de A chez B seulement.
+        let ka = KeyInfo {
+            caps: Some(&cb),
+            ..info("k", key, Some(&bb))
+        };
+        let kb = info("k", key, Some(&ba));
+        assert_ne!(a.engine.fingerprint(&ka), b.engine.fingerprint(&kb));
+        assert_eq!(b.engine.protection(&kb, NOW), Protection::PostQuantum);
+        // Une capacité d'une autre identité ne vaut rien.
+        let forged = KeyInfo {
+            caps: Some(&cb),
+            ..kb
+        };
+        assert_eq!(b.engine.protection(&forged, NOW), Protection::PostQuantum);
+        // A écrit en v4 : B le lit, puis ne redescend plus en v3.
+        let m = a.engine.seal(&ka, "v4", NOW).unwrap();
+        assert_eq!(b.engine.open(&m, &[kb], NOW), Opened::Text("v4".into()));
+        assert_eq!(b.engine.protection(&kb, NOW), Protection::Triple);
+        let r = b.engine.seal(&kb, "toujours v4", NOW).unwrap();
+        assert!(r.starts_with(jeton_v4::HEAD));
+        assert_eq!(
+            a.engine.open(&r, &[ka], NOW),
+            Opened::Text("toujours v4".into())
+        );
+        // Paquet trop vieux, plus de session : la PSK, en v4.
+        let later = NOW + BUNDLE_MAX_AGE + 1;
+        let mut b2 = Engine::load(Some(&b.engine.device.to_json()), None, later);
+        b2.v4_seen = b.engine.v4_seen.clone();
+        assert_eq!(b2.protection(&kb, later), Protection::TriplePsk);
+        let p = b2.seal(&kb, "par la clé", later).unwrap();
+        assert!(p.starts_with(jeton_v4::HEAD));
+        assert_eq!(
+            a.engine.open(&p, &[ka], later),
+            Opened::Text("par la clé".into())
+        );
+        let _ = ca;
+    }
+
+    #[test]
+    fn psk_v4_follows_a_received_psk_v4() {
+        let (mut a, mut b) = (Side::new("a"), Side::new("b"));
+        let key = [13u8; 32];
+        let ka = info("ka", key, None);
+        let kb = info("kb", key, None);
+        // A a reçu une PSK v4 sur la clé (un autre appareil à jour).
+        a.engine.psk_seen.push("ka".into());
+        a.engine.psk4_seen.push("ka".into());
+        assert_eq!(a.engine.protection(&ka, NOW), Protection::TriplePsk);
+        let m = a.engine.seal(&ka, "psk v4", NOW).unwrap();
+        assert!(m.starts_with(jeton_v4::HEAD));
+        assert_eq!(b.engine.open(&m, &[kb], NOW), Opened::Text("psk v4".into()));
+        assert_eq!(b.engine.protection(&kb, NOW), Protection::TriplePsk);
+        let r = b.engine.seal(&kb, "suivi", NOW).unwrap();
+        assert_eq!(a.engine.open(&r, &[ka], NOW), Opened::Text("suivi".into()));
+        // Rejoué : déjà lu.
+        b.engine.opened.clear();
+        assert_eq!(b.engine.open(&m, &[kb], NOW), Opened::Replay);
     }
 
     #[test]
