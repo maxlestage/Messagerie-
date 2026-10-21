@@ -26,6 +26,16 @@ const FEATURES: [(&str, &str, &str); 8] = [
     ("🥦", "feat.interop.t", "feat.interop.d"),
 ];
 
+/// Le protocole v3 : (icône, titre, texte).
+const V3: [(&str, &str, &str); 6] = [
+    ("🗝️", "v3.fs.t", "v3.fs.d"),
+    ("⚛️", "v3.pq.t", "v3.pq.d"),
+    ("🩹", "v3.heal.t", "v3.heal.d"),
+    ("📏", "v3.pad.t", "v3.pad.d"),
+    ("🔎", "v3.verify.t", "v3.verify.d"),
+    ("🔐", "v3.label.t", "v3.label.d"),
+];
+
 const STATS: [(&str, &str); 3] = [
     ("stat.cipher", "stat.cipher.d"),
     ("stat.kex", "stat.kex.d"),
@@ -57,14 +67,14 @@ const ENDPOINTS: [(&str, &str, &str); 6] = [
 
 /// Ce qui défile dans le bandeau.
 const MARQUEE: [&str; 10] = [
-    "🔒 [[BROCOLIS:v1:…]]",
+    "🔒 [[BROCOLIS:v3:…]]",
     "WhatsApp",
     "iMessage",
     "Messenger",
     "⌚ Apple Watch",
     "Notes",
-    "X25519",
-    "Signal",
+    "ML-KEM-768",
+    "Double Ratchet",
     "AES-256-GCM",
     "Live Activity",
 ];
@@ -732,6 +742,44 @@ fn features(ctx: &Ctx<'_>) -> Element {
         )
 }
 
+/// Le protocole v3 (docs/SECURITE.md §4 et §8), expliqué.
+fn protocol(ctx: &Ctx<'_>) -> Element {
+    section()
+        .class("section")
+        .id("v3")
+        .attr("aria-labelledby", "v3-title")
+        .child(section_head(
+            Some(ctx.t("v3.kicker")),
+            "v3-title",
+            ctx.t("v3.title"),
+            ctx.t("v3.note"),
+        ))
+        .child(
+            div()
+                .class("features v3-grid")
+                .children(V3.iter().enumerate().map(|(i, (icon, title, text))| {
+                    article()
+                        .class("card reveal tilt")
+                        .style(format!("--d: {}", i % 3))
+                        .child(span().class("card-shine").attr("aria-hidden", "true"))
+                        .child(
+                            div()
+                                .class("card-icon")
+                                .attr("aria-hidden", "true")
+                                .text(*icon),
+                        )
+                        .child(h3().text(ctx.t(title)))
+                        .child(p().text(ctx.t(text)))
+                })),
+        )
+        .child(
+            p().class("v3-spec reveal").child(
+                external(&format!("{REPO_URL}/blob/master/docs/SECURITE.md"))
+                    .text(ctx.t("v3.spec")),
+            ),
+        )
+}
+
 fn pricing(ctx: &Ctx<'_>) -> Element {
     section()
         .class("section")
@@ -853,6 +901,7 @@ fn home(ctx: &Ctx<'_>) -> String {
                     ))
                     .child(flow(ctx)),
             )
+            .child(protocol(ctx))
             .child(features(ctx))
             .child(pricing(ctx))
             .child(readme(ctx))

@@ -27,7 +27,7 @@ pub mod client;
 /// Le dépôt du projet.
 pub const REPO_URL: &str = "https://github.com/maxlestage/Messagerie-";
 /// Le projet brocolis, sur lequel l'app est bâtie.
-pub const BROCOLIS_URL: &str = "https://maxlestage.github.io/brocolis/";
+pub const BROCOLIS_URL: &str = "https://brocolis-dafbe9beac75.herokuapp.com/";
 /// Le texte complet de la licence.
 pub const LICENSE_FILE: &str = "https://github.com/maxlestage/Messagerie-/blob/master/LICENSE";
 /// Les fichiers bruts du dépôt (images du README).
