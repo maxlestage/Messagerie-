@@ -343,6 +343,199 @@ def group(g):
     ok(plain == d, "distribution déchiffrée")
 
 
+
+# ----- Protocole v4 (§9) --------------------------------------------------
+
+Z = b"\x00" * 32
+
+
+def kdf_rk4(rk, dh, ss=None):
+    info = b"Brocolis_v4_Ratchet_MLKEM768" if ss else b"Brocolis_v4_Ratchet"
+    o = hkdf(rk, dh + (ss or b""), info, 96)
+    return o[:32], o[32:64], o[64:]
+
+
+def msg_keys4(mk):
+    o = hkdf(Z, mk, b"Brocolis_v4_MessageKeys", 56)
+    return o[:32], o[32:44], o[44:56]
+
+
+def mlkem_pub(seed):
+    from cryptography.hazmat.primitives import serialization as s
+    return MLKEM768PrivateKey.from_seed_bytes(seed).public_key().public_bytes(s.Encoding.Raw, s.PublicFormat.Raw)
+
+
+def decaps(seed, ct):
+    return MLKEM768PrivateKey.from_seed_bytes(seed).decapsulate(ct)
+
+
+def parse_v4(tok):
+    d = token_bytes(tok, "[[BROCOLIS:v4:")
+    t, pre, i = d[0], None, 1
+    ok(t in (1, 2), "type v4")
+    if t == 1:
+        pre, i = (d[1:33], d[33:1121], d[1121:1169]), 1169
+    hn, ln = d[i:i + 12], int.from_bytes(d[i + 12:i + 14], "big")
+    ok(ln in (1241, 2329), "longueur d'en-tête chiffré")
+    eh, c = d[i + 14:i + 14 + ln], d[i + 14 + ln:]
+    ok(len(c) >= 176 and (len(c) - 16) % 160 == 0, "longueur du chiffré")
+    return t, pre, hn, eh, c
+
+
+def parse_header4(h):
+    flags = h[40]
+    ok(flags in (0, 1) and len(h) == (2313 if flags else 1225), "en-tête v4")
+    return (h[:32], int.from_bytes(h[32:36], "big"), int.from_bytes(h[36:40], "big"),
+            h[41:1225], h[1225:] if flags else None)
+
+
+class Party4:
+    """Un côté du triple cliquet à en-têtes chiffrés (§9.2, §9.3)."""
+
+    def __init__(self, ad, rk, dhs, kem_seed, hks, nhks, nhkr, dhr=None, fresh=False):
+        self.ad, self.rk, self.dhs, self.kem_seed, self.dhr = ad, rk, dhs, kem_seed, dhr
+        self.hks, self.hkr, self.nhks, self.nhkr = hks, None, nhks, nhkr
+        self.ckr, self.ns, self.nr, self.pn, self.skipped = None, 0, 0, 0, {}
+        self.fresh, self.pending = fresh, False
+
+    @staticmethod
+    def open_header(hk, t, hn, eh):
+        try:
+            return AESGCM(hk).decrypt(hn, eh, bytes([t]))
+        except InvalidTag:
+            return None
+
+    def resolve(self, ss):
+        """La chaîne d'envoi ouverte au dernier tour : son secret ML-KEM est
+        celui que l'autre vient de décapsuler."""
+        ok(self.pending, "chaîne d'envoi en attente")
+        self.rk, _cks, self.nhks = kdf_rk4(self.rk, x_dh(self.dhs, self.dhr), ss)
+        self.pending = False
+
+    def decrypt(self, tok, draw, peer):
+        t, _, hn, eh, c = parse_v4(tok)
+        mk = None
+        for hk in {k[0] for k in self.skipped if k[0] != self.hkr}:
+            h = self.open_header(hk, t, hn, eh)
+            if h is not None:
+                mk = self.skipped.pop((hk, parse_header4(h)[2]))
+                break
+        h = None if mk or self.hkr is None else self.open_header(self.hkr, t, hn, eh)
+        if mk is None and h is not None:
+            n = parse_header4(h)[2]
+            if n < self.nr:
+                mk = self.skipped.pop((self.hkr, n))
+            else:
+                self.skip(n)
+                self.ckr, mk = kdf_ck(self.ckr)
+                self.nr += 1
+        if mk is None:
+            h = self.open_header(self.nhkr, t, hn, eh)
+            ok(h is not None, "en-tête ouvert par NHKr")
+            dh, pn, n, ek, ct = parse_header4(h)
+            self.skip(pn)
+            if ct is None:
+                ok(self.fresh, "chaîne sans encapsulation : seulement la première")
+                ss = None
+            else:
+                ss = decaps(self.kem_seed, ct)
+                peer.resolve(ss)
+            self.fresh = False
+            self.pn, self.ns, self.nr = self.ns, 0, 0
+            self.hks, self.hkr, self.dhr = self.nhks, self.nhkr, dh
+            self.rk, self.ckr, self.nhkr = kdf_rk4(self.rk, x_dh(self.dhs, dh), ss)
+            self.dhs, self.kem_seed, _m = draw(32), draw(64), draw(32)
+            self.pending = True
+            self.skip(n)
+            self.ckr, mk = kdf_ck(self.ckr)
+            self.nr += 1
+        k, nonce, hn2 = msg_keys4(mk)
+        ok(hn2 == hn, "nonce d'en-tête dérivé de mk")
+        plain = unpad(AESGCM(k).decrypt(nonce, c, self.ad + bytes([t]) + hn + eh))
+        ok(plain[0] == 0, "genre : texte")
+        return plain[1:]
+
+    def skip(self, until):
+        while self.ckr is not None and self.nr < until:
+            self.ckr, mk = kdf_ck(self.ckr)
+            self.skipped[(self.hkr, self.nr)] = mk
+            self.nr += 1
+
+
+def session4(case):
+    s, steps = case["setup"], case["steps"]
+    ek = H(s["ek_secret"])
+    alice_seed = H(s["alice_kem_seed"])
+    ok(mlkem_pub(alice_seed).hex() == s["alice_kem_public"], "clé ML-KEM de cliquet d'Alice")
+    if case["mode"] == "psk":
+        key = H(s["key"])
+        sk = hkdf(Z, key, b"Brocolis_v4_PSK_SHA-256", 32)
+        r = hkdf(Z, sk, b"Brocolis_v4_PSK_Ratchet", 32)
+        ad = x_pub(ek) + x_pub(r)
+        remote, bob_init = x_pub(r), r
+    else:
+        bundle(s["alice"])
+        bundle(s["bob"])
+        for who in ("alice", "bob"):
+            v = s[who]
+            Ed25519PublicKey.from_public_bytes(H(v["ik_ed25519_public"])).verify(
+                H(s[f"{who}_caps"]), b"Brocolis_v4_Caps" + H(v["ik_x25519_public"]) + b"\x04")
+            ok(True, "capacité v4 signée")
+        ika, ikb = H(s["alice"]["ik_x25519_secret"]), H(s["bob"]["ik_x25519_secret"])
+        spkb = H(s["bob"]["spk_secret"])
+        dh1, dh2, dh3 = x_dh(ika, x_pub(spkb)), x_dh(ek, x_pub(ikb)), x_dh(ek, x_pub(spkb))
+        ok((dh1.hex(), dh2.hex(), dh3.hex()) == (s["dh1"], s["dh2"], s["dh3"]), "DH1..3 v4")
+        ss = decaps(H(s["bob"]["pq_seed"]), H(s["mlkem_ciphertext"]))
+        ok(ss.hex() == s["mlkem_shared"], "ML-KEM SS v4")
+        sk = hkdf(Z, b"\xff" * 32 + dh1 + dh2 + dh3 + ss, b"Brocolis_v4_X25519_MLKEM768_SHA-256", 32)
+        pk = hkdf(Z, dh3 + ss, b"Brocolis_v4_Preamble", 44)
+        ok(pk[:32].hex() == s["preamble_key"] and pk[32:].hex() == s["preamble_nonce"], "clé du préambule")
+        ad = x_pub(ika) + x_pub(ikb)
+        remote, bob_init = x_pub(spkb), spkb
+    ok(sk.hex() == s["sk"] and ad.hex() == s["ad"], "SK et AD v4")
+    hk = hkdf(Z, sk, b"Brocolis_v4_HeaderKeys", 64)
+    hk_ab, nhk_ba = hk[:32], hk[32:]
+    ok(hk_ab.hex() == s["hk_ab"] and nhk_ba.hex() == s["nhk_ba"], "clés d'en-tête initiales")
+    a_ratchet = ek if case["mode"] == "psk" else H(s["alice_ratchet_secret"])
+    rk, cks, nhks = kdf_rk4(sk, x_dh(a_ratchet, remote))
+    ok(rk.hex() == s["alice_root_key"] and cks.hex() == s["alice_sending_chain"]
+       and nhks.hex() == s["alice_next_header_key"], "première chaîne d'Alice")
+    alice = Party4(ad, rk, a_ratchet, alice_seed, hk_ab, nhks, nhk_ba, dhr=remote)
+    bob = Party4(ad, sk, bob_init, None, None, nhk_ba, hk_ab, fresh=True)
+
+    def drawer(hexs):
+        buf = bytearray(H(hexs))
+        def draw(n):
+            out = bytes(buf[:n])
+            del buf[:n]
+            return out
+        return draw
+
+    msgs = [st for st in steps if "token" in st]
+    events = [st for st in steps if "event" in st]
+    # Le préambule : B retrouve IK_A sans la voir en clair.
+    t, pre, *_ = parse_v4(msgs[0]["token"])
+    if case["mode"] == "psk":
+        ok(t == 2, "premier message à clé partagée : un 0x02 ordinaire")
+    else:
+        ok(t == 1, "premier message 0x01")
+        ok(pre[0] == x_pub(ek) and pre[1] == H(s["mlkem_ciphertext"]), "EK et CT en clair")
+        ika_pub = AESGCM(pk[:32]).decrypt(pk[32:], pre[2], b"\x01" + pre[0] + pre[1])
+        ok(ika_pub == x_pub(ika), "IK_A retrouvée dans le préambule chiffré")
+        ok(x_pub(ika).hex() not in token_bytes(msgs[0]["token"], "[[BROCOLIS:v4:").hex(), "IK_A absente du jeton")
+    # Bob reçoit 2 puis 1.
+    d = drawer(events[0]["bob_drawn"])
+    ok(bob.decrypt(msgs[1]["token"], d, alice).decode() == msgs[1]["text"], "message 2 v4")
+    ok(bob.decrypt(msgs[0]["token"], d, alice).decode() == msgs[0]["text"], "message 1 v4 (désordre)")
+    for m, ev in zip(msgs[2:], events[1:]):
+        receiver, sender = (alice, bob) if m["from"] == "bob" else (bob, alice)
+        hdr = Party4.open_header(sender.hks, *parse_v4(m["token"])[0:1], *parse_v4(m["token"])[2:4])
+        ok(hdr is not None and hdr.hex() == m["header"]["plain"], "en-tête chiffré par HKs")
+        plain = receiver.decrypt(m["token"], drawer(ev["drawn"]), sender)
+        ok(plain.decode() == m["text"], f"message v4 « {m['text']} »")
+        ok(H(m["header"]["ct"]) and len(H(m["header"]["ct"])) == 1088, "chaque nouvelle chaîne encapsule")
+
+
 def main():
     v = json.load(open(sys.argv[1] if len(sys.argv) > 1 else "proto/vectors.json"))
     primitives(v["primitives"])
@@ -352,6 +545,8 @@ def main():
     for case in v["sessions"]:
         session(case)
     group(v["group"])
+    for case in v["sessions_v4"]:
+        session4(case)
     print(f"vecteurs vérifiés indépendamment : {checks} contrôles, tous bons")
 
 

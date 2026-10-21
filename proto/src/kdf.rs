@@ -209,6 +209,110 @@ pub fn message_key(mk: &[u8; 32]) -> (Zeroizing<[u8; 32]>, [u8; 12]) {
     (key, nonce)
 }
 
+// ── Protocole v4 (§9.1) ───────────────────────────────────────────────────────
+
+/// `"Brocolis_v4_X25519_MLKEM768_SHA-256"` : l'info de SK (v4, toujours
+/// hybride).
+pub const INFO4_SK: &[u8] = b"Brocolis_v4_X25519_MLKEM768_SHA-256";
+/// `"Brocolis_v4_PSK_SHA-256"` : SK d'une session v4 à clé partagée.
+pub const INFO4_PSK: &[u8] = b"Brocolis_v4_PSK_SHA-256";
+/// `"Brocolis_v4_PSK_Ratchet"` : la clé de cliquet initiale du répondeur.
+pub const INFO4_PSK_RATCHET: &[u8] = b"Brocolis_v4_PSK_Ratchet";
+/// `"Brocolis_v4_HeaderKeys"` : les clés d'en-tête initiales.
+pub const INFO4_HEADER_KEYS: &[u8] = b"Brocolis_v4_HeaderKeys";
+/// `"Brocolis_v4_Ratchet"` : `KDF_RK4` sans secret ML-KEM.
+pub const INFO4_RATCHET: &[u8] = b"Brocolis_v4_Ratchet";
+/// `"Brocolis_v4_Ratchet_MLKEM768"` : `KDF_RK4` avec secret ML-KEM.
+pub const INFO4_RATCHET_PQ: &[u8] = b"Brocolis_v4_Ratchet_MLKEM768";
+/// `"Brocolis_v4_MessageKeys"` : `ENCRYPT4(mk)`.
+pub const INFO4_MESSAGE: &[u8] = b"Brocolis_v4_MessageKeys";
+/// `"Brocolis_v4_Preamble"` : la clé du préambule chiffré.
+pub const INFO4_PREAMBLE: &[u8] = b"Brocolis_v4_Preamble";
+
+fn split32(b: &[u8]) -> Zeroizing<[u8; 32]> {
+    let mut out = Zeroizing::new([0u8; 32]);
+    out.copy_from_slice(&b[..32]);
+    out
+}
+
+/// SK v4 : `HKDF(0³², FF³² ‖ DH1 ‖ DH2 ‖ DH3 ‖ SS, INFO4_SK, 32)`.
+pub fn sk4(dh1: &[u8; 32], dh2: &[u8; 32], dh3: &[u8; 32], ss: &[u8; 32]) -> Zeroizing<[u8; 32]> {
+    let mut ikm = Zeroizing::new(Vec::with_capacity(32 * 5));
+    ikm.extend_from_slice(&[0xFF; 32]);
+    for part in [dh1, dh2, dh3, ss] {
+        ikm.extend_from_slice(part);
+    }
+    hkdf_n::<32>(&SEL_NUL, &ikm, INFO4_SK)
+}
+
+/// SK d'une session v4 à clé partagée.
+pub fn sk4_psk(key: &[u8; 32]) -> Zeroizing<[u8; 32]> {
+    hkdf_n::<32>(&SEL_NUL, key, INFO4_PSK)
+}
+
+/// Le secret X25519 de la clé de cliquet initiale du répondeur (v4, clé
+/// partagée).
+pub fn psk4_ratchet_secret(sk: &[u8; 32]) -> Zeroizing<[u8; 32]> {
+    hkdf_n::<32>(&SEL_NUL, sk, INFO4_PSK_RATCHET)
+}
+
+/// Les clés d'en-tête initiales `(HK_AB, NHK_BA)` (§9.3).
+pub fn header_keys4(sk: &[u8; 32]) -> (Zeroizing<[u8; 32]>, Zeroizing<[u8; 32]>) {
+    let out = hkdf_n::<64>(&SEL_NUL, sk, INFO4_HEADER_KEYS);
+    (split32(&out[..32]), split32(&out[32..]))
+}
+
+/// `KDF_RK4(rk, dh, ss?)` → `(rk', ck, nhk)` (§9.1).
+#[allow(clippy::type_complexity)]
+pub fn kdf_rk4(
+    rk: &[u8; 32],
+    dh: &[u8; 32],
+    ss: Option<&[u8; 32]>,
+) -> (
+    Zeroizing<[u8; 32]>,
+    Zeroizing<[u8; 32]>,
+    Zeroizing<[u8; 32]>,
+) {
+    let mut ikm = Zeroizing::new(Vec::with_capacity(64));
+    ikm.extend_from_slice(dh);
+    let info = match ss {
+        Some(ss) => {
+            ikm.extend_from_slice(ss);
+            INFO4_RATCHET_PQ
+        }
+        None => INFO4_RATCHET,
+    };
+    let out = hkdf_n::<96>(rk, &ikm, info);
+    (
+        split32(&out[..32]),
+        split32(&out[32..64]),
+        split32(&out[64..]),
+    )
+}
+
+/// `ENCRYPT4(mk)` → clé AES (32), nonce du chiffré (12), nonce de
+/// l'en-tête (12).
+pub fn message_keys4(mk: &[u8; 32]) -> (Zeroizing<[u8; 32]>, [u8; 12], [u8; 12]) {
+    let out = hkdf_n::<56>(&SEL_NUL, mk, INFO4_MESSAGE);
+    let mut nonce = [0u8; 12];
+    nonce.copy_from_slice(&out[32..44]);
+    let mut hnonce = [0u8; 12];
+    hnonce.copy_from_slice(&out[44..56]);
+    (split32(&out[..32]), nonce, hnonce)
+}
+
+/// La clé et le nonce du préambule chiffré d'un premier message v4 :
+/// `HKDF(0³², X25519(EK_A, SPK_B) ‖ SS, INFO4_PREAMBLE, 44)`.
+pub fn preamble_key4(dh: &[u8; 32], ss: &[u8; 32]) -> (Zeroizing<[u8; 32]>, [u8; 12]) {
+    let mut ikm = Zeroizing::new(Vec::with_capacity(64));
+    ikm.extend_from_slice(dh);
+    ikm.extend_from_slice(ss);
+    let out = hkdf_n::<44>(&SEL_NUL, &ikm, INFO4_PREAMBLE);
+    let mut nonce = [0u8; 12];
+    nonce.copy_from_slice(&out[32..]);
+    (split32(&out[..32]), nonce)
+}
+
 /// L'identifiant de session : `SHA-256(AD)[0..8]` (§4.4).
 pub fn session_id(ad: &[u8]) -> [u8; 8] {
     let h = sha256(ad);

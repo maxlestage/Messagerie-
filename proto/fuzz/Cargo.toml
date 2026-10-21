@@ -29,6 +29,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "dechiffrement_v4"
+path = "fuzz_targets/dechiffrement_v4.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "groupe"
 path = "fuzz_targets/groupe.rs"
 test = false
