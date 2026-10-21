@@ -48,6 +48,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import rs.brocolis.messagerie.crypto.BrocolisCrypto
+import rs.brocolis.messagerie.crypto.BrocolisIdentity
 import rs.brocolis.messagerie.crypto.BrocolisKeyProtection
 import rs.brocolis.messagerie.crypto.BrocolisProtection
 import rs.brocolis.messagerie.crypto.BrocolisV3
@@ -311,7 +312,8 @@ fun RootScreen(
                     onProtectedShare = { protectTarget = selected },
                     onCopy = { plainShare = selected to true },
                     onShare = { plainShare = selected to false },
-                    onTTL = { seconds -> BrocolisKeyStore.setKeyTTL(seconds, selected.id); reload() }
+                    onTTL = { seconds -> BrocolisKeyStore.setKeyTTL(seconds, selected.id); reload() },
+                    onConfirmIdentity = { BrocolisKeyStore.confirmIdentity(selected.id); reload() }
                 )
             }
 
@@ -542,7 +544,8 @@ private fun KeyRow(
 @Composable
 private fun SelectedKeyCard(
     key: NamedKey, protection: BrocolisProtection?, onPsk: (Boolean) -> Unit,
-    onProtectedShare: () -> Unit, onCopy: () -> Unit, onShare: () -> Unit, onTTL: (Int) -> Unit
+    onProtectedShare: () -> Unit, onCopy: () -> Unit, onShare: () -> Unit, onTTL: (Int) -> Unit,
+    onConfirmIdentity: () -> Unit
 ) {
     val ttlOptions = listOf(
         loc("Jamais", "Never", "Nunca") to 0,
@@ -552,6 +555,12 @@ private fun SelectedKeyCard(
     )
     SectionCard(loc("Clé sélectionnée", "Selected key", "Clave seleccionada")) {
         Text(key.name, style = MaterialTheme.typography.titleMedium)
+        // L'identité du contact a changé (§9.8) : l'envoi est bloqué jusqu'à
+        // ce que l'utilisateur ait comparé l'empreinte de vive voix.
+        if (BrocolisIdentity.blocked(key)) {
+            Text(BrocolisIdentity.warning, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+            Button(onClick = onConfirmIdentity, modifier = Modifier.fillMaxWidth()) { Text(BrocolisIdentity.confirm) }
+        }
         protection?.let {
             Text(it.label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }

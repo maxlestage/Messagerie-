@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import rs.brocolis.messagerie.crypto.BrocolisIdentity
 import rs.brocolis.messagerie.crypto.BrocolisKeyAgreement
 import rs.brocolis.messagerie.crypto.BrocolisProtection
 import rs.brocolis.messagerie.crypto.BrocolisV3
@@ -48,12 +49,13 @@ fun PairingScreen(onBack: () -> Unit) {
     var message by remember { mutableStateOf<String?>(null) }
     var fingerprint by remember { mutableStateOf<String?>(null) }
     var protection by remember { mutableStateOf<BrocolisProtection?>(null) }
+    var identityChanged by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     fun pair() {
         val trimmedCode = code.trim()
         if (trimmedCode.isEmpty()) { message = loc("Entre un code.", "Enter a code.", "Introduce un código."); return }
-        busy = true; message = null; fingerprint = null; protection = null
+        busy = true; message = null; fingerprint = null; protection = null; identityChanged = false
         scope.launch {
             try {
                 val client = PairingClient(BrocolisKeyStore.SERVER_URL)
@@ -74,12 +76,24 @@ fun PairingScreen(onBack: () -> Unit) {
                 // identités v3 si les deux ont publié un paquet (contexte v4 si les
                 // deux ont une capacité v4 valide, §9.7).
                 val contactName = name.trim().ifEmpty { loc("Correspondant", "Contact", "Contacto") }
+                var changed = false
                 val (fp, shown) = withContext(Dispatchers.IO) {
                     val fp = paired.contact.fingerprint(paired.keyBase64, paired.legacyFingerprint)
-                    val keyId = BrocolisKeyStore.addKey(contactName, paired.keyBase64)
-                    BrocolisKeyStore.setV3Contact(
-                        keyId, if (paired.contact.duo) paired.contact.bundle else null, paired.contact.duo, paired.contact.caps,
-                    )
+                    val bundle = if (paired.contact.duo) paired.contact.bundle else null
+                    // Un contact déjà appairé sous ce nom : ré-appairage. Une autre
+                    // identité que la sienne bloque l'envoi (§9.8).
+                    val existing = BrocolisKeyStore.pairedByName(contactName)
+                    val keyId: String
+                    if (existing != null) {
+                        keyId = existing.id
+                        changed = BrocolisKeyStore.repairPaired(
+                            keyId, paired.keyBase64, bundle, paired.contact.duo, paired.contact.caps,
+                        )
+                        BrocolisKeyStore.selectKey(keyId)
+                    } else {
+                        keyId = BrocolisKeyStore.addKey(contactName, paired.keyBase64)
+                        BrocolisKeyStore.setV3Contact(keyId, bundle, paired.contact.duo, paired.contact.caps)
+                    }
                     BrocolisKeyStore.setActive(true)
                     BrocolisKeyStore.pairingFingerprint = fp
                     BrocolisKeyStore.setPairingIdentity(trimmedCode, peerId)
@@ -90,6 +104,7 @@ fun PairingScreen(onBack: () -> Unit) {
                 }
                 fingerprint = fp
                 protection = shown
+                identityChanged = changed
                 message = loc("Appairé ✅ Vérifie l'empreinte de vive voix.", "Paired ✅ Verify the fingerprint out loud.", "Emparejado ✅ Verifica la huella de viva voz.")
             } catch (e: Exception) {
                 message = e.message ?: loc("Échec de l'appairage.", "Pairing failed.", "Error de emparejamiento.")
@@ -140,6 +155,9 @@ fun PairingScreen(onBack: () -> Unit) {
                         Text(loc("Empreinte à comparer", "Fingerprint to compare", "Huella a comparar"), style = MaterialTheme.typography.labelMedium)
                         Text(it, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.titleMedium)
                         protection?.let { p -> Text(p.label, style = MaterialTheme.typography.bodySmall) }
+                        if (identityChanged) {
+                            Text(BrocolisIdentity.warning, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+                        }
                     }
                 }
             }

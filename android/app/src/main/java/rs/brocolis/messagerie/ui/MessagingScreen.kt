@@ -49,6 +49,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.sse.EventSource
 import rs.brocolis.messagerie.crypto.BrocolisCrypto
+import rs.brocolis.messagerie.crypto.BrocolisIdentity
 import rs.brocolis.messagerie.crypto.BrocolisProtection
 import rs.brocolis.messagerie.crypto.BrocolisV3
 import rs.brocolis.messagerie.crypto.BrocolisV3Api
@@ -206,6 +207,8 @@ class ChatController(val correspondent: NamedKey) {
                 BrocolisV3Opened.Replay ->
                     ChatBody.Text(if (isMine) BrocolisV3Api.sentFromThisDevice else BrocolisV3Api.alreadyRead)
                 is BrocolisV3Opened.Failed -> ChatBody.Locked
+                // Une chaîne de groupe (§9.9) : rien à afficher.
+                BrocolisV3Opened.Hidden -> ChatBody.Text("")
                 null -> {
                     val (text, n) = BrocolisCrypto.decryptTokens(m.ciphertext, listOf(key))
                     if (n > 0) bodyFrom(text) else ChatBody.Locked
@@ -228,6 +231,11 @@ class ChatController(val correspondent: NamedKey) {
         scope.launch {
             try {
                 val k = currentKey
+                // L'identité du contact a changé (§9.8) : rien ne part, ni v3 ni v1.
+                if (BrocolisV3.blocked(listOf(k))) {
+                    status = BrocolisIdentity.warning
+                    return@launch
+                }
                 val v3 = withContext(Dispatchers.IO) { BrocolisV3.sealMessage(clear, k) }
                 if (v3 != null) {
                     protection = withContext(Dispatchers.IO) { BrocolisV3.protection(k) }

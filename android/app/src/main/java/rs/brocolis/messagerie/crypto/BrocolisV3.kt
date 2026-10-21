@@ -4,6 +4,7 @@ import rs.brocolis.messagerie.i18n.loc
 import rs.brocolis.messagerie.net.PairingPeer
 import rs.brocolis.messagerie.net.WrapInbox
 import rs.brocolis.messagerie.proto.Erreur
+import rs.brocolis.messagerie.proto.Groupe
 import rs.brocolis.messagerie.proto.KeyBundle
 import rs.brocolis.messagerie.proto.Token
 import rs.brocolis.messagerie.proto.Token4
@@ -81,23 +82,41 @@ abstract class BrocolisV3Api {
 
     // MARK: Envoyer, lire
 
-    /** Le jeton v3 de `text` pour la clé `k`, ou `null` (→ v1/v2). */
+    /**
+     * Le jeton v3 de `text` pour la clé `k`, ou `null` (→ v1/v2). L'appelant
+     * vérifie d'abord [blocked] : un contact dont l'identité a changé ne
+     * reçoit rien (§9.8).
+     */
     fun seal(text: String, k: NamedKey): String? {
+        if (BrocolisIdentity.blocked(k)) return null
         val key = key(k) ?: return null
         return run { e, t -> e.seal(text, key, t) }
     }
 
     /**
+     * L'envoi vers ces clés est-il bloqué (§9.8) : l'identité d'un des
+     * contacts a changé sans confirmation. Échec fermé : ni v3/v4 ni v1/v2.
+     */
+    fun blocked(recipients: List<NamedKey>): Boolean = BrocolisIdentity.blocked(recipients)
+
+    /**
      * Ce qui chiffre et ce qui lit pour Partager et l'écran Conversation : v3
      * pour UNE clé destinataire qui le permet (§8.5), sinon v1 (une clé) ou v2
-     * (plusieurs) ; lecture v3, v2, v1.
+     * (plusieurs) ; lecture v3, v2, v1. Un destinataire dont l'identité a
+     * changé (§9.8) : `seal` ne rend rien (l'appelant n'envoie rien, voir
+     * [blocked]).
      */
     fun codec(recipients: List<NamedKey>, all: List<NamedKey>): BrocolisCodec {
         val sym = recipients.mapNotNull { runCatching { BrocolisCrypto.keyBytes(it.base64) }.getOrNull() }
+        val blocked = blocked(recipients)
         return BrocolisCodec(
             seal = { text ->
-                (if (recipients.size == 1) seal(text, recipients[0]) else null)
-                    ?: BrocolisCrypto.sealTokenOrNull(text.toByteArray(Charsets.UTF_8), sym)
+                if (blocked) {
+                    null
+                } else {
+                    (if (recipients.size == 1) seal(text, recipients[0]) else null)
+                        ?: BrocolisCrypto.sealTokenOrNull(text.toByteArray(Charsets.UTF_8), sym)
+                }
             },
             open = { openTokens(it, all) },
         )
@@ -105,7 +124,10 @@ abstract class BrocolisV3Api {
 
     /**
      * Remplace chaque jeton d'un texte collé par son clair : les v3 en une
-     * seule transaction, puis v2 et v1 avec toutes les clés.
+     * seule transaction, puis v2 et v1 avec toutes les clés. Un message de
+     * groupe à cliquet (§9.9) arrive avec les chaînes remises aux autres
+     * membres : celles qu'on ne peut pas ouvrir ne sont pas pour nous, et ne
+     * s'affichent pas (comme les nôtres, gardées).
      */
     fun openTokens(input: String, keys: List<NamedKey>): BrocolisCrypto.Decrypted {
         val sym = keys.mapNotNull { runCatching { BrocolisCrypto.keyBytes(it.base64) }.getOrNull() }
@@ -114,13 +136,16 @@ abstract class BrocolisV3Api {
         val missing = found.filter { clear[it] == null }.distinct()
         if (missing.isNotEmpty()) {
             val v3keys = keys(keys)
+            val group = found.any(BrocolisV3Format::isGroupToken)
             val opened = run { e, t ->
                 val out = LinkedHashMap<String, String>()
                 for (token in missing) {
                     when (val r = e.open(token, v3keys, t)) {
                         is BrocolisV3Opened.Text -> out[token] = r.text
+                        BrocolisV3Opened.Hidden -> out[token] = ""
                         BrocolisV3Opened.Replay -> out[token] = alreadyRead
-                        is BrocolisV3Opened.Failed -> Unit
+                        is BrocolisV3Opened.Failed ->
+                            if (group && !BrocolisV3Format.isGroupToken(token)) out[token] = ""
                     }
                 }
                 out
@@ -154,11 +179,19 @@ abstract class BrocolisV3Api {
 
     // MARK: Protection affichée (§8.8)
 
-    /** La protection de chaque clé, en une transaction (`LEGACY` partout si le v3 est indisponible). */
+    /**
+     * La protection de chaque clé, en une transaction (`LEGACY` partout si le
+     * v3 est indisponible) ; l'alerte d'identité d'abord (§9.8).
+     */
     fun protections(ks: List<NamedKey>): Map<String, BrocolisProtection> {
         val pairs = ks.mapNotNull { k -> key(k)?.let { k.id to it } }
         val result = run { e, t -> pairs.associate { (id, key) -> id to e.protection(key, t) } }
-        return ks.associate { it.id to (result?.get(it.id) ?: BrocolisProtection.LEGACY) }
+        return ks.associate {
+            it.id to when {
+                BrocolisIdentity.blocked(it) -> BrocolisProtection.IDENTITY_CHANGED
+                else -> result?.get(it.id) ?: BrocolisProtection.LEGACY
+            }
+        }
     }
 
     fun protection(k: NamedKey): BrocolisProtection = protections(listOf(k))[k.id] ?: BrocolisProtection.LEGACY
@@ -206,10 +239,59 @@ abstract class BrocolisV3Api {
 
     // MARK: Messagerie (§8.7)
 
-    /** Le `ciphertext` d'un message, en v3 si la clé le permet, sinon `null`. */
+    /**
+     * Le `ciphertext` d'un message, en v3 si la clé le permet, sinon `null`.
+     * L'appelant vérifie d'abord [blocked] (§9.8).
+     */
     fun sealMessage(clear: String, k: NamedKey): String? {
+        if (BrocolisIdentity.blocked(k)) return null
         val key = key(k) ?: return null
         return run { e, t -> e.sealMessage(clear, key, t) }
+    }
+
+    // MARK: Groupes à cliquet (§9.9)
+
+    /** Un identifiant de groupe neuf (16 octets, tiré par celui qui crée le groupe). */
+    fun newGroupId(): ByteArray = Groupe.newGroupId()
+
+    /**
+     * Le groupe partirait-il à cliquet : chaque membre a une session à deux
+     * possible (contact v3/v4 ou PSK) et aucune identité n'a changé.
+     */
+    fun groupRatchet(members: List<NamedKey>): Boolean {
+        if (blocked(members)) return false
+        val ks = members.map { key(it) ?: return false }
+        return run { e, t -> e.groupRatchet(ks, t) } ?: false
+    }
+
+    /**
+     * Chiffre `text` pour un groupe de contacts appairés (§9.9) : à cliquet si
+     * chaque membre le permet (chaînes remises par les sessions à deux,
+     * distributions puis message de groupe, dans le même texte), sinon un
+     * jeton v2 pour les clés des membres. `null` : rien ne part — un membre
+     * dont l'identité a changé (échec fermé, §9.8), ou aucune clé.
+     */
+    fun sealGroup(groupId: ByteArray, members: List<NamedKey>, text: String): String? {
+        if (members.isEmpty() || blocked(members)) return null
+        val ks = members.mapNotNull { key(it) }
+        val ratchet = if (ks.size == members.size) run { e, t -> e.sealGroup(groupId, ks, text, t) } else null
+        if (ratchet != null) return ratchet
+        val sym = members.mapNotNull { runCatching { BrocolisCrypto.keyBytes(it.base64) }.getOrNull() }
+        return BrocolisCrypto.sealTokenOrNull(text.toByteArray(Charsets.UTF_8), sym)
+    }
+
+    /**
+     * Les contacts qui ont écrit les jetons v3/v4 déjà ouverts d'un texte
+     * (dans l'ordre, sans doublon ni mes propres envois) : pour un message
+     * de groupe, celui qui a remis la chaîne.
+     */
+    fun authors(input: String, keys: List<NamedKey>): List<NamedKey> {
+        val found = BrocolisV3Format.findTokens(input).map { input.substring(it.first, it.last + 1) }
+        if (found.isEmpty()) return emptyList()
+        val pairs = keys.mapNotNull { k -> key(k)?.let { k to it } }
+        val v3keys = pairs.map { it.second }
+        val idx = run { e, _ -> found.filter { !e.isMine(it) }.mapNotNull { e.sender(it, v3keys) } } ?: emptyList()
+        return idx.distinct().map { pairs[it].first }
     }
 
     /** Un message de la messagerie, vu par [openMessages]. */
