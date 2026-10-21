@@ -7,13 +7,15 @@ use active::prelude::*;
 
 use crate::demo::{self, Segment};
 use crate::i18n::Lang;
+use crate::ratchet::{Event, Exposure, SIM_LINES, Sim, Who};
 
 /// Tous les îlots, sous le nom donné à [`island`].
-pub const ISLANDS: [(&str, active::IslandFn); 4] = [
+pub const ISLANDS: [(&str, active::IslandFn); 5] = [
     ("demo", demo_island),
     ("salon", salon_island),
     ("status", status_island),
     ("chat", chat_island),
+    ("ratchet", ratchet_island),
 ];
 
 /// Le sel des jetons factices : le même sur le serveur et dans le navigateur,
@@ -23,6 +25,126 @@ const SALT: u64 = 0xB20C_0115;
 /// La langue des propriétés d'un îlot (`"fr"`…).
 pub fn lang(props: &str) -> Lang {
     props.get(..2).and_then(Lang::parse).unwrap_or(Lang::Fr)
+}
+
+// ── Le cliquet : un espion copie l'état ───────────────────────────────────────
+
+/// Le simulateur du double cliquet (page « Protocole v3 ») : tu écris, Alice
+/// répond, un espion copie l'état de ton téléphone ; chaque message dit si
+/// l'espion peut le lire. Vide au départ, sur le serveur comme dans le
+/// navigateur : l'hydratation retrouve le même HTML.
+pub fn ratchet_island(props: &str) -> Node {
+    let lang = lang(props);
+    let sim = use_state(Sim::default());
+    let act = |key: &'static str, class: &'static str| {
+        button()
+            .attr("type", "button")
+            .class("btn sim-btn")
+            .class(class)
+            .text(lang.t(key))
+    };
+    let event = move |s: &Sim, i: usize, e: Event| -> Node {
+        match e {
+            Event::Turn => div()
+                .class("sim-divider sim-turn")
+                .text(format!("↻ {}", lang.t("proto.sim.turn")))
+                .into(),
+            Event::Spy => div()
+                .class("sim-divider sim-spied")
+                .text(format!("🕵️ {}", lang.t("proto.sim.spied")))
+                .into(),
+            Event::Msg { from, epoch, n, line } => {
+                let (side, who, text) = match from {
+                    Who::You => ("mine", lang.t("proto.sim.you"), format!("proto.sim.you.{line}")),
+                    Who::Alice => ("theirs", lang.t("proto.sim.alice"), format!("proto.sim.alice.{line}")),
+                };
+                let badge = s.exposure(i).map(|x| match x {
+                    Exposure::Exposed => span().class("sim-badge bad").text(lang.t("proto.sim.exposed")),
+                    Exposure::Past => span().class("sim-badge ok").text(lang.t("proto.sim.past")),
+                    Exposure::Healed => span().class("sim-badge ok").text(lang.t("proto.sim.healed")),
+                });
+                div()
+                    .class("sim-msg")
+                    .class(side)
+                    .child(span().class("sim-who").text(who))
+                    .child(p().class("sim-text").text(lang.t(&text)))
+                    .child(span().class("sim-key").text(format!(
+                        "🔑 {} K{}·{} — {}",
+                        lang.t("proto.sim.key"),
+                        epoch + 1,
+                        n,
+                        lang.t("proto.sim.erased")
+                    )))
+                    .child(badge)
+                    .into()
+            }
+        }
+    };
+    div()
+        .class("sim panel")
+        .child(
+            div()
+                .class("sim-controls")
+                .child(
+                    act("proto.sim.send", "primary")
+                        .bool_attr("disabled", move || sim.with(|s| s.sent() >= SIM_LINES))
+                        .on_click(move |_| {
+                            sim.update(|s| {
+                                s.send(Who::You);
+                            })
+                        }),
+                )
+                .child(
+                    act("proto.sim.reply", "")
+                        .bool_attr("disabled", move || sim.with(|s| s.sent() == 0 || s.sent() >= SIM_LINES))
+                        .on_click(move |_| {
+                            sim.update(|s| {
+                                s.send(Who::Alice);
+                            })
+                        }),
+                )
+                .child(
+                    act("proto.sim.spy", "sim-spy")
+                        .bool_attr("disabled", move || sim.with(|s| s.spied() || s.sent() == 0))
+                        .on_click(move |_| {
+                            sim.update(|s| {
+                                s.spy();
+                            })
+                        }),
+                )
+                .child(
+                    act("proto.sim.reset", "sim-reset")
+                        .bool_attr("disabled", move || sim.with(|s| s.events.is_empty()))
+                        .on_click(move |_| sim.set(Sim::default())),
+                ),
+        )
+        .child(
+            div()
+                .class("sim-log")
+                .attr("role", "log")
+                .attr("aria-live", "polite")
+                .children_dyn(move || {
+                    sim.with(|s| {
+                        if s.events.is_empty() {
+                            return vec![p().class("sim-empty").text(lang.t("proto.sim.empty")).into()];
+                        }
+                        s.events.iter().enumerate().map(|(i, e)| event(s, i, *e)).collect()
+                    })
+                }),
+        )
+        .child(p().class("sim-score").text_dyn(move || {
+            sim.with(|s| {
+                if s.spied() {
+                    lang.t("proto.sim.score")
+                        .replace("{n}", &s.exposed().to_string())
+                        .replace("{total}", &s.sent().to_string())
+                } else {
+                    String::new()
+                }
+            })
+        }))
+        .child(p().class("sim-note").text(lang.t("proto.sim.note")))
+        .into()
 }
 
 // ── Démo : ce que tu écris, ce que voit l'app ─────────────────────────────────

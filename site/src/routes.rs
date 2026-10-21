@@ -1,5 +1,5 @@
 //! Les adresses du site : `/{langue}/`, `/{langue}/discuter/`, `/{langue}/salon/`,
-//! `/{langue}/serveur/`, `/{langue}/licence/`.
+//! `/{langue}/serveur/`, `/{langue}/licence/`, `/{langue}/protocole/`.
 
 use crate::i18n::Lang;
 
@@ -10,12 +10,20 @@ pub enum Page {
     Salon,
     Server,
     License,
+    Protocol,
     NotFound,
 }
 
 impl Page {
     /// Les pages qui ont une adresse.
-    pub const ALL: [Page; 5] = [Page::Home, Page::Chat, Page::Salon, Page::Server, Page::License];
+    pub const ALL: [Page; 6] = [
+        Page::Home,
+        Page::Chat,
+        Page::Salon,
+        Page::Server,
+        Page::License,
+        Page::Protocol,
+    ];
 
     fn slug(self) -> &'static str {
         match self {
@@ -24,6 +32,7 @@ impl Page {
             Page::Salon => "salon",
             Page::Server => "serveur",
             Page::License => "licence",
+            Page::Protocol => "protocole",
             Page::NotFound => "404",
         }
     }
@@ -46,8 +55,9 @@ impl Route {
         let lang = Lang::parse(parts.next()?)?;
         let page = match (parts.next(), parts.next()) {
             (None, _) => Page::Home,
-            // `/en/chat/` mène aussi à la discussion.
+            // `/en/chat/` mène aussi à la discussion, `/en/protocol/` au protocole.
             (Some("chat"), None) => Page::Chat,
+            (Some("protocol" | "protocolo"), None) => Page::Protocol,
             (Some(slug), None) => Page::ALL
                 .into_iter()
                 .find(|p| p.slug() == slug && *p != Page::Home)
@@ -98,6 +108,7 @@ pub fn legacy_hash(lang: Lang, hash: &str) -> Option<String> {
         "salon" => page(Page::Salon),
         "serveur" => page(Page::Server),
         "license" | "licence" => page(Page::License),
+        "protocole" | "protocol" => page(Page::Protocol),
         "features" | "pricing" | "doc" => home(lang, rest),
         _ => home(lang, ""),
     })
@@ -120,6 +131,8 @@ mod tests {
         assert_eq!(Route::parse("/fr/discuter/").unwrap().page, Page::Chat);
         assert_eq!(Route::parse("/en/chat").unwrap().page, Page::Chat);
         assert_eq!(Route::new(Lang::Es, Page::Chat).path(), "/es/discuter/");
+        assert_eq!(Route::parse("/fr/protocole/").unwrap().page, Page::Protocol);
+        assert_eq!(Route::parse("/en/protocol").unwrap().page, Page::Protocol);
         assert_eq!(Route::parse("/en/nope/").unwrap().page, Page::NotFound);
         assert_eq!(Route::parse("/en/salon/x").unwrap().page, Page::NotFound);
         assert_eq!(Route::parse("/de/"), None);
@@ -129,7 +142,7 @@ mod tests {
     #[test]
     fn lists_every_page_once() {
         let all = Route::all();
-        assert_eq!(all.len(), 3 * 5);
+        assert_eq!(all.len(), 3 * 6);
         let mut paths: Vec<String> = all.iter().map(Route::path).collect();
         paths.sort();
         paths.dedup();

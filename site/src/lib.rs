@@ -15,6 +15,7 @@ pub mod crypto;
 pub mod demo;
 pub mod i18n;
 pub mod islands;
+pub mod ratchet;
 pub mod routes;
 pub mod v3;
 
