@@ -262,7 +262,7 @@ final class BrocolisChatStore: ObservableObject {
         let k = currentKey
         let v3 = BrocolisV3.openMessages(sorted.map { ($0.ciphertext, $0.senderId == me) },
                                          conversation: k, all: BrocolisKeyStore.keys)
-        lines = zip(sorted, v3).map { pair -> ChatLine in
+        lines = zip(sorted, v3).compactMap { pair -> ChatLine? in
             let (m, opened) = pair
             let mine = m.senderId == me
             let body: ChatBody
@@ -275,6 +275,9 @@ final class BrocolisChatStore: ObservableObject {
                     : BrocolisV3.alreadyRead)
             case .failed?:
                 body = .locked
+            case .hidden?:
+                // Une chaîne de groupe reçue (§9.9) : gardée, pas une ligne.
+                return nil
             case nil:
                 let (text, n) = BrocolisCrypto.decryptTokens(m.ciphertext, keys: [key])
                 body = n > 0 ? MediaPayload.body(from: text) : .locked
