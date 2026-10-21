@@ -19,6 +19,12 @@
 //    (seulement d'une session perdue, §8.6) ;
 //  - l'empreinte d'appairage (§8.4) et l'enveloppe des médias (§8.7).
 //
+//  Le v4 (§9) passe par le même moteur, comme sur le site : un contact dont
+//  la capacité v4 signée est valide (ou dont un message v4 est déjà arrivé)
+//  reçoit des jetons `[[BROCOLIS:v4:…]]` à triple cliquet et en-têtes
+//  chiffrés, et ne redescend plus jamais en v3 ; la PSK v4 suit les mêmes
+//  règles (§9.6). Son empreinte d'appairage prend le contexte v4 (§9.7).
+//
 //  La persistance et le verrou entre processus sont dans
 //  `BrocolisV3Store.swift`.
 //
@@ -35,11 +41,15 @@ import Crypto
 
 /// La protection d'une clé, telle que le prochain envoi la donnera.
 enum BrocolisProtection: String, Equatable {
-    case postQuantum, classic, psk, legacy
+    case triple, triplePsk, postQuantum, classic, psk, legacy
 
     /// Libellé affiché partout où s'affiche une clé ou un contact.
     var label: String {
         switch self {
+        case .triple:
+            return loc("🔐 triple cliquet (post-quantique à chaque message)", "🔐 triple ratchet (post-quantum on every message)", "🔐 triple trinquete (poscuántico en cada mensaje)")
+        case .triplePsk:
+            return loc("🔐 triple cliquet, clé partagée (PSK)", "🔐 triple ratchet, shared key (PSK)", "🔐 triple trinquete, clave compartida (PSK)")
         case .postQuantum:
             return loc("🔐 double cliquet (post-quantique)", "🔐 double ratchet (post-quantum)", "🔐 doble trinquete (poscuántico)")
         case .classic:
@@ -70,6 +80,9 @@ struct BrocolisV3Key {
     let group: Bool
     /// Marquée « à deux, double cliquet » par l'utilisateur (PSK).
     let psk: Bool
+    /// Sa capacité v4 signée (64 octets), reçue avec le paquet (§9.6) ;
+    /// vérifiée par le moteur.
+    var caps: [UInt8]? = nil
 }
 
 /// Le résultat d'une réception.
@@ -95,6 +108,8 @@ enum BrocolisV3Format {
     static let groupWatch: TimeInterval = 8 * 24 * 3600
     /// Ce qui précède les identités dans l'empreinte d'appairage (§8.4).
     static let fingerprintContext = Array("Brocolis_v3_Appairage".utf8)
+    /// …quand les deux côtés ont une capacité v4 valide (§9.7).
+    static let fingerprintContext4 = Array("Brocolis_v4_Appairage".utf8)
     /// Messages ouverts gardés : 2 000 au plus et 1 Mio de clair (§8.2).
     static let openedMax = 2_000
     static let openedMaxBytes = 1 << 20
@@ -110,8 +125,19 @@ enum BrocolisV3Format {
     /// SHA-256("Brocolis_v3_Appairage" ‖ K ‖ min(P_A, P_B) ‖ max(P_A, P_B))[0..8],
     /// P = IK X25519 ‖ IK Ed25519, en XXXX-XXXX-XXXX-XXXX.
     static func pairingFingerprint(key: [UInt8], _ a: [UInt8], _ b: [UInt8]) -> String {
+        fingerprint(context: fingerprintContext, key: key, a, b)
+    }
+
+    /// L'empreinte d'appairage v4 (§9.7) : la même, sous
+    /// `"Brocolis_v4_Appairage"`. Un serveur qui retire la capacité d'un seul
+    /// côté fait afficher deux empreintes différentes.
+    static func pairingFingerprint4(key: [UInt8], _ a: [UInt8], _ b: [UInt8]) -> String {
+        fingerprint(context: fingerprintContext4, key: key, a, b)
+    }
+
+    private static func fingerprint(context: [UInt8], key: [UInt8], _ a: [UInt8], _ b: [UInt8]) -> String {
         let (lo, hi) = a.lexicographicallyPrecedes(b) || a == b ? (a, b) : (b, a)
-        let digest = Kdf.sha256(fingerprintContext + key + lo + hi)
+        let digest = Kdf.sha256(context + key + lo + hi)
         let hex = digest.prefix(8).map { String(format: "%02X", $0) }.joined()
         var out = ""
         for (i, ch) in hex.enumerated() {
@@ -124,6 +150,18 @@ enum BrocolisV3Format {
     /// L'identité d'un paquet : IK X25519 ‖ IK Ed25519 (64 octets).
     static func identity(of bundle: KeyBundle) -> [UInt8] {
         bundle.identity.dh + bundle.identity.sign
+    }
+
+    /// La capacité v4 du paquet est-elle valide (§9.6) : 64 octets signés
+    /// (Ed25519 strict) par son identité, et un paquet qui propose ML-KEM.
+    static func capsValid(_ bundle: KeyBundle, _ caps: [UInt8]?) -> Bool {
+        guard bundle.pq != nil, let caps, caps.count == 64 else { return false }
+        return (try? Paquet.verifyCaps4(identity: bundle.identity, signature: caps)) != nil
+    }
+
+    /// Un jeton v4 (`[[BROCOLIS:v4:…]]`) ?
+    static func isV4(_ token: String) -> Bool {
+        normalize(token).hasPrefix(JetonV4.head)
     }
 
     /// Le jeton sans aucun blanc (une messagerie peut couper une ligne).
@@ -140,11 +178,17 @@ enum BrocolisV3Format {
         bytes.map { String(format: "%02x", $0) }.joined()
     }
 
-    /// Les jetons v3 d'un texte, dans l'ordre.
+    /// Les jetons v3 et v4 d'un texte, dans l'ordre (les jetons v1 de
+    /// l'enveloppe des médias n'en sont pas).
     static func findTokens(_ text: String) -> [Range<String.Index>] {
         var out: [Range<String.Index>] = []
         var from = text.startIndex
-        while let start = text.range(of: JetonV3.head, range: from..<text.endIndex) {
+        while let start = text.range(of: "[[BROCOLIS:v", range: from..<text.endIndex) {
+            let rest = text[start.lowerBound...]
+            guard rest.hasPrefix(JetonV3.head) || rest.hasPrefix(JetonV4.head) else {
+                from = start.upperBound
+                continue
+            }
             guard let end = text.range(of: "]]", range: start.upperBound..<text.endIndex) else { break }
             out.append(start.lowerBound..<end.upperBound)
             from = end.upperBound
@@ -198,6 +242,43 @@ final class BrocolisV3Peer {
     }
 }
 
+/// Les sessions v4 d'un contact (ou d'une clé PSK), rangées comme les v3.
+final class BrocolisV4Peer {
+    var sessions: [Session4] = []
+    var current: [UInt8]?
+
+    init() {}
+
+    init(stored: BrocolisV3Peer.StoredPeer) {
+        sessions = stored.sessions.compactMap { try? Session4.fromJson($0) }
+            .prefix(BrocolisV3Format.sessionsPerPeer).map { $0 }
+        current = sessions.map(\.sessionId).first { BrocolisV3Format.hex($0) == stored.current }
+    }
+
+    var stored: BrocolisV3Peer.StoredPeer {
+        BrocolisV3Peer.StoredPeer(current: current.map(BrocolisV3Format.hex) ?? "", sessions: sessions.map { $0.toJson() })
+    }
+
+    func get(_ id: [UInt8]) -> Session4? { sessions.first { $0.sessionId == id } }
+
+    var sendingId: [UInt8]? {
+        if let current, sessions.contains(where: { $0.sessionId == current }) { return current }
+        return sessions.last?.sessionId
+    }
+
+    var sending: Session4? { sendingId.flatMap(get) }
+
+    /// Range une session (remplace celle de même identifiant, la plus
+    /// ancienne part au-delà de deux) et en fait la session d'envoi.
+    func put(_ s: Session4) {
+        let id = s.sessionId
+        sessions.removeAll { $0.sessionId == id }
+        sessions.append(s)
+        while sessions.count > BrocolisV3Format.sessionsPerPeer { sessions.removeFirst() }
+        current = id
+    }
+}
+
 /// L'état chiffré au repos : sessions et messages ouverts.
 struct BrocolisV3Stored: Codable {
     struct Opened: Codable {
@@ -213,6 +294,31 @@ struct BrocolisV3Stored: Codable {
     var pskSeen: [String] = []
     var pskReplay: String?
     var opened: [Opened] = []
+    /// Les sessions v4 (§9), rangées comme les v3.
+    var peers4: [String: BrocolisV3Peer.StoredPeer] = [:]
+    var psk4: [String: BrocolisV3Peer.StoredPeer] = [:]
+    /// Les contacts (IK X25519, hex) dont un message v4 est arrivé : on ne
+    /// leur écrit plus qu'en v4 (§9.6).
+    var v4Seen: [String] = []
+    /// Les clés sur lesquelles une PSK v4 est arrivée.
+    var psk4Seen: [String] = []
+}
+
+// Décodage tolérant : un état écrit avant le v4 (sans ses champs) se relit.
+extension BrocolisV3Stored {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        v = try c.decodeIfPresent(Int.self, forKey: .v) ?? 1
+        peers = try c.decodeIfPresent([String: BrocolisV3Peer.StoredPeer].self, forKey: .peers) ?? [:]
+        psk = try c.decodeIfPresent([String: BrocolisV3Peer.StoredPeer].self, forKey: .psk) ?? [:]
+        pskSeen = try c.decodeIfPresent([String].self, forKey: .pskSeen) ?? []
+        pskReplay = try c.decodeIfPresent(String.self, forKey: .pskReplay)
+        opened = try c.decodeIfPresent([Opened].self, forKey: .opened) ?? []
+        peers4 = try c.decodeIfPresent([String: BrocolisV3Peer.StoredPeer].self, forKey: .peers4) ?? [:]
+        psk4 = try c.decodeIfPresent([String: BrocolisV3Peer.StoredPeer].self, forKey: .psk4) ?? [:]
+        v4Seen = try c.decodeIfPresent([String].self, forKey: .v4Seen) ?? []
+        psk4Seen = try c.decodeIfPresent([String].self, forKey: .psk4Seen) ?? []
+    }
 }
 
 // MARK: - Le moteur (le temps d'une transaction, §8.3)
@@ -227,6 +333,10 @@ final class BrocolisV3Engine {
     private var pskSeen: [String]
     private var pskReplay: ReplayGuard
     private var opened: [BrocolisV3Stored.Opened]
+    private var peers4: [String: BrocolisV4Peer]
+    private var psk4: [String: BrocolisV4Peer]
+    private var v4Seen: [String]
+    private var psk4Seen: [String]
     private(set) var deviceDirty: Bool
     private(set) var stateDirty = false
     private let rng = Hasard.system()
@@ -243,6 +353,10 @@ final class BrocolisV3Engine {
         pskSeen = s.pskSeen
         pskReplay = s.pskReplay.flatMap { try? ReplayGuard.fromJson($0) } ?? ReplayGuard()
         opened = s.opened
+        peers4 = s.peers4.mapValues(BrocolisV4Peer.init(stored:))
+        psk4 = s.psk4.mapValues(BrocolisV4Peer.init(stored:))
+        v4Seen = s.v4Seen
+        psk4Seen = s.psk4Seen
         maintain(now: now)
     }
 
@@ -260,24 +374,59 @@ final class BrocolisV3Engine {
         for peer in Array(peers.values) + Array(psk.values) {
             for s in peer.sessions { s.purge(now: now) }
         }
+        for peer in Array(peers4.values) + Array(psk4.values) {
+            for s in peer.sessions { s.purge(now: now) }
+        }
     }
 
     /// L'état à garder.
     var stored: BrocolisV3Stored {
         BrocolisV3Stored(
             v: 1, peers: peers.mapValues(\.stored), psk: psk.mapValues(\.stored),
-            pskSeen: pskSeen, pskReplay: pskReplay.toJson(), opened: opened)
+            pskSeen: pskSeen, pskReplay: pskReplay.toJson(), opened: opened,
+            peers4: peers4.mapValues(\.stored), psk4: psk4.mapValues(\.stored),
+            v4Seen: v4Seen, psk4Seen: psk4Seen)
     }
 
     /// Le paquet de clés à publier dans le salon (base64).
     var bundleBase64: String? { try? device.bundle().toBase64() }
 
+    /// Ma capacité v4 signée, à publier avec le paquet (§9.6, base64) ; `nil`
+    /// sans ML-KEM ici.
+    var capsBase64: String? { device.caps4().map { Base64.encode($0) } }
+
     /// Mon identité : IK X25519 ‖ IK Ed25519.
     var identity: [UInt8] { device.identity().dh + device.identity().sign }
+
+    /// L'empreinte d'appairage à comparer pour `k` (§8.4, §9.7) : sous le
+    /// contexte v4 si le contact a une capacité valide (la mienne est publiée
+    /// dès que j'ai ML-KEM), sinon v3. `nil` sans paquet.
+    func fingerprint(_ k: BrocolisV3Key) -> String? {
+        guard let b = contact(k) else { return nil }
+        if BrocolisV3Format.capsValid(b, k.caps) && device.supportsPq {
+            return BrocolisV3Format.pairingFingerprint4(key: k.raw, identity, BrocolisV3Format.identity(of: b))
+        }
+        return BrocolisV3Format.pairingFingerprint(key: k.raw, identity, BrocolisV3Format.identity(of: b))
+    }
 
     // MARK: Choix (§8.5)
 
     private func contact(_ k: BrocolisV3Key) -> KeyBundle? { k.group ? nil : k.bundle }
+
+    /// Le paquet du contact s'il parle v4 (§9.6) : ML-KEM des deux côtés, et
+    /// une capacité valide ou un message v4 déjà reçu de lui (on ne
+    /// redescend pas).
+    private func contact4(_ k: BrocolisV3Key) -> KeyBundle? {
+        guard let b = contact(k), b.pq != nil, device.supportsPq else { return nil }
+        let sticky = v4Seen.contains(BrocolisV3Format.hex(b.identity.dh))
+        return sticky || BrocolisV3Format.capsValid(b, k.caps) ? b : nil
+    }
+
+    /// La PSK part-elle en v4 : une PSK v4 est arrivée sur la clé, ou le
+    /// contact parle v4 (§9.6).
+    private func psk4Allowed(_ k: BrocolisV3Key, _ now: UInt64) -> Bool {
+        pskAllowed(k, now) && device.supportsPq && (psk4Seen.contains(k.id) || contact4(k) != nil)
+    }
 
     private func fresh(_ k: BrocolisV3Key, _ now: UInt64) -> Bool {
         let (sum, overflow) = k.bundleAt.addingReportingOverflow(BrocolisV3Format.bundleMaxAge)
@@ -292,7 +441,10 @@ final class BrocolisV3Engine {
 
     /// La protection de la clé, telle que le prochain envoi la donnera (§8.8).
     func protection(_ k: BrocolisV3Key, now: UInt64) -> BrocolisProtection {
-        if let b = contact(k) {
+        if let b = contact4(k) {
+            let live = peers4[BrocolisV3Format.hex(b.identity.dh)]?.sendingId != nil
+            if live || fresh(k, now) { return .triple }
+        } else if let b = contact(k) {
             if let peer = peers[BrocolisV3Format.hex(b.identity.dh)], let s = peer.sending {
                 return s.isPostQuantum ? .postQuantum : .classic
             }
@@ -300,6 +452,7 @@ final class BrocolisV3Engine {
                 return b.pq != nil && MlKem.isAvailable ? .postQuantum : .classic
             }
         }
+        if psk4Allowed(k, now) { return .triplePsk }
         return pskAllowed(k, now) ? .psk : .legacy
     }
 
@@ -307,6 +460,14 @@ final class BrocolisV3Engine {
     /// fin de l'appairage : §8.4). Rien ne part : le premier message la porte.
     @discardableResult
     func openSession(_ k: BrocolisV3Key, now: UInt64) -> Bool {
+        if let b = contact4(k) {
+            let peer = peer4(for: b)
+            if peer.sendingId != nil { return true }
+            guard fresh(k, now), let s = try? device.initiate4(bundle: b, rng: rng) else { return false }
+            peer.put(s)
+            stateDirty = true
+            return true
+        }
         guard let b = contact(k), fresh(k, now) else { return false }
         let peer = peer(for: b)
         if peer.sendingId != nil { return true }
@@ -331,14 +492,72 @@ final class BrocolisV3Engine {
         return p
     }
 
+    private func peer4(for b: KeyBundle) -> BrocolisV4Peer {
+        peer4(owner: BrocolisV3Format.hex(b.identity.dh))
+    }
+
+    private func peer4(owner: String) -> BrocolisV4Peer {
+        if let p = peers4[owner] { return p }
+        let p = BrocolisV4Peer()
+        peers4[owner] = p
+        return p
+    }
+
+    private func psk4Peer(_ id: String) -> BrocolisV4Peer {
+        if let p = psk4[id] { return p }
+        let p = BrocolisV4Peer()
+        psk4[id] = p
+        return p
+    }
+
     // MARK: Envoi
 
     /// Chiffre `text` pour `k` en v3 (§8.5) : session de contact, session
     /// neuve vers son paquet, ou PSK. `nil` : l'appelant chiffre en v1/v2.
     func seal(_ text: String, for k: BrocolisV3Key, now: UInt64) -> String? {
         guard text.utf8.count <= Session.maxPlaintext else { return nil }
-        guard let token = sealContact(text, k, now) ?? sealPsk(text, k, now) else { return nil }
+        // Un contact v4 ne reçoit plus que du v4 (§9.6) : sans session ni
+        // paquet frais, la PSK (v4) prend le relais, jamais le v3.
+        let viaContact = contact4(k) != nil ? sealContact4(text, k, now) : sealContact(text, k, now)
+        let sealed = viaContact ?? (psk4Allowed(k, now) ? sealPsk4(text, k) : sealPsk(text, k, now))
+        guard let token = sealed else { return nil }
         remember(token: token, text: text, mine: true, now: now)
+        return token
+    }
+
+    private func sealContact4(_ text: String, _ k: BrocolisV3Key, _ now: UInt64) -> String? {
+        guard let b = contact4(k) else { return nil }
+        let peer = peer4(for: b)
+        if let s = peer.sending {
+            if let token = try? s.encrypt(text) {
+                stateDirty = true
+                return token
+            }
+            // Chaîne épuisée ou état abîmé : une session neuve.
+            peer.sessions.removeAll()
+        }
+        guard fresh(k, now), let s = try? device.initiate4(bundle: b, rng: rng),
+              let token = try? s.encrypt(text) else { return nil }
+        peer.put(s)
+        stateDirty = true
+        return token
+    }
+
+    private func sealPsk4(_ text: String, _ k: BrocolisV3Key) -> String? {
+        guard k.raw.count == 32 else { return nil }
+        let peer = psk4Peer(k.id)
+        if let s = peer.sending {
+            if let token = try? s.encrypt(text) {
+                stateDirty = true
+                return token
+            }
+            peer.sessions.removeAll()
+        }
+        guard let s = try? Session4.initiatePsk(key: k.raw, rng: rng), let token = try? s.encrypt(text) else {
+            return nil
+        }
+        peer.put(s)
+        stateDirty = true
         return token
     }
 
@@ -405,12 +624,14 @@ final class BrocolisV3Engine {
     /// message d'un contact (ou PSK d'une de `keys`).
     func open(_ token: String, keys: [BrocolisV3Key], now: UInt64) -> BrocolisV3Opened {
         if let text = recall(token) { return .text(text) }
-        let decoded: Token
-        do { decoded = try Token.decode(BrocolisV3Format.normalize(token)) } catch {
-            return .failed(error as? Erreur ?? .format)
-        }
+        let clean = BrocolisV3Format.normalize(token)
         do {
-            let text = try decrypt(decoded, keys: keys, now: now)
+            let text: String
+            if BrocolisV3Format.isV4(clean) {
+                text = try decrypt4(try Token4.decode(clean), keys: keys, now: now)
+            } else {
+                text = try decrypt(try Token.decode(clean), keys: keys, now: now)
+            }
             remember(token: token, text: text, mine: false, now: now)
             return .text(text)
         } catch Erreur.rejoue {
@@ -460,6 +681,57 @@ final class BrocolisV3Engine {
         return try text(content)
     }
 
+    /// Reçoit un jeton v4 (§9) : chaque session v4 l'essaie
+    /// (`.sessionInconnue` : « pas celle-ci ») ; sinon un premier message
+    /// d'un contact, ou une PSK v4 d'une de `keys`.
+    private func decrypt4(_ token: Token4, keys: [BrocolisV3Key], now: UInt64) throws -> String {
+        for (isPsk, table) in [(false, peers4), (true, psk4)] {
+            for (owner, peer) in table {
+                for s in peer.sessions {
+                    let content: Content
+                    do {
+                        content = try s.decrypt(token, now: now, rng: rng)
+                    } catch Erreur.sessionInconnue {
+                        continue
+                    }
+                    peer.current = s.sessionId
+                    if !isPsk && !v4Seen.contains(owner) { v4Seen.append(owner) }
+                    stateDirty = true
+                    return try text(content)
+                }
+            }
+        }
+        switch token {
+        case .initial:
+            let (s, content) = try device.accept4(token, now: now, rng: rng)
+            // Seulement d'un contact (paquet reçu à l'appairage).
+            guard let ik = s.peerIdentity,
+                  keys.contains(where: { self.contact($0)?.identity.dh == ik })
+            else { throw Erreur.sessionInconnue }
+            deviceDirty = true
+            let owner = BrocolisV3Format.hex(ik)
+            if !v4Seen.contains(owner) { v4Seen.append(owner) }
+            peer4(owner: owner).put(s)
+            stateDirty = true
+            return try text(content)
+        case .message:
+            for k in keys where !k.group && k.raw.count == 32 {
+                do {
+                    let (s, content) = try Session4.acceptPsk(
+                        keys: [k.raw], token: token, guard: &pskReplay, now: now, rng: rng)
+                    psk4Peer(k.id).put(s)
+                    if !pskSeen.contains(k.id) { pskSeen.append(k.id) }
+                    if !psk4Seen.contains(k.id) { psk4Seen.append(k.id) }
+                    stateDirty = true
+                    return try text(content)
+                } catch Erreur.sessionInconnue {
+                    continue
+                }
+            }
+            throw Erreur.sessionInconnue
+        }
+    }
+
     private func text(_ content: Content) throws -> String {
         guard case .text(let t) = content else { throw Erreur.format }
         return t
@@ -469,23 +741,28 @@ final class BrocolisV3Engine {
     /// neuve (§8.6, réparation).
     func repair(_ k: BrocolisV3Key) {
         guard let b = k.bundle else { return }
-        if peers.removeValue(forKey: BrocolisV3Format.hex(b.identity.dh)) != nil { stateDirty = true }
+        let owner = BrocolisV3Format.hex(b.identity.dh)
+        let v3 = peers.removeValue(forKey: owner) != nil
+        if peers4.removeValue(forKey: owner) != nil || v3 { stateDirty = true }
     }
 
     /// Oublie tout ce qui touche à une clé supprimée (sessions PSK) ; les
     /// sessions du contact restent si une autre clé le désigne.
     func forget(keyId: String) {
         if psk.removeValue(forKey: keyId) != nil { stateDirty = true }
-        if pskSeen.contains(keyId) {
+        if psk4.removeValue(forKey: keyId) != nil { stateDirty = true }
+        if pskSeen.contains(keyId) || psk4Seen.contains(keyId) {
             pskSeen.removeAll { $0 == keyId }
+            psk4Seen.removeAll { $0 == keyId }
             stateDirty = true
         }
     }
 
     /// Nombre de sessions avec le contact de `k` (tests, affichage).
     func sessionCount(_ k: BrocolisV3Key) -> Int {
-        (k.bundle.flatMap { peers[BrocolisV3Format.hex($0.identity.dh)]?.sessions.count } ?? 0)
-            + (psk[k.id]?.sessions.count ?? 0)
+        let owner = k.bundle.map { BrocolisV3Format.hex($0.identity.dh) } ?? ""
+        return (peers[owner]?.sessions.count ?? 0) + (peers4[owner]?.sessions.count ?? 0)
+            + (psk[k.id]?.sessions.count ?? 0) + (psk4[k.id]?.sessions.count ?? 0)
     }
 
     // MARK: Messagerie (§8.7)
@@ -517,7 +794,12 @@ final class BrocolisV3Engine {
             result = recall(token).map { .text($0) } ?? .replay
         } else {
             result = open(token, keys: keys, now: now)
-            if case .failed(let e) = result, BrocolisV3Format.needsRepair(e) { repair(k) }
+            // En v4, un jeton qu'aucune session n'ouvre ne dit pas laquelle
+            // est perdue (pas d'identifiant en clair, §9.6) : pas de
+            // réparation, l'envoi suivant ouvre une session s'il n'y en a plus.
+            if case .failed(let e) = result, BrocolisV3Format.needsRepair(e), !BrocolisV3Format.isV4(token) {
+                repair(k)
+            }
         }
         guard case .text(let t) = result else { return result }
         guard t.hasPrefix(BrocolisV3Format.mediaPrefix) else { return result }

@@ -14,6 +14,8 @@ vecteurs Wycheproof des primitives.
 | `Device`, `KeyBundle`, `IdentitySecret`, `ReplayGuard`, `Paquet` | `paquet` | §4.1, §7.3 |
 | `Session`, `Content`, `KemEncapsulation` | `session` (classique, hybride, PSK ; Double Ratchet) | §4.2–4.3, §7.4–7.5 |
 | `Token`, `JetonV3` | `jeton_v3` | §4.4 |
+| `Session4`, `Mode4`, `Device.initiate4`/`accept4`/`caps4`, `Paquet.verifyCaps4` | `session4` (triple cliquet, en-têtes chiffrés, PSK v4), `paquet` (capacité v4) | §9.1–9.6 |
+| `Token4`, `Header4`, `Body4`, `Preamble4`, `JetonV4` | `jeton_v4` | §9.3–9.4 |
 | `SenderKeyState`, `ReceivedSenderKey`, `SenderKeyDistribution`, `Groupe` | `groupe` | §4.5, §7.6–7.7 |
 | `Kdf`, `MlKem`, `Argon2`, `Base64` | `kdf`, ML-KEM, Argon2 | — |
 | `Erreur`, `Protocole`, `CryptoRng`, `Hasard`, `Deterministic` | `Erreur`, constantes, `hasard` | — |
