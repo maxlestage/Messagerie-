@@ -50,6 +50,8 @@ const GROUP_WATCH: u64 = 8 * 24 * 3600;
 struct Contact {
     /// Son paquet de clés (base64), reçu dans le salon.
     bundle: String,
+    /// Sa capacité v4 signée (base64, §9.6), reçue avec le paquet.
+    caps: String,
     /// Quand (secondes Unix).
     at: u64,
     /// Devenue une clé de groupe : plus de v3.
@@ -229,12 +231,27 @@ fn contact_bundle(c: &Option<Contact>) -> Option<KeyBundle> {
         .and_then(|c| KeyBundle::from_base64(&c.bundle).ok())
 }
 
+/// Sa capacité v4 (le moteur la vérifie contre le paquet).
+fn contact_caps(c: &Option<Contact>) -> Option<[u8; 64]> {
+    c.as_ref()
+        .filter(|c| !c.group)
+        .and_then(|c| crypto::unb64(&c.caps))
+        .and_then(|raw| raw.try_into().ok())
+}
+
 /// La clé de la discussion, vue par le moteur v3.
-fn key_info<'a>(key: [u8; 32], c: &Option<Contact>, bundle: Option<&'a KeyBundle>, id: &'a str) -> KeyInfo<'a> {
+fn key_info<'a>(
+    key: [u8; 32],
+    c: &Option<Contact>,
+    bundle: Option<&'a KeyBundle>,
+    caps: Option<&'a [u8; 64]>,
+    id: &'a str,
+) -> KeyInfo<'a> {
     KeyInfo {
         id,
         key,
         bundle,
+        caps,
         bundle_at: c.as_ref().map_or(0, |c| c.at),
         group: c.as_ref().is_some_and(|c| c.group),
         psk: false,
@@ -245,8 +262,9 @@ fn key_info<'a>(key: [u8; 32], c: &Option<Contact>, bundle: Option<&'a KeyBundle
 fn show_protection(engine: &Engine, key: [u8; 32], t: u64, s: ChatStates) {
     let c = contact();
     let bundle = contact_bundle(&c);
+    let caps = contact_caps(&c);
     let conv = crypto::conversation_id(&key);
-    let k = key_info(key, &c, bundle.as_ref(), &conv);
+    let k = key_info(key, &c, bundle.as_ref(), caps.as_ref(), &conv);
     s.protection.set(s.lang.t(engine.protection(&k, t).i18n_key()).to_owned());
 }
 
@@ -294,11 +312,13 @@ fn json(pairs: &[(&str, &str)]) -> String {
     js_sys::JSON::stringify(&obj).ok().and_then(|s| s.as_string()).unwrap_or_default()
 }
 
-/// Un participant du salon : peerId, clé publique, paquet v3 éventuel.
+/// Un participant du salon : peerId, clé publique, paquet v3 et capacité v4
+/// éventuels.
 struct RoomPeer {
     id: String,
     public: String,
     bundle: Option<String>,
+    caps: Option<String>,
 }
 
 /// Les autres participants du salon `code`.
@@ -315,36 +335,50 @@ async fn peers(code: &str, peer_id: &str) -> Vec<RoomPeer> {
             id: text_field(&p, "peerId"),
             public: text_field(&p, "pub"),
             bundle: field(&p, "bundle").as_string().filter(|b| !b.is_empty()),
+            caps: field(&p, "caps").as_string().filter(|c| !c.is_empty()),
         })
         .filter(|p| !p.id.is_empty() && !p.public.is_empty())
         .collect()
 }
 
 /// S'inscrit au salon ; `host` : c'est l'invitant (lui seul remettra la clé).
-/// `bundle` : le paquet de clés v3 (§8.4).
-async fn publish(code: &str, peer_id: &str, public: &str, host: bool, bundle: Option<&str>) -> bool {
+/// `mine` : le paquet de clés v3 (§8.4) et la capacité v4 (§9.6).
+async fn publish(code: &str, peer_id: &str, public: &str, host: bool, mine: &Mine) -> bool {
     let body = js_sys::Object::new();
     for (k, v) in [("code", code), ("peerId", peer_id), ("pub", public)] {
         let _ = js_sys::Reflect::set(&body, &JsValue::from_str(k), &JsValue::from_str(v));
     }
     let _ = js_sys::Reflect::set(&body, &"host".into(), &JsValue::from_bool(host));
-    if let Some(b) = bundle {
+    if let Some(b) = &mine.bundle {
         let _ = js_sys::Reflect::set(&body, &"bundle".into(), &JsValue::from_str(b));
+        if let Some(c) = &mine.caps {
+            let _ = js_sys::Reflect::set(&body, &"caps".into(), &JsValue::from_str(c));
+        }
     }
     let body = js_sys::JSON::stringify(&body).ok().and_then(|s| s.as_string()).unwrap_or_default();
     call("POST", "/pair", Some(body)).await.is_some()
 }
 
-/// Mon paquet de clés v3, à publier.
-async fn my_bundle() -> Option<String> {
-    with_engine(|e, _| e.bundle_b64()).await
+/// Ce que je publie au salon : paquet v3 et capacité v4.
+struct Mine {
+    bundle: Option<String>,
+    caps: Option<String>,
+}
+
+async fn my_bundle() -> Mine {
+    with_engine(|e, _| Mine {
+        bundle: e.bundle_b64(),
+        caps: e.caps_b64(),
+    })
+    .await
 }
 
 /// Un contact « à deux » si ce correspondant a publié un paquet.
 fn new_contact(peer: &RoomPeer, code: &str, peer_id: &str, until: u64) -> Option<Contact> {
     let bundle = peer.bundle.clone()?;
     KeyBundle::from_base64(&bundle).ok()?;
-    Some(Contact { bundle, at: now(), group: false, code: code.to_owned(), peer_id: peer_id.to_owned(), until })
+    let caps = peer.caps.clone().unwrap_or_default();
+    Some(Contact { bundle, caps, at: now(), group: false, code: code.to_owned(), peer_id: peer_id.to_owned(), until })
 }
 
 // ── J'invite ─────────────────────────────────────────────────────────────────
@@ -373,7 +407,7 @@ pub fn invite(s: ChatStates) {
         if !still(run) {
             return;
         }
-        if !publish(&code, &peer_id, &public, true, bundle.as_deref()).await {
+        if !publish(&code, &peer_id, &public, true, &bundle).await {
             s.status.set(lang.t("chat.offline").to_owned());
             return;
         }
@@ -458,7 +492,7 @@ pub fn join(code: String, s: ChatStates) {
         if !still(run) {
             return;
         }
-        if !publish(&code, &peer_id, &public, false, bundle.as_deref()).await {
+        if !publish(&code, &peer_id, &public, false, &bundle).await {
             s.phase.set(ChatPhase::Setup);
             s.status.set(s.lang.t("chat.offline").to_owned());
             return;
@@ -546,15 +580,14 @@ fn enter(key: [u8; 32], peer: Option<Contact>, s: ChatStates, run: u32, initiato
         // L'empreinte : les deux identités v3 si l'on est à deux avec un
         // appareil v3, sinon celle d'avant ; l'invitant ouvre la session.
         let bundle = contact_bundle(&peer);
+        let caps = contact_caps(&peer);
         let fp = with_engine(|e, t| {
-            let k = key_info(key, &peer, bundle.as_ref(), &conv);
+            let k = key_info(key, &peer, bundle.as_ref(), caps.as_ref(), &conv);
             if initiator {
                 e.open_session(&k, t);
             }
             show_protection(e, key, t, s);
-            bundle
-                .as_ref()
-                .map(|b| v3::pairing_fingerprint(&key, &e.identity(), &v3::identity_of(b)))
+            e.fingerprint(&k)
         })
         .await;
         s.fingerprint.set(fp.unwrap_or_else(|| crypto::fingerprint(&key)));
@@ -628,12 +661,13 @@ async fn ingest(list: Vec<JsValue>, key: [u8; 32], me: &str, s: ChatStates) {
     }
     let c = contact();
     let bundle = contact_bundle(&c);
+    let caps = contact_caps(&c);
     let conv = crypto::conversation_id(&key);
     let lang = s.lang;
     let has_v3 = fresh.iter().any(|(.., ct)| !v3::find_tokens(ct).is_empty());
     let opened: Vec<Option<Option<String>>> = if has_v3 {
         with_engine(|e, t| {
-            let k = key_info(key, &c, bundle.as_ref(), &conv);
+            let k = key_info(key, &c, bundle.as_ref(), caps.as_ref(), &conv);
             let out = fresh
                 .iter()
                 .map(|(_, _, mine, ct)| {
@@ -687,8 +721,9 @@ pub fn send(text: String, s: ChatStates) {
     spawn_local(async move {
         let c = contact();
         let bundle = contact_bundle(&c);
+        let caps = contact_caps(&c);
         let sealed = with_engine(|e, t| {
-            let k = key_info(key, &c, bundle.as_ref(), &conv);
+            let k = key_info(key, &c, bundle.as_ref(), caps.as_ref(), &conv);
             let out = v3::seal_message(e, &k, &text, t);
             show_protection(e, key, t, s);
             out
