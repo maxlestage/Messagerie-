@@ -81,8 +81,13 @@ final class BrocolisV3Tests: XCTestCase {
     }
 
     private func key(_ raw: [UInt8], peer: KeyBundle?, id: String = "k", group: Bool = false,
-                     psk: Bool = false, at: UInt64 = BrocolisV3.now()) -> BrocolisV3Key {
-        BrocolisV3Key(id: id, raw: raw, bundle: peer, bundleAt: at, group: group, psk: psk)
+                     psk: Bool = false, at: UInt64 = BrocolisV3.now(), caps: [UInt8]? = nil) -> BrocolisV3Key {
+        BrocolisV3Key(id: id, raw: raw, bundle: peer, bundleAt: at, group: group, psk: psk, caps: caps)
+    }
+
+    /// La capacité v4 signée que publie ce téléphone (§9.6).
+    private func caps(_ store: BrocolisV3Store) throws -> [UInt8] {
+        try XCTUnwrap(Base64.decode(try XCTUnwrap(try store.transaction { $0.capsBase64 })))
     }
 
     private func seal(_ store: BrocolisV3Store, _ text: String, _ k: BrocolisV3Key) throws -> String {
@@ -330,6 +335,118 @@ final class BrocolisV3Tests: XCTestCase {
                          duo: false, psk: true)
         let back = try JSONDecoder().decode(NamedKey.self, from: try JSONEncoder().encode(k))
         XCTAssertEqual(back, k)
+    }
+
+    // MARK: v4 (§9)
+
+    func testCapsSwitchAContactToTheTripleRatchet() throws {
+        guard MlKem.isAvailable else { throw XCTSkip("ML-KEM-768 indisponible ici : pas de v4") }
+        let (alice, bob) = (phone(), phone())
+        let (ba, bb) = (try bundle(alice), try bundle(bob))
+        let (ca, cb) = (try caps(alice), try caps(bob))
+        let raw = [UInt8](repeating: 11, count: 32)
+        let ka = key(raw, peer: bb, caps: cb), kb = key(raw, peer: ba, caps: ca)
+        let now = BrocolisV3.now()
+        XCTAssertEqual(try alice.transaction { $0.protection(ka, now: now) }, .triple)
+        XCTAssertEqual(BrocolisProtection.triple.label.contains("triple"), true)
+        // Les deux voient la même empreinte, sous le contexte v4 (§9.7).
+        let fa = try XCTUnwrap(try alice.transaction { $0.fingerprint(ka) })
+        XCTAssertEqual(try bob.transaction { $0.fingerprint(kb) }, fa)
+        let ida = try alice.transaction { $0.identity }, idb = try bob.transaction { $0.identity }
+        XCTAssertEqual(fa, BrocolisV3Format.pairingFingerprint4(key: raw, ida, idb))
+        XCTAssertNotEqual(fa, BrocolisV3Format.pairingFingerprint(key: raw, ida, idb))
+        // L'invitant ouvre la session v4 à l'appairage.
+        XCTAssertTrue(try alice.transaction { $0.openSession(ka, now: now) })
+        let m1 = try seal(alice, "un", ka)
+        let m2 = try seal(alice, "deux", ka)
+        XCTAssertTrue(m1.hasPrefix(JetonV4.head))
+        XCTAssertEqual(BrocolisV3Format.findTokens("x \(m1) y").count, 1)
+        XCTAssertEqual(try open(bob, m2, kb), .text("deux"))
+        XCTAssertEqual(try open(bob, m1, kb), .text("un"))
+        XCTAssertEqual(try bob.transaction { $0.protection(kb, now: now) }, .triple)
+        let r = try seal(bob, "réponse", kb)
+        XCTAssertTrue(r.hasPrefix(JetonV4.head))
+        XCTAssertEqual(try open(alice, r, ka), .text("réponse"))
+        // Coupé par une messagerie : le même clair.
+        let cut = String(m1.prefix(40)) + "\n  " + String(m1.dropFirst(40))
+        XCTAssertEqual(try open(bob, cut, kb), .text("un"))
+        // Un tiers : aucune de ses clés n'ouvre le préambule.
+        XCTAssertEqual(try open(phone(), m1, key(raw, peer: nil)), .failed(.cleInconnue))
+        // Un autre processus relit l'état : la conversation continue.
+        let m3 = try seal(sibling(of: alice), "relu", ka)
+        XCTAssertEqual(try open(bob, m3, kb), .text("relu"))
+        XCTAssertEqual(try alice.transaction { $0.sessionCount(ka) }, 1)
+    }
+
+    func testARemovedCapsShowsInTheFingerprintAndNeverDowngrades() throws {
+        guard MlKem.isAvailable else { throw XCTSkip("ML-KEM-768 indisponible ici : pas de v4") }
+        let (alice, bob) = (phone(), phone())
+        let (ba, bb) = (try bundle(alice), try bundle(bob))
+        let cb = try caps(bob)
+        let raw = [UInt8](repeating: 12, count: 32)
+        let now = BrocolisV3.now()
+        // Le serveur retire la capacité d'Alice chez Bob seulement.
+        let ka = key(raw, peer: bb, caps: cb), kb = key(raw, peer: ba)
+        XCTAssertNotEqual(try alice.transaction { $0.fingerprint(ka) }, try bob.transaction { $0.fingerprint(kb) })
+        XCTAssertEqual(try bob.transaction { $0.protection(kb, now: now) }, .postQuantum)
+        // Une capacité d'une autre identité ne vaut rien.
+        let forged = key(raw, peer: ba, caps: cb)
+        XCTAssertEqual(try bob.transaction { $0.protection(forged, now: now) }, .postQuantum)
+        // Alice écrit en v4 : Bob le lit, puis ne redescend plus en v3.
+        let m = try seal(alice, "v4", ka)
+        XCTAssertEqual(try open(bob, m, kb), .text("v4"))
+        XCTAssertEqual(try bob.transaction { $0.protection(kb, now: now) }, .triple)
+        let r = try seal(bob, "toujours v4", kb)
+        XCTAssertTrue(r.hasPrefix(JetonV4.head))
+        XCTAssertEqual(try open(alice, r, ka), .text("toujours v4"))
+        // Paquet trop vieux, plus de session : la PSK, en v4.
+        let later = now + BrocolisV3Format.bundleMaxAge + 1
+        let device = try bob.transaction { $0.device.toJson() }
+        let seen = try bob.transaction { $0.stored.v4Seen }
+        XCTAssertEqual(seen.count, 1)
+        let b2 = BrocolisV3Engine(deviceJson: device, stored: BrocolisV3Stored(v4Seen: seen), now: later)
+        let kbOld = key(raw, peer: ba, at: now)
+        XCTAssertEqual(b2.protection(kbOld, now: later), .triplePsk)
+        let p = try XCTUnwrap(b2.seal("par la clé", for: kbOld, now: later))
+        XCTAssertTrue(p.hasPrefix(JetonV4.head))
+        XCTAssertEqual(try alice.transaction { $0.open(p, keys: [ka], now: later) }, .text("par la clé"))
+    }
+
+    func testPskV4FollowsAReceivedPskV4() throws {
+        guard MlKem.isAvailable else { throw XCTSkip("ML-KEM-768 indisponible ici : pas de v4") }
+        let bob = phone()
+        let raw = [UInt8](repeating: 13, count: 32)
+        let now = BrocolisV3.now()
+        let ka = key(raw, peer: nil, id: "ka"), kb = key(raw, peer: nil, id: "kb")
+        // Alice a déjà reçu une PSK v4 sur la clé (d'un autre appareil à jour).
+        let a = BrocolisV3Engine(deviceJson: nil, stored: BrocolisV3Stored(pskSeen: ["ka"], psk4Seen: ["ka"]), now: now)
+        XCTAssertEqual(a.protection(ka, now: now), .triplePsk)
+        let m = try XCTUnwrap(a.seal("psk v4", for: ka, now: now))
+        XCTAssertTrue(m.hasPrefix(JetonV4.head))
+        XCTAssertEqual(try open(bob, m, kb), .text("psk v4"))
+        XCTAssertEqual(try bob.transaction { $0.protection(kb, now: now) }, .triplePsk)
+        let r = try seal(bob, "suivi", kb)
+        XCTAssertTrue(r.hasPrefix(JetonV4.head))
+        XCTAssertEqual(a.open(r, keys: [ka], now: now), .text("suivi"))
+        // Sans ce signe, la PSK reste en v3.
+        XCTAssertEqual(try phone().transaction { $0.protection(key(raw, peer: nil, id: "kc", psk: true), now: now) }, .psk)
+        // Une clé oubliée emporte ses sessions PSK v4.
+        a.forget(keyId: "ka")
+        XCTAssertEqual(a.sessionCount(ka), 0)
+        XCTAssertEqual(a.protection(ka, now: now), .legacy)
+    }
+
+    func testAStateWrittenBeforeV4StillLoads() throws {
+        let old = #"{"v":1,"peers":{},"psk":{},"pskSeen":["k"],"opened":[]}"#
+        let s = try JSONDecoder().decode(BrocolisV3Stored.self, from: Data(old.utf8))
+        XCTAssertEqual(s.pskSeen, ["k"])
+        XCTAssertTrue(s.peers4.isEmpty)
+        XCTAssertTrue(s.v4Seen.isEmpty)
+        let back = try JSONDecoder().decode(BrocolisV3Stored.self, from: try JSONEncoder().encode(s))
+        XCTAssertEqual(back.pskSeen, ["k"])
+        // La capacité v4 d'une clé se range avec elle.
+        let k = NamedKey(id: "3", name: "Bob", base64: BrocolisCrypto.generateKeyBase64(), v3Caps: "Q0FQUw==")
+        XCTAssertEqual(try JSONDecoder().decode(NamedKey.self, from: try JSONEncoder().encode(k)).v3Caps, "Q0FQUw==")
     }
 
     // MARK: Clé protégée (§8.9)

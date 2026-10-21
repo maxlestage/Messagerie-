@@ -193,7 +193,14 @@ enum BrocolisV3 {
         return BrocolisV3Key(
             id: k.id, raw: Array(raw), bundle: bundle(k.v3Bundle),
             bundleAt: UInt64(max(0, k.v3Since?.timeIntervalSince1970 ?? 0)),
-            group: k.duo == false, psk: k.psk == true)
+            group: k.duo == false, psk: k.psk == true, caps: caps(k.v3Caps))
+    }
+
+    /// La capacité v4 d'un contact (64 octets), si elle est bien formée ; le
+    /// moteur la vérifie contre le paquet (§9.6).
+    static func caps(_ base64: String?) -> [UInt8]? {
+        guard let base64, let raw = Base64.decode(base64), raw.count == 64 else { return nil }
+        return raw
     }
 
     static func keys(_ ks: [NamedKey]) -> [BrocolisV3Key] { ks.compactMap(key) }
@@ -300,7 +307,9 @@ enum BrocolisV3 {
     /// La protection qu'a reçue un texte qu'on vient de chiffrer : celle de
     /// la clé s'il porte un jeton v3, sinon l'ancien format.
     static func protectionUsed(_ sealed: String, recipients: [NamedKey]) -> BrocolisProtection {
-        guard recipients.count == 1, sealed.contains(JetonV3.head) else { return .legacy }
+        guard recipients.count == 1, sealed.contains(JetonV3.head) || sealed.contains(JetonV4.head) else {
+            return .legacy
+        }
         return protection(recipients[0])
     }
 
@@ -309,13 +318,24 @@ enum BrocolisV3 {
     /// Mon paquet de clés, à publier dans le salon.
     static func myBundle() -> String? { run { e, _ in e.bundleBase64 } ?? nil }
 
+    /// Ce que je publie dans le salon, en une transaction : le paquet (§8.4)
+    /// et, si j'ai ML-KEM, la capacité v4 signée (§9.6).
+    static func myPublication() -> (bundle: String?, caps: String?) {
+        run { e, _ in (e.bundleBase64, e.capsBase64) } ?? (nil, nil)
+    }
+
     /// L'empreinte d'appairage à deux, si le correspondant a publié un paquet
-    /// valide (sinon `nil` : l'empreinte d'avant).
-    static func pairingFingerprint(keyBase64: String, peerBundle: String?) -> String? {
+    /// valide (sinon `nil` : l'empreinte d'avant). Sous le contexte v4 si sa
+    /// capacité v4 est valide et que j'ai ML-KEM (§9.7) : un serveur qui la
+    /// retire d'un seul côté fait afficher deux empreintes différentes.
+    static func pairingFingerprint(keyBase64: String, peerBundle: String?, peerCaps: String? = nil) -> String? {
         guard let peer = bundle(peerBundle),
               let raw = Data(base64Encoded: keyBase64), raw.count == 32,
-              let mine = run({ e, _ in e.identity }) else { return nil }
-        return BrocolisV3Format.pairingFingerprint(key: Array(raw), mine, BrocolisV3Format.identity(of: peer))
+              let mine = run({ e, _ in (e.identity, e.device.supportsPq) }) else { return nil }
+        if mine.1 && BrocolisV3Format.capsValid(peer, caps(peerCaps)) {
+            return BrocolisV3Format.pairingFingerprint4(key: Array(raw), mine.0, BrocolisV3Format.identity(of: peer))
+        }
+        return BrocolisV3Format.pairingFingerprint(key: Array(raw), mine.0, BrocolisV3Format.identity(of: peer))
     }
 
     /// L'invitant ouvre la session dès l'appairage (§8.4).

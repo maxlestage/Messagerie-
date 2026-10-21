@@ -11,6 +11,9 @@
 //  participants rend celui des autres. Champ optionnel : un ancien client
 //  n'en envoie pas, un ancien serveur l'ignore.
 //
+//  v4 (§9.6) : à côté du paquet, la capacité v4 signée (`caps`), que le
+//  serveur vérifie et rend avec le participant.
+//
 
 import Foundation
 #if canImport(FoundationNetworking)
@@ -22,6 +25,8 @@ struct PairingPeer: Decodable {
     let pub: String
     /// Son paquet de clés v3 (base64), s'il en a publié un.
     let bundle: String?
+    /// Sa capacité v4 signée (base64, §9.6), s'il en a publié une.
+    let caps: String?
 }
 
 struct WrapItem {
@@ -41,11 +46,22 @@ struct BrocolisV3Contact {
     let bundle: String?
     /// À deux (sinon : clé de groupe, jamais de v3).
     let duo: Bool
+    /// Sa capacité v4 signée (§9.6), publiée avec son paquet.
+    var caps: String? = nil
+
+    /// Le contact v3 de `peer` : son paquet (et sa capacité v4) seulement si
+    /// j'ai publié le mien.
+    static func with(_ peer: PairingPeer?, myBundle: String?, duo: Bool) -> BrocolisV3Contact {
+        guard myBundle != nil, let peer else { return BrocolisV3Contact(bundle: nil, duo: duo) }
+        return BrocolisV3Contact(bundle: peer.bundle, duo: duo, caps: peer.bundle == nil ? nil : peer.caps)
+    }
 
     /// L'empreinte à comparer : celle qui couvre les identités v3 si l'on est
-    /// à deux avec un appareil v3, sinon celle d'avant.
+    /// à deux avec un appareil v3 (sous le contexte v4 si sa capacité v4 est
+    /// valide, §9.7), sinon celle d'avant.
     func fingerprint(key: String, legacy: String) -> String {
-        guard duo, let fp = BrocolisV3.pairingFingerprint(keyBase64: key, peerBundle: bundle) else { return legacy }
+        guard duo, let fp = BrocolisV3.pairingFingerprint(keyBase64: key, peerBundle: bundle, peerCaps: caps)
+        else { return legacy }
         return fp
     }
 
@@ -53,7 +69,7 @@ struct BrocolisV3Contact {
     /// deux si le salon ne compte qu'un autre participant (moi exclu).
     static func joining(room: [PairingPeer], wrap: WrapInbox, myBundle: String?) -> BrocolisV3Contact {
         let inviter = room.first { $0.peerId == wrap.from && $0.pub == wrap.fromPub }
-        return BrocolisV3Contact(bundle: myBundle == nil ? nil : inviter?.bundle, duo: room.count <= 1)
+        return with(inviter, myBundle: myBundle, duo: room.count <= 1)
     }
 }
 
@@ -79,11 +95,15 @@ struct PairingClient {
 
     /// Publie sa clé publique ; renvoie les clés publiques des autres participants.
     /// `host` : c'est l'invitant — le serveur ne laisse que lui remettre la clé.
-    /// `bundle` : mon paquet de clés v3 (`BrocolisV3.myBundle()`), s'il y en a.
+    /// `bundle` : mon paquet de clés v3 (`BrocolisV3.myPublication()`), s'il y
+    /// en a ; `caps` : ma capacité v4 signée, publiée avec lui (§9.6).
     func publish(code: String, peerId: String, pub: String, host: Bool = false,
-                 bundle: String? = nil) async throws -> [PairingPeer] {
+                 bundle: String? = nil, caps: String? = nil) async throws -> [PairingPeer] {
         var body: [String: Any] = ["code": code, "peerId": peerId, "pub": pub, "host": host]
-        if let bundle { body["bundle"] = bundle }
+        if let bundle {
+            body["bundle"] = bundle
+            if let caps { body["caps"] = caps }
+        }
         let data = try await raw(method: "POST", path: "/pair", body: body)
         return try JSONDecoder().decode(PairingResponse.self, from: data).peers
     }
