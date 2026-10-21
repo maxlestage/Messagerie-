@@ -614,6 +614,8 @@ html.over-film .pill.active { color: var(--brand-ink); }
 
 /* Fonctionnalités : une colonne sur téléphone */
 .features { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+/* Le protocole v3 : six cartes en grille régulière, et le lien vers la spécification. */
+.v3-spec { margin-top: 20px; text-align: center; }
 .card {
   position: relative;
   min-width: 0;
@@ -1636,6 +1638,9 @@ html.over-film .grain::before { opacity: 0.09; }
   .features .card:first-child { grid-column: span 2; }
   /* La dernière carte ferme la grille sur toute la largeur. */
   .features .card:last-child { grid-column: 1 / -1; }
+  .features.v3-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .features.v3-grid .card:first-child,
+  .features.v3-grid .card:last-child { grid-column: auto; }
 }
 
 /* Survols uniquement sur les appareils qui en ont (pas d'effet collant au toucher) */
