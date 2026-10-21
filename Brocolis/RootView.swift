@@ -602,6 +602,17 @@ struct RootView: View {
                 Text(sel.name).font(.headline)
                 Text((protections[sel.id] ?? .legacy).label)
                     .font(.footnote).foregroundStyle(.secondary)
+                // L'identité de ce contact a changé (§9.8) : rien ne part vers
+                // lui tant que l'empreinte n'a pas été comparée.
+                if BrocolisV3.isBlocked(sel) {
+                    Button {
+                        BrocolisKeyStore.confirmIdentity(keyId: sel.id)
+                        reload()
+                    } label: {
+                        Label(loc("J’ai comparé l’empreinte", "I compared the fingerprint", "He comparado la huella"),
+                              systemImage: "checkmark.shield")
+                    }
+                }
                 // Une clé sans appairage v3, partagée avec UNE personne à jour :
                 // le double cliquet à partir de la clé (PSK, §8.5). Jamais
                 // automatique : un ancien correspondant ne lirait plus rien.

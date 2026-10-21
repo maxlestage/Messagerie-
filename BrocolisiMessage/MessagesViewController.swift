@@ -458,10 +458,11 @@ final class MessagesViewController: MSMessagesAppViewController {
     private func insertMarked(_ text: String) -> Bool {
         guard text.contains(BrocolisCrypto.plainOpen), text.contains(BrocolisCrypto.plainClose),
               let conversation = activeConversation,
-              let key = model.selectedKey,
-              let sym = try? BrocolisCrypto.symmetricKey(fromBase64: key.base64) else { return false }
+              let key = model.selectedKey else { return false }
+        // Le codec retombe en v1 tout seul, et ne scelle rien pour une
+        // identité changée (§9.8).
         let codec = BrocolisV3.codec(recipients: [key], all: BrocolisKeyStore.keys)
-        let (marked, count) = BrocolisCrypto.encryptMarked(text, seal: { codec.seal($0) ?? BrocolisCrypto.sealToken(Data($0.utf8), keys: [sym]) })
+        let (marked, count) = BrocolisCrypto.encryptMarked(text, seal: codec.seal)
         guard count > 0 else { return false }
         model.sendError = nil
         conversation.insertText(marked) { _ in }
@@ -514,12 +515,14 @@ final class MessagesViewController: MSMessagesAppViewController {
     private func insertEncrypted(clear: String, summary: String, info: String? = nil) {
         model.sendError = nil
         guard let conversation = activeConversation,
-              let key = model.selectedKey,
-              let sym = try? BrocolisCrypto.symmetricKey(fromBase64: key.base64),
-              // v3 pour un contact appairé (ou « à deux » en PSK), sinon v1.
-              let token = BrocolisV3.seal(clear, for: key)
-                ?? (try? BrocolisCrypto.encryptToken(Data(clear.utf8), key: sym))
+              let key = model.selectedKey
         else { return }
+        // v3 pour un contact appairé (ou « à deux » en PSK), sinon v1 ; rien
+        // pour un contact dont l'identité a changé (§9.8).
+        guard let token = BrocolisV3.sealAny(clear, for: key) else {
+            if BrocolisV3.isBlocked(key) { model.sendError = BrocolisProtection.identityChanged.label }
+            return
+        }
 
         // Limite prudente pour l'URL d'une bulle iMessage.
         guard token.utf8.count <= BrocolisMediaLimits.maxTokenChars else {
@@ -562,9 +565,7 @@ final class MessagesViewController: MSMessagesAppViewController {
         if insertMarked(text) { return }
         guard let conversation = activeConversation,
               let key = model.selectedKey,
-              let sym = try? BrocolisCrypto.symmetricKey(fromBase64: key.base64),
-              let token = BrocolisV3.seal(text, for: key)
-                ?? (try? BrocolisCrypto.encryptToken(Data(text.utf8), key: sym))
+              let token = BrocolisV3.sealAny(text, for: key)
         else { return }
         conversation.insertText(token) { _ in }
         requestPresentationStyle(.compact)

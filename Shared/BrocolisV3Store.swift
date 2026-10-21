@@ -193,7 +193,60 @@ enum BrocolisV3 {
         return BrocolisV3Key(
             id: k.id, raw: Array(raw), bundle: bundle(k.v3Bundle),
             bundleAt: UInt64(max(0, k.v3Since?.timeIntervalSince1970 ?? 0)),
-            group: k.duo == false, psk: k.psk == true, caps: caps(k.v3Caps))
+            group: k.duo == false, psk: k.psk == true, caps: caps(k.v3Caps),
+            identityChanged: isBlocked(k))
+    }
+
+    // MARK: Alerte de changement d'identité (§9.8)
+
+    /// L'identité d'un contact a changé sans confirmation : RIEN ne part vers
+    /// lui, ni v3/v4 ni v1/v2 (la clé partagée vient du même ré-appairage).
+    /// La lecture continue.
+    static func isBlocked(_ k: NamedKey) -> Bool { k.identityChanged == true }
+
+    /// L'identité d'un paquet (IK X25519 ‖ IK Ed25519), en base64.
+    static func identityBase64(ofBundle base64: String?) -> String? {
+        bundle(base64).map { Base64.encode(BrocolisV3Format.identity(of: $0)) }
+    }
+
+    /// Le contact `old` ré-appairé : nouvelle clé, nouveau paquet (et
+    /// capacité v4). Si le paquet porte une AUTRE identité que celui qu'il
+    /// avait, l'ancienne est gardée (`v3PreviousIdentity`, celle d'avant la
+    /// première alerte encore en attente) et l'envoi est bloqué jusqu'à
+    /// `BrocolisKeyStore.confirmIdentity` (§9.8).
+    static func repaired(_ old: NamedKey, key: String, bundle newBundle: String, caps: String?,
+                         at: Date = Date()) -> NamedKey {
+        let oldId = identityBase64(ofBundle: old.v3Bundle)
+        let newId = identityBase64(ofBundle: newBundle)
+        let already = old.identityChanged == true
+        let changed = oldId != nil && oldId != newId
+        var k = NamedKey(id: old.id, name: old.name, base64: key.trimmingCharacters(in: .whitespacesAndNewlines),
+                         ttlSeconds: old.ttlSeconds, expiresAt: old.expiresAt,
+                         v3Bundle: newBundle, v3Since: at, duo: true, psk: nil, v3Caps: caps)
+        if changed || already {
+            k.identityChanged = true
+            k.v3PreviousIdentity = already ? old.v3PreviousIdentity : oldId
+        }
+        return k
+    }
+
+    /// Ré-appaire la clé `id` (même contact) ; vrai si son identité a changé
+    /// (alerte en attente).
+    @discardableResult
+    static func repairContact(keyId id: String, key: String, bundle newBundle: String, caps: String?) -> Bool {
+        guard let old = BrocolisKeyStore.keys.first(where: { $0.id == id }) else { return false }
+        let k = repaired(old, key: key, bundle: newBundle, caps: caps)
+        BrocolisKeyStore.replaceKey(k)
+        return k.identityChanged == true
+    }
+
+    /// Scelle `text` pour UNE clé : v3/v4 si elle le permet, sinon v1. `nil`
+    /// si son identité a changé (échec fermé, §9.8) ou si rien ne scelle.
+    static func sealAny(_ text: String, for k: NamedKey) -> String? {
+        guard !isBlocked(k) else { return nil }
+        if let token = seal(text, for: k) { return token }
+        guard let sym = try? BrocolisCrypto.symmetricKey(fromBase64: k.base64) else { return nil }
+        return try? BrocolisCrypto.encryptToken(Data(text.utf8), key: sym)
     }
 
     /// La capacité v4 d'un contact (64 octets), si elle est bien formée ; le
@@ -226,8 +279,11 @@ enum BrocolisV3 {
     /// sinon v1 (une clé) ou v2 (plusieurs) ; lecture v3, v2, v1.
     static func codec(recipients: [NamedKey], all: [NamedKey]) -> BrocolisCodec {
         let sym = recipients.compactMap { try? BrocolisCrypto.symmetricKey(fromBase64: $0.base64) }
+        // Un destinataire dont l'identité a changé : rien ne se scelle (§9.8).
+        let blocked = recipients.contains(where: isBlocked)
         return BrocolisCodec(
             seal: { text in
+                if blocked { return nil }
                 if recipients.count == 1, let token = seal(text, for: recipients[0]) { return token }
                 return BrocolisCrypto.sealToken(Data(text.utf8), keys: sym)
             },
@@ -239,6 +295,10 @@ enum BrocolisV3 {
     static func openTokens(_ input: String, keys: [NamedKey]) -> (text: String, count: Int) {
         let sym = keys.compactMap { try? BrocolisCrypto.symmetricKey(fromBase64: $0.base64) }
         let found = BrocolisV3Format.findTokens(input).map { String(input[$0]) }
+        // Un message de groupe à cliquet (§9.9) arrive avec les chaînes
+        // remises aux autres membres : celles qu'on ne peut pas ouvrir ne sont
+        // pas pour nous, elles ne s'affichent pas.
+        let group = found.contains(where: BrocolisV3Format.isGroupMessage)
         var clear = memo.lookup(found)
         let missing = found.filter { clear[$0] == nil }
         if !missing.isEmpty {
@@ -248,8 +308,10 @@ enum BrocolisV3 {
                 for token in missing where out[token] == nil {
                     switch e.open(token, keys: v3keys, now: t) {
                     case .text(let s): out[token] = s
+                    case .hidden: out[token] = ""
                     case .replay: out[token] = alreadyRead
-                    case .failed: break
+                    case .failed:
+                        if group && !BrocolisV3Format.isGroupMessage(token) { out[token] = "" }
                     }
                 }
                 return out
@@ -299,10 +361,13 @@ enum BrocolisV3 {
         let result = run { e, t in
             Dictionary(pairs.map { ($0.0, e.protection($0.1, now: t)) }, uniquingKeysWith: { a, _ in a })
         }
-        return result ?? Dictionary(ks.map { ($0.id, BrocolisProtection.legacy) }, uniquingKeysWith: { a, _ in a })
+        return result ?? Dictionary(ks.map { ($0.id, isBlocked($0) ? .identityChanged : BrocolisProtection.legacy) },
+                                    uniquingKeysWith: { a, _ in a })
     }
 
-    static func protection(_ k: NamedKey) -> BrocolisProtection { protections([k])[k.id] ?? .legacy }
+    static func protection(_ k: NamedKey) -> BrocolisProtection {
+        protections([k])[k.id] ?? (isBlocked(k) ? .identityChanged : .legacy)
+    }
 
     /// La protection qu'a reçue un texte qu'on vient de chiffrer : celle de
     /// la clé s'il porte un jeton v3, sinon l'ancien format.
@@ -347,6 +412,24 @@ enum BrocolisV3 {
     /// Une clé supprimée : ses sessions PSK partent avec elle.
     static func forget(keyId: String) {
         _ = run { e, _ in e.forget(keyId: keyId) }
+    }
+
+    // MARK: Groupes à cliquet (§9.9)
+
+    /// Scelle `text` pour un groupe de contacts appairés deux à deux
+    /// (`groupId` : 16 octets communs) : à cliquet si chaque membre le permet
+    /// (chaînes remises par les sessions à deux, puis le message de groupe),
+    /// sinon un jeton v2 pour les clés des membres. Un membre dont l'identité
+    /// a changé : `nil`, rien ne part (§9.8).
+    static func sealGroup(_ text: String, groupId: [UInt8], members: [NamedKey]) -> String? {
+        guard !members.isEmpty, !members.contains(where: isBlocked) else { return nil }
+        let sym = members.compactMap { try? BrocolisCrypto.symmetricKey(fromBase64: $0.base64) }
+        let v3keys = keys(members)
+        if groupId.count == 16, v3keys.count == members.count,
+           let token = run({ e, t in e.sealGroup(groupId: groupId, members: v3keys, text: text, now: t) }) ?? nil {
+            return token
+        }
+        return BrocolisCrypto.sealToken(Data(text.utf8), keys: sym)
     }
 
     // MARK: Messagerie (§8.7)
