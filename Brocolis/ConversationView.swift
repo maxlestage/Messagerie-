@@ -48,10 +48,12 @@ struct ConversationView: View {
 
     /// Chiffre la réponse pour la clé sélectionnée (v3 si possible), la copie.
     private func sealReply() {
-        guard canSeal, let key = BrocolisKeyStore.selectedKey,
-              let sym = try? BrocolisCrypto.symmetricKey(fromBase64: key.base64),
-              let token = BrocolisV3.seal(reply, for: key)
-                ?? (try? BrocolisCrypto.encryptToken(Data(reply.utf8), key: sym)) else { return }
+        guard canSeal, let key = BrocolisKeyStore.selectedKey else { return }
+        // Identité changée (§9.8) : rien ne part, l'alerte reste affichée.
+        guard let token = BrocolisV3.sealAny(reply, for: key) else {
+            protection = BrocolisV3.protection(key)
+            return
+        }
         UIPasteboard.general.string = token
         lastSealed = token
         reply = ""

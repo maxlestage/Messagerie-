@@ -316,6 +316,14 @@ final class BrocolisChatStore: ObservableObject {
     /// Chiffre `plain` (texte OU média encodé) et l'envoie. Le serveur ne voit
     /// qu'un jeton — il ignore même si c'est une image ou un vocal.
     private func sendPlain(_ plain: String, restoreDraftOnFailure: String? = nil) {
+        // L'identité du correspondant a changé (§9.8) : rien ne part, ni v3/v4
+        // ni v1, avant « J'ai comparé l'empreinte ».
+        if BrocolisV3.isBlocked(currentKey) {
+            if let draft = restoreDraftOnFailure { self.draft = draft }
+            protection = .identityChanged
+            status = BrocolisProtection.identityChanged.label
+            return
+        }
         Task { [weak self] in
             guard let self else { return }
             do {
