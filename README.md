@@ -272,6 +272,13 @@ Même format de jeton (`[[BROCOLIS:v1:…]]`, AES-256-GCM,
 une clé `brocolis keygen` fonctionne dans l'app, et les jetons sont
 déchiffrables par brocolis (et inversement).
 
+[brocolis](https://github.com/maxlestage/brocolis) (proxy, ligne de commande,
+application de bureau) parle aussi le **v3** (§8 de
+[`docs/SECURITE.md`](docs/SECURITE.md)), avec une copie de `proto/` : un
+appairage « à deux » avec l'app publie et reçoit le paquet de clés v3, affiche
+la même empreinte, et les messages partent en double cliquet dans les deux
+sens ; la PSK, les libellés et la clé protégée v2 sont les mêmes.
+
 ## Interopérable avec Android (app native disponible)
 
 Le protocole n'utilise **que des standards ouverts** — rien de propriétaire
