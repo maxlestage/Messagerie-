@@ -27,7 +27,7 @@ object PairingFlow {
     )
 
     /**
-     * Publie ma clé (et `myBundle`), attend celle de l'autre (`attempts`
+     * Publie ma clé (et `myBundle`, avec `myCaps`, §9.6), attend celle de l'autre (`attempts`
      * relectures), dérive la clé. `null` : personne n'est venu.
      */
     suspend fun pairTwo(
@@ -38,9 +38,10 @@ object PairingFlow {
         myBundle: String?,
         attempts: Int = 10,
         delayMillis: Long = 1_500,
+        myCaps: String? = null,
     ): Paired? {
         val myPub = BrocolisKeyAgreement.publicKeyBase64(priv)
-        var peers = client.publish(code, peerId, myPub, bundle = myBundle)
+        var peers = client.publish(code, peerId, myPub, bundle = myBundle, caps = if (myBundle == null) null else myCaps)
         var peer = peers.firstOrNull { it.peerId != peerId }
         var tries = 0
         while (peer == null && tries < attempts) {
