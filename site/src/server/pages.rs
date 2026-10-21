@@ -778,6 +778,15 @@ fn protocol(ctx: &Ctx<'_>) -> Element {
                 })),
         )
         .child(
+            p().class("callout reveal")
+                .text(ctx.t("v3.v4"))
+                .text(" ")
+                .child(
+                    a().href(format!("{}#v4", Route::new(ctx.lang(), Page::Protocol).path()))
+                        .text(ctx.t("v3.v4.cta")),
+                ),
+        )
+        .child(
             p().class("v3-spec reveal")
                 .child(
                     a().class("btn primary")
@@ -1188,7 +1197,9 @@ const TOKEN_FIRST_ONLY: [bool; 9] = [false, false, true, true, true, true, true,
 
 /// Un tableau : en-têtes, puis lignes (la première cellule est l'en-tête de
 /// ligne). `new` : la dernière colonne est ce que le v3 apporte.
-fn proto_table(class: &str, head: [&str; 3], rows: Vec<[&str; 3]>) -> Node {
+/// Un tableau : la 1ʳᵉ colonne nomme la ligne, la dernière est « le
+/// nouveau », celles du milieu « l'ancien ».
+fn proto_table<const N: usize>(class: &str, head: [&str; N], rows: Vec<[&str; N]>) -> Node {
     div()
         .class("table-wrap reveal")
         .attr("tabindex", "0")
@@ -1199,10 +1210,11 @@ fn proto_table(class: &str, head: [&str; 3], rows: Vec<[&str; 3]>) -> Node {
                 .child(thead().child(tr().children(
                     head.into_iter().map(|h| th().attr("scope", "col").text(h.to_owned())),
                 )))
-                .child(tbody().children(rows.into_iter().map(|[a, b, c]| {
-                    tr().child(th().attr("scope", "row").text(a.to_owned()))
-                        .child(td().class("old").text(b.to_owned()))
-                        .child(td().class("new").text(c.to_owned()))
+                .child(tbody().children(rows.into_iter().map(|row| {
+                    tr().child(th().attr("scope", "row").text(row[0].to_owned()))
+                        .children(row[1..].iter().enumerate().map(|(i, cell)| {
+                            td().class(if i + 2 == N { "new" } else { "old" }).text((*cell).to_owned())
+                        }))
                 }))),
         )
         .into()
@@ -1226,13 +1238,56 @@ fn proto_block(id: &str, title: &str, children: Vec<Node>) -> Node {
 fn protocol_page(ctx: &Ctx<'_>) -> String {
     let t = |k: &str| ctx.t(k);
     let ti = |prefix: &str, i: usize, suffix: &str| ctx.t(&format!("{prefix}.{i}.{suffix}"));
-    const ANCHORS: [&str; 7] = ["v3-change", "v3-sim", "v3-steps", "v3-token", "v3-threats", "v3-where", "v3-faq"];
+    const ANCHORS: [(&str, &str); 8] = [
+        ("v4", "proto.toc.v4"),
+        ("v3-change", "proto.toc.0"),
+        ("v3-sim", "proto.toc.1"),
+        ("v3-steps", "proto.toc.2"),
+        ("v3-token", "proto.toc.3"),
+        ("v3-threats", "proto.toc.4"),
+        ("v3-where", "proto.toc.5"),
+        ("v3-faq", "proto.toc.6"),
+    ];
     let toc = nav()
         .class("v3-toc")
         .attr("aria-label", t("proto.nav"))
-        .child(ol().children(ANCHORS.iter().enumerate().map(|(i, anchor)| {
-            li().child(a().href(format!("#{anchor}")).text(ctx.t(&format!("proto.toc.{i}"))))
-        })));
+        .child(ol().children(
+            ANCHORS
+                .iter()
+                .map(|(anchor, key)| li().child(a().href(format!("#{anchor}")).text(ctx.t(key)))),
+        ));
+    const V4_ICONS: [&str; 4] = ["⚛️", "🕶️", "🎭", "🛡️"];
+    let v4 = proto_block(
+        "v4",
+        t("proto.v4.h"),
+        vec![
+            p().class("reveal").text(t("proto.v4.intro")).into(),
+            div()
+                .class("features v3-grid v3-plat")
+                .children(V4_ICONS.iter().enumerate().map(|(i, icon)| {
+                    article()
+                        .class("card reveal tilt")
+                        .style(format!("--d: {i}"))
+                        .child(span().class("card-shine").attr("aria-hidden", "true"))
+                        .child(div().class("card-icon").attr("aria-hidden", "true").text(*icon))
+                        .child(h3().text(ti("proto.v4.card", i, "t")))
+                        .child(p().text(ti("proto.v4.card", i, "d")))
+                }))
+                .into(),
+            proto_table(
+                "cmp v4",
+                [t("proto.v4.col.0"), t("proto.v4.col.1"), t("proto.v4.col.2"), t("proto.v4.col.3")],
+                (0..6)
+                    .map(|i| {
+                        let c = |j: usize| ctx.t(&format!("proto.v4.row.{i}.{j}"));
+                        [c(0), c(1), c(2), c(3)]
+                    })
+                    .collect(),
+            ),
+            p().class("reveal").text(t("proto.v4.cost")).into(),
+            p().class("callout reveal").text(t("proto.v4.honest")).into(),
+        ],
+    );
     let change = proto_block(
         "v3-change",
         t("proto.cmp.h"),
@@ -1321,7 +1376,7 @@ fn protocol_page(ctx: &Ctx<'_>) -> String {
             h3().class("v3-sub reveal").text(t("proto.labels.h")).into(),
             p().class("reveal").text(t("proto.labels.intro")).into(),
             ul().class("v3-labels")
-                .children((0..4).map(|i| {
+                .children([4, 5, 0, 1, 2, 3].into_iter().map(|i| {
                     li().class("reveal")
                         .child(span().class("v3-label").text(ti("proto.label", i, "l")))
                         .child(span().text(ti("proto.label", i, "d")))
@@ -1364,6 +1419,7 @@ fn protocol_page(ctx: &Ctx<'_>) -> String {
             p().class("kicker").text(t("proto.kicker")).into(),
             p().class("lead rise").style("--i: 3").text(t("proto.lead")).into(),
             toc.into(),
+            v4,
             change,
             sim,
             steps,
