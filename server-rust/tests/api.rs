@@ -501,6 +501,89 @@ async fn pairing_exchanges_v3_bundles_then_a_ratchet_session_talks() {
     assert!(b.decrypt_text(&first, now, rng).is_err());
 }
 
+/// La capacité v4 (`docs/SECURITE.md` §9.6) : signée par l'identité du
+/// paquet publié, vérifiée par le salon et rendue aux autres. Puis une
+/// session à triple cliquet passe par la messagerie sans rien laisser en
+/// clair qu'un jeton v4.
+#[tokio::test]
+async fn pairing_relays_signed_v4_caps_then_a_triple_ratchet_talks() {
+    use brocolis_proto::{hasard, Content, Device, KeyBundle, Token4};
+    let client = client().await;
+    let rng = &mut hasard::system();
+    let now = 1_800_000_000;
+    let alice = Device::generate(rng, now, true);
+    let mut bob = Device::generate(rng, now, true);
+    let b64 = brocolis_site::crypto::b64;
+    const PUB_A: &str = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=";
+    const PUB_B: &str = "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=";
+    const CODE: &str = "V4PAIRAB";
+    let pair = |peer: &'static str, pubk: &'static str, body: Value| {
+        let mut body = body;
+        body["code"] = CODE.into();
+        body["peerId"] = peer.into();
+        body["pub"] = pubk.into();
+        body
+    };
+
+    // ── Tricheurs ──
+    // Une capacité sans paquet, abîmée, ou signée par une autre identité.
+    let caps_a = b64(&alice.caps4().unwrap());
+    let res = client.post("/pair").json(&pair("alice", PUB_A, json!({ "caps": caps_a }))).await;
+    assert_eq!(res.status(), 400);
+    let mut bad = alice.caps4().unwrap();
+    bad[3] ^= 1;
+    let bundle_a = alice.bundle().unwrap().to_base64();
+    let res = client.post("/pair").json(&pair("alice", PUB_A, json!({ "bundle": bundle_a, "caps": b64(&bad) }))).await;
+    assert_eq!(res.status(), 400);
+    let other = b64(&Device::generate(rng, now, true).caps4().unwrap());
+    let res = client.post("/pair").json(&pair("alice", PUB_A, json!({ "bundle": bundle_a, "caps": other }))).await;
+    assert_eq!(res.status(), 400);
+    // Une capacité sur un paquet sans ML-KEM : refusée aussi.
+    let classic = Device::generate(rng, now, false);
+    let res = client
+        .post("/pair")
+        .json(&pair("alice", PUB_A, json!({ "bundle": classic.bundle().unwrap().to_base64(), "caps": caps_a })))
+        .await;
+    assert_eq!(res.status(), 400);
+
+    // ── Les honnêtes ──
+    let res = client.post("/pair").json(&pair("alice", PUB_A, json!({ "host": true, "bundle": bundle_a, "caps": caps_a }))).await;
+    assert_eq!(res.status(), 200, "{}", res.text());
+    let bundle_b = bob.bundle().unwrap().to_base64();
+    let caps_b = b64(&bob.caps4().unwrap());
+    let res: Value = client.post("/pair").json(&pair("bob", PUB_B, json!({ "bundle": bundle_b, "caps": caps_b }))).await.json();
+    let seen_a = res["peers"].as_array().unwrap().iter().find(|p| p["peerId"] == "alice").unwrap().clone();
+    assert_eq!(seen_a["caps"], caps_a.as_str());
+    // Republier sans capacité la garde.
+    client.post("/pair").json(&pair("bob", PUB_B, json!({}))).await;
+    let res: Value = client.get(&format!("/pair?code={CODE}&peerId=alice")).await.json();
+    let seen_b = res["peers"].as_array().unwrap().iter().find(|p| p["peerId"] == "bob").unwrap().clone();
+    assert_eq!(seen_b["caps"], caps_b.as_str());
+    let bundle_seen_b = KeyBundle::from_base64(seen_b["bundle"].as_str().unwrap()).unwrap();
+    let raw: [u8; 64] = brocolis_site::crypto::unb64(seen_b["caps"].as_str().unwrap()).unwrap().try_into().unwrap();
+    brocolis_proto::paquet::verify_caps4(&bundle_seen_b.identity, &raw).unwrap();
+
+    // ── La session v4, par la messagerie ──
+    let mut a = alice.initiate4(&bundle_seen_b, rng).unwrap();
+    let first = a.encrypt("Salut Bob 🥦").unwrap();
+    post_msg(&client, "alice-device", "conv-v4", "m1", &first).await;
+    let page: Value = client
+        .get("/v1/messages?conversationId=conv-v4&after=0")
+        .header("x-user-id", "bob-device")
+        .await
+        .json();
+    let ct = page["messages"][0]["ciphertext"].as_str().unwrap();
+    assert!(ct.starts_with("[[BROCOLIS:v4:"));
+    assert!(!ct.contains("alice"));
+    let token = Token4::decode(ct).unwrap();
+    let (mut b, content) = bob.accept4(&token, now, rng).unwrap();
+    assert_eq!(content, Content::Text("Salut Bob 🥦".into()));
+    let reply = b.encrypt("Bien reçu").unwrap();
+    post_msg(&client, "bob-device", "conv-v4", "m2", &reply).await;
+    assert_eq!(a.decrypt_text(&reply, now, rng).unwrap(), Content::Text("Bien reçu".into()));
+    assert!(b.decrypt_text(&first, now, rng).is_err(), "rejeu ignoré");
+}
+
 /// Accès offert par e-mail : un appareil rattaché à un e-mail Apple listé dans
 /// `BROCOLIS_PRO_EMAILS` obtient Pro ; retirer l'e-mail de la liste ou
 /// détacher l'appareil le retire. Seul ce test touche à ces variables.

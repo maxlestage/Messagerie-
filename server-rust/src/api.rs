@@ -729,6 +729,10 @@ struct PairBody {
     /// un ancien client n'en envoie pas (§8.4).
     #[serde(default)]
     bundle: Option<String>,
+    /// La capacité v4 signée (base64, §9.6), facultative ; jamais sans
+    /// paquet.
+    #[serde(default)]
+    caps: Option<String>,
 }
 
 /// Un code de salon : 4 à 16 caractères A–Z / 0–9 (ceux de l'app et du site).
@@ -749,7 +753,7 @@ fn valid_public_key(b64: &str) -> bool {
 /// Un paquet de clés v3 publié à l'appairage : décodé et VÉRIFIÉ par la
 /// référence (format exact, clés valides, signatures Ed25519 strictes). Le
 /// salon n'en garde que le base64 et l'identité (IK X25519 ‖ IK Ed25519).
-fn published_bundle(b64: &str) -> Option<crate::rendezvous::PublishedBundle> {
+fn published_bundle(b64: &str, caps: Option<&str>) -> Option<crate::rendezvous::PublishedBundle> {
     // 1 418 octets au plus (avec ML-KEM) : 1 892 caractères base64.
     if b64.len() > 1_900 {
         return None;
@@ -758,7 +762,19 @@ fn published_bundle(b64: &str) -> Option<crate::rendezvous::PublishedBundle> {
     let mut identity = [0u8; 64];
     identity[..32].copy_from_slice(&bundle.identity.dh);
     identity[32..].copy_from_slice(&bundle.identity.sign);
-    Some(crate::rendezvous::PublishedBundle { base64: bundle.to_base64(), identity })
+    // La capacité v4 : 64 octets, signée par l'identité de CE paquet, qui
+    // doit proposer ML-KEM (§9.6). Invalide : tout le paquet est refusé.
+    let caps = match caps {
+        None => None,
+        Some(c) => {
+            let raw = brocolis_site::crypto::unb64(c).filter(|r| r.len() == 64)?;
+            let sig: [u8; 64] = raw.try_into().ok()?;
+            bundle.pq.as_ref()?;
+            brocolis_proto::paquet::verify_caps4(&bundle.identity, &sig).ok()?;
+            Some(c.to_owned())
+        }
+    };
+    Some(crate::rendezvous::PublishedBundle { base64: bundle.to_base64(), identity, caps })
 }
 
 /// Une clé de groupe emballée (nonce 12 + 32 + tag 16 = 60 octets, base64).
@@ -793,9 +809,11 @@ async fn pair_post(req: Request) -> Response {
     if !valid_code(code) || !valid_peer_id(peer_id) || !valid_public_key(pub_key) {
         return json_error(400, "code, peerId ou pub invalide");
     }
+    let caps = body.caps.as_deref().map(str::trim).filter(|c| !c.is_empty());
     let bundle = match body.bundle.as_deref().map(str::trim).filter(|b| !b.is_empty()) {
+        None if caps.is_some() => return json_error(400, "capacité v4 sans paquet de clés"),
         None => None,
-        Some(b) => match published_bundle(b) {
+        Some(b) => match published_bundle(b, caps) {
             Some(b) => Some(b),
             None => return json_error(400, "paquet de clés invalide"),
         },
