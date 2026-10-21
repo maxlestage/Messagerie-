@@ -7,7 +7,7 @@ use active::pwa::Manifest;
 
 use super::Ctx;
 use crate::i18n::{APPS, Lang};
-use crate::islands::{chat_island, demo_island, salon_island, status_island};
+use crate::islands::{chat_island, demo_island, ratchet_island, salon_island, status_island};
 use crate::routes::{self, Page, Route};
 use crate::{BROCOLIS_URL, LICENSE_FILE, REPO_URL, STACK, THEMES};
 
@@ -269,6 +269,10 @@ fn site_footer(ctx: &Ctx<'_>) -> Element {
                             .text(ctx.t("nav.server")),
                     )
                     .child(
+                        a().href(Route::new(lang, Page::Protocol).path())
+                            .text(ctx.t("nav.protocol")),
+                    )
+                    .child(
                         a().href(Route::new(lang, Page::License).path())
                             .text(ctx.t("nav.license")),
                     )
@@ -462,6 +466,7 @@ fn page_name(page: Page) -> &'static str {
         Page::Salon => "salon",
         Page::Server => "server",
         Page::License => "license",
+        Page::Protocol => "protocol",
         Page::NotFound => "404",
     }
 }
@@ -773,10 +778,18 @@ fn protocol(ctx: &Ctx<'_>) -> Element {
                 })),
         )
         .child(
-            p().class("v3-spec reveal").child(
-                external(&format!("{REPO_URL}/blob/master/docs/SECURITE.md"))
-                    .text(ctx.t("v3.spec")),
-            ),
+            p().class("v3-spec reveal")
+                .child(
+                    a().class("btn primary")
+                        .href(Route::new(ctx.lang(), Page::Protocol).path())
+                        .attr("data-burst", "")
+                        .text(ctx.t("proto.cta")),
+                )
+                .text(" ")
+                .child(
+                    external(&format!("{REPO_URL}/blob/master/docs/SECURITE.md"))
+                        .text(ctx.t("v3.spec")),
+                ),
         )
 }
 
@@ -1168,6 +1181,204 @@ fn not_found(ctx: &Ctx<'_>) -> String {
     layout(ctx, seo, content)
 }
 
+// ── Protocole v3 ──────────────────────────────────────────────────────────────
+
+/// Les champs du jeton v3 présents seulement dans un premier message.
+const TOKEN_FIRST_ONLY: [bool; 9] = [false, false, true, true, true, true, true, false, false];
+
+/// Un tableau : en-têtes, puis lignes (la première cellule est l'en-tête de
+/// ligne). `new` : la dernière colonne est ce que le v3 apporte.
+fn proto_table(class: &str, head: [&str; 3], rows: Vec<[&str; 3]>) -> Node {
+    div()
+        .class("table-wrap reveal")
+        .attr("tabindex", "0")
+        .child(
+            table()
+                .class("v3-table")
+                .class(class.to_owned())
+                .child(thead().child(tr().children(
+                    head.into_iter().map(|h| th().attr("scope", "col").text(h.to_owned())),
+                )))
+                .child(tbody().children(rows.into_iter().map(|[a, b, c]| {
+                    tr().child(th().attr("scope", "row").text(a.to_owned()))
+                        .child(td().class("old").text(b.to_owned()))
+                        .child(td().class("new").text(c.to_owned()))
+                }))),
+        )
+        .into()
+}
+
+fn proto_block(id: &str, title: &str, children: Vec<Node>) -> Node {
+    section()
+        .class("v3-block")
+        .id(id.to_owned())
+        .attr("aria-labelledby", format!("{id}-h"))
+        .child(
+            h2().id(format!("{id}-h"))
+                .class("reveal")
+                .attr("data-scramble", "")
+                .text(title.to_owned()),
+        )
+        .children(children)
+        .into()
+}
+
+fn protocol_page(ctx: &Ctx<'_>) -> String {
+    let t = |k: &str| ctx.t(k);
+    let ti = |prefix: &str, i: usize, suffix: &str| ctx.t(&format!("{prefix}.{i}.{suffix}"));
+    const ANCHORS: [&str; 7] = ["v3-change", "v3-sim", "v3-steps", "v3-token", "v3-threats", "v3-where", "v3-faq"];
+    let toc = nav()
+        .class("v3-toc")
+        .attr("aria-label", t("proto.nav"))
+        .child(ol().children(ANCHORS.iter().enumerate().map(|(i, anchor)| {
+            li().child(a().href(format!("#{anchor}")).text(ctx.t(&format!("proto.toc.{i}"))))
+        })));
+    let change = proto_block(
+        "v3-change",
+        t("proto.cmp.h"),
+        vec![
+            p().class("reveal").text(t("proto.cmp.intro")).into(),
+            proto_table(
+                "cmp",
+                [t("proto.cmp.col.0"), t("proto.cmp.col.1"), t("proto.cmp.col.2")],
+                (0..7)
+                    .map(|i| [ti("proto.cmp", i, "label"), ti("proto.cmp", i, "old"), ti("proto.cmp", i, "new")])
+                    .collect(),
+            ),
+        ],
+    );
+    let sim = proto_block(
+        "v3-sim",
+        t("proto.sim.h"),
+        vec![
+            p().class("reveal").text(t("proto.sim.intro")).into(),
+            island("ratchet", ctx.lang().code(), ratchet_island),
+        ],
+    );
+    let steps = proto_block(
+        "v3-steps",
+        t("proto.steps.h"),
+        vec![ol().class("v3-steps").children((0..5).map(|i| {
+            li().class("card reveal")
+                .style(format!("--d: {}", i % 2))
+                .child(h3().text(ti("proto.step", i, "t")))
+                .child(p().text(ti("proto.step", i, "b")))
+                .child(p().class("v3-detail").child(code().text(ti("proto.step", i, "d"))))
+        }))
+        .into()],
+    );
+    let token = proto_block(
+        "v3-token",
+        t("proto.token.h"),
+        vec![
+            p().class("reveal").text(t("proto.token.intro")).into(),
+            p().class("tk-legend")
+                .child(span().class("tk-swatch").attr("aria-hidden", "true"))
+                .text(t("proto.token.first"))
+                .into(),
+            div()
+                .class("tk-row")
+                .children((0..9).map(|i| {
+                    div()
+                        .class("tk-field reveal")
+                        .class(if TOKEN_FIRST_ONLY[i] { "first" } else { "" })
+                        .style(format!("--d: {}", i % 4))
+                        .child(span().class("tk-name").text(ti("proto.tk", i, "name")))
+                        .child(span().class("tk-size").text(ti("proto.tk", i, "size")))
+                        .child(span().class("tk-desc").text(ti("proto.tk", i, "desc")))
+                }))
+                .into(),
+            p().class("callout reveal").text(t("proto.token.note")).into(),
+        ],
+    );
+    let threats = proto_block(
+        "v3-threats",
+        t("proto.threat.h"),
+        vec![proto_table(
+            "threats",
+            [t("proto.threat.col.0"), t("proto.threat.col.1"), t("proto.threat.col.2")],
+            (0..6)
+                .map(|i| [ti("proto.threat", i, "who"), ti("proto.threat", i, "can"), ti("proto.threat", i, "we")])
+                .collect(),
+        )],
+    );
+    let platforms = proto_block(
+        "v3-where",
+        t("proto.where.h"),
+        vec![
+            p().class("reveal").text(t("proto.where.intro")).into(),
+            div()
+                .class("features v3-grid v3-plat")
+                .children((0..4).map(|i| {
+                    article()
+                        .class("card reveal tilt")
+                        .style(format!("--d: {i}"))
+                        .child(span().class("card-shine").attr("aria-hidden", "true"))
+                        .child(h3().text(ti("proto.plat", i, "name")))
+                        .child(p().text(ti("proto.plat", i, "status")))
+                }))
+                .into(),
+            h3().class("v3-sub reveal").text(t("proto.labels.h")).into(),
+            p().class("reveal").text(t("proto.labels.intro")).into(),
+            ul().class("v3-labels")
+                .children((0..4).map(|i| {
+                    li().class("reveal")
+                        .child(span().class("v3-label").text(ti("proto.label", i, "l")))
+                        .child(span().text(ti("proto.label", i, "d")))
+                }))
+                .into(),
+            h3().class("v3-sub reveal").text(t("proto.limits.h")).into(),
+            ul().class("v3-limits")
+                .children((0..5).map(|i| li().class("reveal").text(ctx.t(&format!("proto.limit.{i}")))))
+                .into(),
+        ],
+    );
+    let faq = proto_block(
+        "v3-faq",
+        t("proto.faq.h"),
+        (0..7)
+            .map(|i| {
+                details()
+                    .class("v3-faq reveal")
+                    .child(summary().text(ti("proto.faq", i, "q")))
+                    .child(p().text(ti("proto.faq", i, "a")))
+                    .into()
+            })
+            .collect(),
+    );
+    let spec = section()
+        .class("v3-spec-card panel reveal")
+        .attr("aria-labelledby", "v3-spec-h")
+        .child(h2().id("v3-spec-h").text(t("proto.spec.h")))
+        .child(p().text(t("proto.spec.body")))
+        .child(
+            external(&format!("{REPO_URL}/blob/master/docs/SECURITE.md"))
+                .class("btn primary")
+                .text(t("proto.spec.cta")),
+        );
+    let content = inner(
+        "protocol-page",
+        t("proto.title"),
+        "🔐",
+        vec![
+            p().class("kicker").text(t("proto.kicker")).into(),
+            p().class("lead rise").style("--i: 3").text(t("proto.lead")).into(),
+            toc.into(),
+            change,
+            sim,
+            steps,
+            token,
+            threats,
+            platforms,
+            faq,
+            spec.into(),
+            back(ctx).into(),
+        ],
+    );
+    let seo = Seo::new().title(t("proto.meta")).description(t("proto.lead"));
+    layout(ctx, seo, content)
+}
+
 /// Rend la page de `ctx.route`.
 pub fn render(ctx: &Ctx<'_>) -> String {
     match ctx.route.page {
@@ -1176,6 +1387,7 @@ pub fn render(ctx: &Ctx<'_>) -> String {
         Page::Salon => salon(ctx),
         Page::Server => server(ctx),
         Page::License => license(ctx),
+        Page::Protocol => protocol_page(ctx),
         Page::NotFound => not_found(ctx),
     }
 }
@@ -1244,6 +1456,15 @@ mod tests {
     fn inner_pages_carry_their_islands() {
         assert!(page(Lang::En, Page::Salon, "green", false).contains(r#"data-island="salon""#));
         assert!(page(Lang::Es, Page::Server, "green", false).contains(r#"data-island="status""#));
+        // Le protocole v3 : ses sept parties, le simulateur, aucune clé manquante.
+        for lang in Lang::ALL {
+            let proto = page(lang, Page::Protocol, "green", false);
+            assert!(proto.contains(r#"data-island="ratchet""#));
+            for id in ["v3-change", "v3-sim", "v3-steps", "v3-token", "v3-threats", "v3-where", "v3-faq"] {
+                assert!(proto.contains(&format!(r#"id="{id}""#)), "{id}");
+            }
+            assert!(!proto.contains("proto."), "une clé de traduction s'affiche telle quelle");
+        }
         let lost = page(Lang::Fr, Page::NotFound, "green", false);
         assert!(lost.contains("noindex"));
         assert!(!lost.contains(r#"rel="canonical""#));
