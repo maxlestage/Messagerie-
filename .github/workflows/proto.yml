@@ -91,7 +91,7 @@ jobs:
           tool: cargo-fuzz
       - name: Fuzzing
         run: |
-          for cible in decodage_jetons dechiffrement_v3 groupe; do
+          for cible in decodage_jetons dechiffrement_v3 dechiffrement_v4 groupe; do
             # cargo-fuzz installé tout fait vise par défaut sa propre cible
             # (musl) : on impose celle du runner.
             cargo fuzz run --target x86_64-unknown-linux-gnu "$cible" -- -max_total_time=60

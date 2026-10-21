@@ -241,6 +241,7 @@ grands groupes.
 | Jetons v1/v2, clé protégée v1 | `talka-web::jetons` | TalkaKit `Brocolis`, Brocolis `BrocolisCrypto`, `BrocolisProto` | `BrocolisCrypto.kt`, `rs.brocolis.messagerie.proto` |
 | Clé protégée v2 (Argon2id), padding | `brocolis-proto` (`proto/`) | `BrocolisProto` (`proto-swift/`) | `rs.brocolis.messagerie.proto` (`android/proto/`) |
 | v3 (établissement, ratchet, Sender Keys) | `brocolis-proto` (`proto/`) | `BrocolisProto` (`proto-swift/`) | `rs.brocolis.messagerie.proto` (`android/proto/`) |
+| v4 : triple cliquet, en-têtes chiffrés (§9) | `brocolis-proto` (`proto/`, `session4`, `jeton_v4`) | à venir | à venir |
 | v3 dans Brocolis (§8 : appairage, choix du format, messages ouverts, transaction) | `site/src/v3.rs` (discussion du site) | `Shared/BrocolisV3.swift`, `BrocolisV3Store.swift` (app, clavier, Partager, iMessage) | `crypto/BrocolisV3Engine.kt`, `store/BrocolisV3Store.kt`, `crypto/BrocolisV3.kt` (app, Partager, messagerie ; `android/app/`) |
 
 `BrocolisProto` est le paquet SwiftPM à la racine du dépôt (`Package.swift`),
@@ -678,3 +679,198 @@ Les essais d'interopérabilité de référence : le site (`site/src/v3.rs`)
 et l'iPhone (`Shared/BrocolisV3.swift`) se parlent par le vrai serveur
 (appairage dans les deux sens, désordre, médias, rechargement), et un
 iPhone d'avant le v3 reste compatible.
+
+## 9. Protocole v4 — au-delà de Signal
+
+Le v3 a deux faiblesses que Signal n'a plus, ou n'a jamais corrigées :
+
+1. **Le post-quantique s'arrête à l'établissement.** Un attaquant qui garde
+   les jetons et casse X25519 plus tard lit tout ce qui suit le premier
+   tour du cliquet. Signal mélange ML-KEM à son cliquet depuis 2025 (SPQR,
+   « triple ratchet ») : ses clés ML-KEM voyagent en morceaux répartis sur
+   plusieurs messages, et un nouveau secret ML-KEM n'entre qu'une fois
+   tous les morceaux arrivés.
+2. **Tout ce qui entoure le chiffré est en clair.** L'identifiant de session
+   (8 octets), la clé de cliquet et les compteurs relient tous les messages
+   d'une conversation ; le premier message porte l'identité de
+   l'expéditeur. Signal chiffre son contenu, mais pas ses en-têtes de
+   cliquet (c'est son serveur, avec *sealed sender*, qui ne voit pas
+   l'expéditeur — Brocolis passe par des messageries hôtes qui voient tout).
+
+Le v4 corrige les deux, et va plus loin que Signal sur chacun :
+
+| | Signal (2025) | Brocolis v3 | Brocolis v4 |
+|---|---|---|---|
+| ML-KEM dans le cliquet | par épisodes, sur plusieurs messages (SPQR) | non | **à chaque tour, dès le premier message reçu** |
+| En-têtes de cliquet chiffrés | non | non | **oui** |
+| Identifiant de session visible | n/a (serveur) | oui | **non** |
+| Identité de l'expéditeur dans le 1ᵉʳ message | protégée par le serveur | en clair | **chiffrée, X25519 + ML-KEM** |
+| Type de message visible | n/a | oui (0x02 / 0x03) | **non** (dans le chiffré) |
+| Déclassement vers l'ancien protocole | n/a | possible par le serveur | **détecté** (empreinte v4, §9.7) |
+
+Prix : un message v4 pèse environ 2,5 Ko (3,4 Ko en base64) contre 225
+octets en v3 : chaque message transporte une clé ML-KEM et, après le
+premier tour, une encapsulation. Le v4 est réservé aux appareils qui ont
+ML-KEM (iPhone ≥ iOS 26, Android, navigateurs, brocolis) ; les autres
+restent en v3, lisible pour toujours.
+
+### 9.1 Dérivations
+
+    SK      = HKDF(0³², FF³² ‖ DH1 ‖ DH2 ‖ DH3 ‖ SS, "Brocolis_v4_X25519_MLKEM768_SHA-256", 32)
+    SK_PSK  = HKDF(0³², clé, "Brocolis_v4_PSK_SHA-256", 32)
+    r_PSK   = HKDF(0³², SK_PSK, "Brocolis_v4_PSK_Ratchet", 32)     (secret X25519 du répondeur)
+    (HK_AB ‖ NHK_BA) = HKDF(0³², SK, "Brocolis_v4_HeaderKeys", 64)
+    KDF_RK4(rk, dh, ss?) = HKDF(sel = rk, ikm = dh ‖ ss, info, 96) → (rk', ck, nhk)
+        info = "Brocolis_v4_Ratchet_MLKEM768" avec ss, "Brocolis_v4_Ratchet" sans
+    KDF_CK  = celui du v3 (HMAC-SHA256 0x01 / 0x02)
+    ENCRYPT4(mk) = HKDF(0³², mk, "Brocolis_v4_MessageKeys", 56)
+        → clé AES (32) ‖ nonce du chiffré (12) ‖ nonce de l'en-tête (12)
+    (k_pre ‖ n_pre) = HKDF(0³², X25519(EK_A, SPK_B) ‖ SS, "Brocolis_v4_Preamble", 44)
+
+Le v4 est toujours hybride (établissement par paquet) ou à clé partagée :
+il n'a pas de mode « X25519 seul ».
+
+### 9.2 Le cliquet ML-KEM (« triple cliquet »)
+
+Chaque appareil d'une session a, en plus de sa clé de cliquet X25519, une
+**paire ML-KEM-768 de cliquet** (graine `d ‖ z`, 64 octets), renouvelée en
+même temps qu'elle, et connaît la dernière clé d'encapsulation annoncée par
+l'autre (`ek_r`, 1 184 octets).
+
+- **Chaque message** annonce la clé d'encapsulation courante de son
+  expéditeur (`ek_s`) dans son en-tête (chiffré, §9.3).
+- **Chaque nouvelle chaîne d'envoi** (le tour Diffie-Hellman qui suit une
+  réponse) encapsule vers `ek_r` : `(ct, ss) = ML-KEM-768.Encaps(ek_r)` ;
+  `(RK, CKs, NHKs) = KDF_RK4(RK, X25519(DHs, DHr), ss)` ; tous les
+  messages de la chaîne portent `ct`, puisque n'importe lequel peut arriver
+  le premier.
+- **À la réception** du premier message d'une chaîne :
+  `ss = ML-KEM-768.Decaps(dk_s, ct)` avec la paire courante (celle dont
+  l'autre a vu la clé), puis `(RK, CKr, NHKr) = KDF_RK4(RK, X25519(DHs,
+  DHr), ss)` ; ensuite seulement, nouvelles paires X25519 et ML-KEM, et
+  nouvelle chaîne d'envoi encapsulée vers le `ek_s` reçu.
+- La toute première chaîne de l'initiateur n'a pas de `ct` (son secret
+  ML-KEM est déjà dans SK) : `KDF_RK4` sans `ss`.
+
+Chaque tour de cliquet mélange donc un secret X25519 **et** un secret
+ML-KEM neufs : casser X25519, même plus tard, ne suffit plus — pour aucun
+message, pas seulement le premier.
+
+Ordre de tirage d'une nouvelle chaîne d'envoi (vecteurs) : secret X25519
+(32), graine ML-KEM (64), message d'encapsulation `m` (32).
+
+### 9.3 L'en-tête chiffré
+
+Comme la variante « header encryption » de la spécification du Double
+Ratchet de Signal : chaque côté a une clé d'en-tête d'envoi `HKs`, de
+réception `HKr`, et les suivantes `NHKs`, `NHKr` (sorties de `KDF_RK4`).
+À l'établissement : l'initiateur a `HKs = HK_AB`, `NHKr = NHK_BA` ; le
+répondeur `NHKs = NHK_BA`, `NHKr = HK_AB`. Un en-tête que `NHKr` ouvre fait
+tourner le cliquet : `HKs = NHKs`, `HKr = NHKr`, puis les deux `KDF_RK4`.
+
+    en-tête (clair) = DH (32) ‖ PN (u32 BE) ‖ N (u32 BE) ‖ drapeaux (1)
+                      ‖ ek_s (1 184) ‖ [ct (1 088) si drapeaux = 0x01]
+    en-tête chiffré = AES-256-GCM(HKs, nonce d'en-tête, en-tête, type)
+    chiffré         = AES-256-GCM(clé, nonce, pad(genre ‖ données),
+                                  AD ‖ type ‖ nonce d'en-tête ‖ en-tête chiffré)
+
+`genre` (1 octet, dans le chiffré) : 0x00 texte, 0x01 distribution de
+groupe (§4.5). Le nonce d'en-tête est dérivé de la clé de message
+(`ENCRYPT4`) : unique, et le chiffrement reste déterministe (vecteurs).
+
+Réception (transactionnelle, comme le v3) : essayer, dans l'ordre, les clés
+d'en-tête des clés sautées des chaînes **passées** (une fois par clé
+distincte, puis chercher N ; absent : `Rejoue`), `HKr` (N < Nr : chercher
+une clé sautée de la chaîne courante, sinon `Rejoue` ; sinon sauter jusqu'à
+N), puis `NHKr` (tour de cliquet). Aucune ne l'ouvre : `SessionInconnue`
+— l'appli essaie la session suivante. Un en-tête que `HKs` ouvre (notre
+propre message, renvoyé) ou qu'une des 16 dernières `HKr` ouvre : `Rejoue`.
+Clés sautées : `(HK, N) → mk`, mêmes bornes que le v3 (1 000, 30 jours).
+
+### 9.4 Le jeton v4
+
+    [[BROCOLIS:v4:<base64>]]
+
+    0x01 premier message (paquet) :
+        EK_A (32) ‖ CT (1 088, ML-KEM vers la PQPK de B) ‖ préambule chiffré (48)
+        ‖ nonce d'en-tête (12) ‖ longueur d'en-tête chiffré (u16 BE) ‖ en-tête chiffré ‖ chiffré
+    0x02 message (toute autre chose, premier message à clé partagée compris) :
+        nonce d'en-tête (12) ‖ longueur (u16 BE) ‖ en-tête chiffré ‖ chiffré
+
+    préambule chiffré = AES-256-GCM(k_pre, n_pre, IK_A, 0x01 ‖ EK_A ‖ CT)
+    longueur d'en-tête chiffré : 1 241 (sans ct) ou 2 329 (avec ct)
+    chiffré : 160·k + 16 octets, k ≥ 1
+
+Aucun identifiant en clair : un message 0x02 est indistinguable d'un octet
+aléatoire de même longueur pour qui n'a pas la clé d'en-tête.
+
+**Le premier message (0x01).** B ne sait ni qui écrit ni quelles clés ont
+servi : il essaie chacune de ses SPK et PQPK (la courante et celles du mois
+de grâce) jusqu'à ce que le préambule s'ouvre, ce qui donne IK_A ; puis
+DH1..3, SK, AD = IK_A ‖ IK_B, les clés d'en-tête, et le message. L'identité
+d'A est ainsi protégée par X25519 **et** ML-KEM. Une EK déjà vue est
+refusée (mémoire des premiers messages, comme §7.3).
+
+**La clé partagée.** Le premier message est un 0x02 ordinaire : B, qui ne
+trouve aucune session, essaie `HK_AB` de chacune de ses clés à deux (SK_PSK
+→ clés d'en-tête). La clé de cliquet initiale de B est `r_PSK`, celle d'A
+est EK_A (dans l'en-tête chiffré), AD = EK_A ‖ R ; EK_A déjà vue :
+refusée.
+
+### 9.5 Ce qui ne change pas
+
+Paquets de clés (§7.3), remplissage (§3.3), `KDF_CK`, bornes (§7.5),
+rejeu, déchiffrement transactionnel, Sender Keys (§4.5 : la distribution
+passe par une session v4, genre 0x01), messages ouverts (§8.2), une
+transaction à la fois (§8.3). L'identifiant local d'une session reste
+`SHA-256(AD)[0..8]` (rangement, jamais transmis).
+
+### 9.6 Capacité v4 et choix du format
+
+Un appareil v4 publie, à chaque publication dans le salon, en plus du
+paquet :
+
+    "caps": base64(Ed25519(IK Ed25519, "Brocolis_v4_Caps" ‖ IK X25519 ‖ 0x04))
+
+Le serveur la vérifie (signature stricte, même identité que le paquet),
+la garde et la rend avec le participant ; un ancien client l'ignore. Le
+contact garde `caps` avec son paquet. Envoi (§8.5, nouvelle première
+étape) : un contact à deux dont le paquet a ML-KEM, avec une `caps` valide,
+et un appareil local qui a ML-KEM → **v4** ; puis les règles du v3. Dès
+qu'un message v4 est arrivé d'un contact, on ne lui écrit plus qu'en v4.
+Clé partagée : la PSK v4 suit les mêmes règles que la PSK v3 (§8.5, 2),
+avec « un message PSK **v4** est arrivé sur K » ; sans ce signe, la PSK
+reste en v3.
+
+### 9.7 Contre le déclassement
+
+Le serveur ne peut pas forger `caps`, mais il pourrait la retirer pour
+forcer le v3. Quand les deux côtés ont une `caps` valide, l'empreinte
+d'appairage (§8.4) prend le contexte `"Brocolis_v4_Appairage"` :
+
+    F = SHA-256("Brocolis_v4_Appairage" ‖ K ‖ min(P_A, P_B) ‖ max(P_A, P_B))[0..8]
+
+Un serveur qui retire la `caps` d'un seul côté fait afficher deux
+empreintes différentes ; des deux côtés, l'appairage est en v3, affiché
+« 🔐 double cliquet » et non « 🔐 triple cliquet ».
+
+Libellés (§8.8), nouvelle première ligne : **🔐 triple cliquet
+(post-quantique à chaque message)** pour un contact en v4.
+
+### 9.8 Alerte de changement d'identité
+
+Comme Signal : l'identité d'un contact (IK X25519 ‖ IK Ed25519 de son
+paquet) ne change pas en silence. Quand un nouvel appairage, ou une mise à
+jour du paquet, donne pour une clé nommée **une autre identité** que celle
+qu'elle avait :
+
+- l'ancienne identité est gardée (`identite_precedente`), le contact est
+  marqué **non vérifié** ;
+- l'envoi en v3/v4 vers ce contact est **bloqué** ; l'interface l'affiche :
+  « ⚠️ L'identité de ce contact a changé — comparez l'empreinte avant
+  d'écrire » ;
+- l'utilisateur confirme (« J'ai comparé l'empreinte ») : le blocage tombe ;
+- les messages reçus restent lisibles (seul l'envoi est bloqué).
+
+Un premier message (0x01) d'une identité qui n'est celle d'aucun contact
+reste refusé (§8.6).
