@@ -57,24 +57,29 @@ fun PairingScreen(onBack: () -> Unit) {
         scope.launch {
             try {
                 val client = PairingClient(BrocolisKeyStore.SERVER_URL)
-                val (priv, myBundle) = withContext(Dispatchers.IO) {
-                    BrocolisKeyAgreement.loadOrCreatePrivateKey() to BrocolisV3.myBundle()
+                val (priv, mine) = withContext(Dispatchers.IO) {
+                    BrocolisKeyAgreement.loadOrCreatePrivateKey() to BrocolisV3.myBundleAndCaps()
                 }
+                val (myBundle, myCaps) = mine
                 val peerId = MessagingPrefs.deviceId
 
-                // Publie ma clé publique (et mon paquet v3), attend celle de l'autre.
-                val paired = PairingFlow.pairTwo(client, trimmedCode, peerId, priv, myBundle)
+                // Publie ma clé publique (et mon paquet v3, avec ma capacité v4),
+                // attend celle de l'autre.
+                val paired = PairingFlow.pairTwo(client, trimmedCode, peerId, priv, myBundle, myCaps = myCaps)
                 if (paired == null) {
                     message = loc("En attente du correspondant… réessaie.", "Waiting for the contact… try again.", "Esperando al contacto… reinténtalo.")
                     busy = false; return@launch
                 }
                 // Range la clé et son contact v3 (§8.4) ; l'empreinte couvre les
-                // identités v3 si les deux ont publié un paquet.
+                // identités v3 si les deux ont publié un paquet (contexte v4 si les
+                // deux ont une capacité v4 valide, §9.7).
                 val contactName = name.trim().ifEmpty { loc("Correspondant", "Contact", "Contacto") }
                 val (fp, shown) = withContext(Dispatchers.IO) {
                     val fp = paired.contact.fingerprint(paired.keyBase64, paired.legacyFingerprint)
                     val keyId = BrocolisKeyStore.addKey(contactName, paired.keyBase64)
-                    BrocolisKeyStore.setV3Contact(keyId, if (paired.contact.duo) paired.contact.bundle else null, paired.contact.duo)
+                    BrocolisKeyStore.setV3Contact(
+                        keyId, if (paired.contact.duo) paired.contact.bundle else null, paired.contact.duo, paired.contact.caps,
+                    )
                     BrocolisKeyStore.setActive(true)
                     BrocolisKeyStore.pairingFingerprint = fp
                     BrocolisKeyStore.setPairingIdentity(trimmedCode, peerId)

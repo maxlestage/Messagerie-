@@ -12,17 +12,21 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
-/** Un participant du salon ; `bundle` : son paquet de clés v3 (base64), s'il en a publié un. */
-@Serializable data class PairingPeer(val peerId: String, val pub: String, val bundle: String? = null)
+/**
+ * Un participant du salon ; `bundle` : son paquet de clés v3 (base64), s'il
+ * en a publié un ; `caps` : sa capacité v4 signée (base64, §9.6).
+ */
+@Serializable data class PairingPeer(val peerId: String, val pub: String, val bundle: String? = null, val caps: String? = null)
 @Serializable data class WrapItem(val toPeerId: String, val blob: String)
 @Serializable data class WrapInbox(val from: String, val fromPub: String, val blob: String)
 
 @Serializable private data class PairingResponse(val peers: List<PairingPeer> = emptyList())
 @Serializable private data class WrapResponse(val wrap: WrapInbox? = null)
 
-// `host` et `bundle` ne partent que s'ils sont donnés (valeurs par défaut non écrites).
+// `host`, `bundle` et `caps` ne partent que s'ils sont donnés (valeurs par défaut non écrites).
 @Serializable private data class PublishBody(
-    val code: String, val peerId: String, val pub: String, val host: Boolean = false, val bundle: String? = null
+    val code: String, val peerId: String, val pub: String, val host: Boolean = false, val bundle: String? = null,
+    val caps: String? = null,
 )
 @Serializable private data class WrapBody(
     val code: String, val fromPeerId: String, val fromPub: String, val items: List<WrapItem>
@@ -38,7 +42,8 @@ class PairingException(message: String) : Exception(message)
  * v3 (docs/SECURITE.md §8.4) : chaque publication porte aussi le paquet de
  * clés v3 de l'appareil (`bundle`, public et signé), et la liste des
  * participants rend celui des autres. Champ optionnel : un ancien client n'en
- * envoie pas, un ancien serveur l'ignore.
+ * envoie pas, un ancien serveur l'ignore. v4 (§9.6) : la capacité v4 signée
+ * (`caps`) part à côté du paquet, de la même façon.
  */
 class PairingClient(private val baseURL: String) {
 
@@ -50,10 +55,13 @@ class PairingClient(private val baseURL: String) {
 
     /**
      * Publie sa clé publique ; renvoie celles des autres participants. `host` :
-     * c'est l'invitant. `bundle` : mon paquet v3 (`BrocolisV3.myBundle()`).
+     * c'est l'invitant. `bundle` : mon paquet v3 (`BrocolisV3.myBundle()`) ;
+     * `caps` : ma capacité v4 signée, qui l'accompagne.
      */
-    suspend fun publish(code: String, peerId: String, pub: String, host: Boolean = false, bundle: String? = null): List<PairingPeer> {
-        val data = raw("POST", "/pair", json.encodeToString(PublishBody(code, peerId, pub, host, bundle)))
+    suspend fun publish(
+        code: String, peerId: String, pub: String, host: Boolean = false, bundle: String? = null, caps: String? = null,
+    ): List<PairingPeer> {
+        val data = raw("POST", "/pair", json.encodeToString(PublishBody(code, peerId, pub, host, bundle, caps)))
         return json.decodeFromString<PairingResponse>(data).peers
     }
 

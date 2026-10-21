@@ -10,7 +10,9 @@ import kotlinx.serialization.Serializable
  * correspondant reçu à l'appairage (base64, public et signé) et
  * `v3SinceSeconds` sa date d'arrivée (secondes Unix) ; `duo` : appairés à
  * deux (`true`) ou clé de groupe (`false`), `null` pour une clé créée ou
- * importée ; `psk` : l'utilisateur l'a marquée « à deux, double cliquet ».
+ * importée ; `psk` : l'utilisateur l'a marquée « à deux, double cliquet » ;
+ * `v3Caps` : la capacité v4 signée du correspondant, reçue avec son paquet
+ * (§9.6, base64).
  */
 @Serializable
 data class NamedKey(
@@ -22,5 +24,6 @@ data class NamedKey(
     var v3Bundle: String? = null,
     var v3SinceSeconds: Long? = null,
     var duo: Boolean? = null,
-    var psk: Boolean? = null
+    var psk: Boolean? = null,
+    var v3Caps: String? = null,
 )

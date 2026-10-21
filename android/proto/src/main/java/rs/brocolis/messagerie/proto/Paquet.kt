@@ -51,6 +51,19 @@ object Paquet {
     /** Une clé pré-signée remplacée est gardée un mois (30 jours). */
     const val PREKEY_GRACE: Long = 30 * Protocole.JOUR
 
+    /** Le contexte de la capacité v4 signée (§9.6). */
+    val SIG_CONTEXT_CAPS4: ByteArray = Octets.utf8("Brocolis_v4_Caps")
+
+    internal fun caps4Message(ik: ByteArray) = Octets.concat(SIG_CONTEXT_CAPS4, ik, byteArrayOf(0x04))
+
+    /**
+     * Vérifie la capacité v4 d'un correspondant (§9.6) : signature stricte
+     * par son IK Ed25519, sur son IK X25519. Fausse : [Erreur.Signature] ;
+     * clé inutilisable : [Erreur.CleInvalide].
+     */
+    fun verifyCaps4(identity: IdentityPublic, signature: ByteArray) =
+        Kdf.ed25519Verify(identity.sign, caps4Message(identity.dh), signature)
+
     internal fun spkSignedMessage(ik: ByteArray, id: Long, spk: ByteArray) =
         Octets.concat(SIG_CONTEXT_SPK, ik, Octets.u32be(id), spk)
 
@@ -377,6 +390,36 @@ class Device private constructor(
         pqPrekeys.firstOrNull { it.id == id }?.seed?.copyOf() ?: echec(Erreur.CleInconnue)
 
     internal val replayGuard: ReplayGuard get() = replay
+
+    /** Les secrets de toutes les SPK gardées (la courante d'abord) : un premier message v4 ne dit pas laquelle a servi. */
+    internal fun spkSecrets(): List<ByteArray> = signedPrekeys.reversed().map { it.secret.copyOf() }
+
+    /** Les graines ML-KEM de toutes les PQPK gardées (la courante d'abord). */
+    internal fun pqSeeds(): List<ByteArray> = pqPrekeys.reversed().map { it.seed.copyOf() }
+
+    /**
+     * La capacité v4 signée (§9.6) : `Ed25519(IK, "Brocolis_v4_Caps" ‖ IK
+     * X25519 ‖ 0x04)`. Seul un appareil qui a ML-KEM la publie (`null` sinon).
+     */
+    fun caps4(): ByteArray? {
+        if (!supportsPq()) return null
+        return Kdf.ed25519Sign(identity.sign, Paquet.caps4Message(identity.public().dh))
+    }
+
+    /** Ouvre une session v4 vers un paquet ([Session4.initiate]). */
+    fun initiate4(bundle: KeyBundle, rng: CryptoRng = Hasard.system()): Session4 =
+        Session4.initiate(identity, bundle, rng)
+
+    /**
+     * Accepte le premier message (0x01) d'une session v4 : essaie chaque SPK
+     * et PQPK gardée jusqu'à ouvrir le préambule (IK_A), puis établit la
+     * session et déchiffre. Aucune ne l'ouvre : [Erreur.CleInconnue]. Une EK
+     * déjà vue : [Erreur.Rejoue]. L'appelant vérifie ensuite que
+     * [Session4.peerIdentity] est celle d'un contact. Sans effet sur
+     * l'appareil en cas d'échec.
+     */
+    fun accept4(token: Token4, now: Long, rng: CryptoRng = Hasard.system()): Pair<Session4, Content> =
+        Session4.accept(this, token, now, rng)
 
     /** Ouvre une session vers un paquet ([Session.initiate]). */
     fun initiate(bundle: KeyBundle, pq: Boolean, rng: CryptoRng = Hasard.system()): Session =

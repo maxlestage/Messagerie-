@@ -59,6 +59,16 @@ internal object EtatJson {
         return if (e is JsonNull) null else e.uint(Long.MAX_VALUE)
     }
 
+    fun JsonObject.bool(name: String): Boolean {
+        val p = field(name) as? JsonPrimitive ?: echec(Erreur.Etat)
+        if (p.isString) echec(Erreur.Etat)
+        return when (p.content) {
+            "true" -> true
+            "false" -> false
+            else -> echec(Erreur.Etat)
+        }
+    }
+
     fun JsonElement.str(): String {
         val p = this as? JsonPrimitive ?: echec(Erreur.Etat)
         if (!p.isString) echec(Erreur.Etat)

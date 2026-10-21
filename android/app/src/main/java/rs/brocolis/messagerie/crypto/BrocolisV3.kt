@@ -6,6 +6,7 @@ import rs.brocolis.messagerie.net.WrapInbox
 import rs.brocolis.messagerie.proto.Erreur
 import rs.brocolis.messagerie.proto.KeyBundle
 import rs.brocolis.messagerie.proto.Token
+import rs.brocolis.messagerie.proto.Token4
 import rs.brocolis.messagerie.store.BrocolisV3Store
 import rs.brocolis.messagerie.store.NamedKey
 
@@ -54,6 +55,7 @@ abstract class BrocolisV3Api {
                 id = k.id, raw = raw, bundle = bundle(k.v3Bundle),
                 bundleAt = maxOf(0L, k.v3SinceSeconds ?: 0L),
                 group = k.duo == false, psk = k.psk == true,
+                caps = k.v3Caps?.let { BrocolisCrypto.b64decode(it.trim()) }?.takeIf { it.size == 64 },
             )
         }
 
@@ -166,7 +168,7 @@ abstract class BrocolisV3Api {
      * clé s'il porte un jeton v3, sinon l'ancien format.
      */
     fun protectionUsed(sealed: String, recipients: List<NamedKey>): BrocolisProtection {
-        if (recipients.size != 1 || !sealed.contains(Token.HEAD)) return BrocolisProtection.LEGACY
+        if (recipients.size != 1 || (!sealed.contains(Token.HEAD) && !sealed.contains(Token4.HEAD))) return BrocolisProtection.LEGACY
         return protection(recipients[0])
     }
 
@@ -175,15 +177,20 @@ abstract class BrocolisV3Api {
     /** Mon paquet de clés, à publier dans le salon. */
     fun myBundle(): String? = run { e, _ -> e.bundleBase64 }
 
+    /** Mon paquet et ma capacité v4 signée (§9.6), publiés ensemble dans le salon. */
+    fun myBundleAndCaps(): Pair<String?, String?> = run { e, _ -> e.bundleBase64 to e.capsBase64 } ?: (null to null)
+
     /**
      * L'empreinte d'appairage à deux, si le correspondant a publié un paquet
-     * valide (sinon `null` : l'empreinte d'avant).
+     * valide (sinon `null` : l'empreinte d'avant) ; sous le contexte v4 si sa
+     * capacité v4 est valide (§9.7).
      */
-    fun pairingFingerprint(keyBase64: String, peerBundle: String?): String? {
+    fun pairingFingerprint(keyBase64: String, peerBundle: String?, peerCaps: String? = null): String? {
         val peer = bundle(peerBundle) ?: return null
         val raw = runCatching { BrocolisCrypto.keyBytes(keyBase64) }.getOrNull() ?: return null
-        val mine = run { e, _ -> e.identity } ?: return null
-        return BrocolisV3Format.pairingFingerprint(raw, mine, BrocolisV3Format.identity(peer))
+        if (raw.size != 32) return null
+        val caps = peerCaps?.let { BrocolisCrypto.b64decode(it.trim()) }?.takeIf { it.size == 64 }
+        return run { e, _ -> e.fingerprint(BrocolisV3Key("", raw, peer, 0, group = false, psk = false, caps = caps)) }
     }
 
     /** L'invitant ouvre la session dès l'appairage (§8.4). */
@@ -235,9 +242,10 @@ object BrocolisV3 : BrocolisV3Api() {
  * Ce que l'appairage dit du correspondant v3 (docs/SECURITE.md §8.4, §8.11 1–3).
  *
  * @property bundle son paquet, s'il en a publié un ET que j'ai publié le mien ;
- * @property duo à deux (sinon : clé de groupe, jamais de v3).
+ * @property duo à deux (sinon : clé de groupe, jamais de v3) ;
+ * @property caps sa capacité v4 signée (§9.6), publiée avec son paquet.
  */
-data class BrocolisV3Contact(val bundle: String?, val duo: Boolean) {
+data class BrocolisV3Contact(val bundle: String?, val duo: Boolean, val caps: String? = null) {
 
     /**
      * L'empreinte à comparer : celle qui couvre les identités v3 si l'on est
@@ -245,13 +253,16 @@ data class BrocolisV3Contact(val bundle: String?, val duo: Boolean) {
      */
     fun fingerprint(key: String, legacy: String, v3: BrocolisV3Api = BrocolisV3): String {
         if (!duo) return legacy
-        return v3.pairingFingerprint(key, bundle) ?: legacy
+        return v3.pairingFingerprint(key, bundle, caps) ?: legacy
     }
 
     companion object {
         /** Le mode compatible (« Appairer à deux ») : toujours à deux. */
         fun compatible(peer: PairingPeer, myBundle: String?) =
-            BrocolisV3Contact(bundle = if (myBundle == null) null else peer.bundle, duo = true)
+            BrocolisV3Contact(
+                bundle = if (myBundle == null) null else peer.bundle, duo = true,
+                caps = if (myBundle == null) null else peer.caps,
+            )
 
         /**
          * L'invitant : à deux tant qu'il a remis la clé à UNE personne
@@ -262,6 +273,7 @@ data class BrocolisV3Contact(val bundle: String?, val duo: Boolean) {
             BrocolisV3Contact(
                 bundle = if (myBundle == null) null else recipients.firstOrNull()?.bundle,
                 duo = recipients.size == 1,
+                caps = if (myBundle == null) null else recipients.firstOrNull()?.caps,
             )
 
         /**
@@ -270,7 +282,10 @@ data class BrocolisV3Contact(val bundle: String?, val duo: Boolean) {
          */
         fun joining(room: List<PairingPeer>, wrap: WrapInbox, myBundle: String?): BrocolisV3Contact {
             val inviter = room.firstOrNull { it.peerId == wrap.from && it.pub == wrap.fromPub }
-            return BrocolisV3Contact(bundle = if (myBundle == null) null else inviter?.bundle, duo = room.size <= 1)
+            return BrocolisV3Contact(
+                bundle = if (myBundle == null) null else inviter?.bundle, duo = room.size <= 1,
+                caps = if (myBundle == null) null else inviter?.caps,
+            )
         }
     }
 }
