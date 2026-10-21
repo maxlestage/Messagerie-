@@ -22,6 +22,8 @@ logique, comme `Shared/BrocolisV3.swift`), `store/BrocolisV3Store.kt`
 | `Device`, `KeyBundle`, `IdentitySecret`, `IdentityPublic`, `PqBundle`, `ReplayGuard`, `Paquet` | `paquet` | §4.1, §7.3 |
 | `Session`, `Content` | `session` (classique, hybride, PSK ; Double Ratchet) | §4.2–4.3, §7.4–7.5 |
 | `Token`, `Initial`, `Envelope`, `Header`, `GroupMessage`, `Mode` | `jeton_v3` | §4.4 |
+| `Session4`, `Mode4`, `Device.initiate4` / `accept4`, `Device.caps4`, `Paquet.verifyCaps4` | `session4`, `paquet` (v4 : triple cliquet, en-têtes chiffrés) | §9 |
+| `Token4`, `Header4`, `Body4`, `Preamble4` | `jeton_v4` | §9.3–9.4 |
 | `SenderKeyState`, `ReceivedSenderKey`, `SenderKeyDistribution`, `Groupe` | `groupe` | §4.5, §7.6–7.7 |
 | `Kdf`, `MlKem` | `kdf`, ML-KEM | — |
 | `Erreur` + `BrocolisException`, `Protocole`, `CryptoRng`, `Hasard`, `Deterministic`, `Octets` | `Erreur`, constantes, `hasard` | — |
@@ -108,6 +110,11 @@ Les tests (`src/test/…/proto/`) lisent `proto/vectors.json`,
 place (une seule source) :
 
 - `VecteursTest` : chaque valeur de `vectors.json` (427 comparaisons) ;
+- `VecteursV4Test` : les sessions v4 de `vectors.json` (`sessions_v4`,
+  paquet et clé partagée : 294 comparaisons, chaque encapsulation ML-KEM du
+  cliquet refaite à l'identique) ;
+- `ProtocoleV4Test` : les tests unitaires de `session4.rs` et `jeton_v4.rs`
+  et `proto/tests/robustesse_v4.rs`, portés ;
 - `WycheproofTest` : X25519, Ed25519, AES-256-GCM, HKDF, HMAC, ML-KEM-768
   (1 196 cas), avec la politique de `proto/tests/wycheproof.rs` ;
 - `ReferenceRustTest` : états JSON écrits par Rust relus, réécrits sous la

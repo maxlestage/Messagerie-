@@ -14,6 +14,7 @@ import rs.brocolis.messagerie.net.PairingPeer
 import rs.brocolis.messagerie.net.WrapInbox
 import rs.brocolis.messagerie.proto.CleProtegee
 import rs.brocolis.messagerie.proto.Token
+import rs.brocolis.messagerie.proto.Token4
 import rs.brocolis.messagerie.store.BrocolisV3Store
 import rs.brocolis.messagerie.store.NamedKey
 import rs.brocolis.messagerie.store.PlainFileVault
@@ -148,6 +149,48 @@ class BrocolisV3FacadeTest {
         assertEquals("premier", bob.openTokens(t, listOf(contact("alice", ba))).text)
         // Un contact passé en groupe : plus de v3.
         assertNull(alice.seal("groupe", versBob.copy(duo = false)))
+    }
+
+    @Test
+    fun appairageV4_capacite_empreinte_tripleCliquet() {
+        val (ba, ca) = alice.myBundleAndCaps()
+        val (bb, cb) = bob.myBundleAndCaps()
+        assertNotNull(ca)
+        assertNotNull(cb)
+        // La capacité voyage avec le paquet, et n'est prise qu'avec lui.
+        val peerB = PairingPeer("b", "pubB", bb, cb)
+        val peerA = PairingPeer("a", "pubA", ba, ca)
+        assertEquals(BrocolisV3Contact(bb, true, cb), BrocolisV3Contact.compatible(peerB, ba))
+        assertEquals(BrocolisV3Contact(null, true), BrocolisV3Contact.compatible(peerB, null))
+        assertEquals(BrocolisV3Contact(bb, true, cb), BrocolisV3Contact.inviting(listOf(peerB), ba))
+        assertEquals(BrocolisV3Contact(ba, true, ca), BrocolisV3Contact.joining(listOf(peerA), WrapInbox("a", "pubA", "blob"), bb))
+        // L'empreinte v4 : la même des deux côtés, différente de la v3 (§9.7).
+        val fa = BrocolisV3Contact(bb, true, cb).fingerprint(k, "LEGACY", alice)
+        val fb = BrocolisV3Contact(ba, true, ca).fingerprint(k, "LEGACY", bob)
+        assertEquals(fa, fb)
+        assertNotEquals(fa, BrocolisV3Contact(bb, true).fingerprint(k, "LEGACY", alice))
+        // Une capacité retirée d'un seul côté : deux empreintes différentes.
+        assertNotEquals(fa, BrocolisV3Contact(ba, true).fingerprint(k, "LEGACY", bob))
+        // Une capacité d'une autre identité : l'empreinte v3.
+        assertEquals(
+            BrocolisV3Contact(bb, true).fingerprint(k, "LEGACY", alice),
+            BrocolisV3Contact(bb, true, ca).fingerprint(k, "LEGACY", alice),
+        )
+
+        val versBob = contact("bob", bb).copy(v3Caps = cb)
+        val versAlice = contact("alice", ba).copy(v3Caps = ca)
+        alice.openSession(versBob)
+        assertEquals(BrocolisProtection.TRIPLE, alice.protection(versBob))
+        val t = alice.seal("premier v4", versBob)!!
+        assertTrue(t.startsWith(Token4.HEAD))
+        assertEquals(BrocolisProtection.TRIPLE, alice.protectionUsed(t, listOf(versBob)))
+        assertEquals("premier v4", bob.openTokens("reçu : $t", listOf(versAlice)).text.removePrefix("reçu : "))
+        val r = bob.sealMessage("réponse", versAlice)!!
+        assertTrue(r.startsWith(Token4.HEAD))
+        assertEquals(
+            listOf<BrocolisV3Opened?>(BrocolisV3Opened.Text("réponse")),
+            alice.openMessages(listOf(BrocolisV3Api.Incoming(r, false)), versBob, listOf(versBob)),
+        )
     }
 
     @Test

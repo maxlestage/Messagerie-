@@ -25,6 +25,10 @@ import javax.crypto.spec.SecretKeySpec
  * | [kdfCk] | §4.3 `KDF_CK` |
  * | [messageKey] | §4.3 `ENCRYPT(mk)` → clé AES ‖ nonce |
  * | [sessionId] | §4.4 `SHA-256(AD)[0..8]` |
+ * | [sk4], [sk4Psk], [psk4RatchetSecret], [headerKeys4] | §9.1 : établissement v4 |
+ * | [kdfRk4] | §9.1 `KDF_RK4` |
+ * | [messageKeys4] | §9.1 `ENCRYPT4(mk)` → clé AES ‖ nonce ‖ nonce d'en-tête |
+ * | [preambleKey4] | §9.1 la clé du préambule |
  *
  * Primitives : BouncyCastle (SHA-256, HMAC, HKDF, X25519, Ed25519) et
  * javax.crypto (AES-256-GCM : Conscrypt, donc l'AES matériel, sur Android).
@@ -255,6 +259,93 @@ object Kdf {
             return Pair(out.sub(0, 32), out.sub(32, 44))
         } finally {
             Octets.wipe(out)
+        }
+    }
+
+    // ----- Protocole v4 (§9.1) -----------------------------------------------
+
+    /** `"Brocolis_v4_X25519_MLKEM768_SHA-256"` : l'info de SK (v4, toujours hybride). */
+    val INFO4_SK: ByteArray = Octets.utf8("Brocolis_v4_X25519_MLKEM768_SHA-256")
+    /** `"Brocolis_v4_PSK_SHA-256"` : SK d'une session v4 à clé partagée. */
+    val INFO4_PSK: ByteArray = Octets.utf8("Brocolis_v4_PSK_SHA-256")
+    /** `"Brocolis_v4_PSK_Ratchet"` : la clé de cliquet initiale du répondeur. */
+    val INFO4_PSK_RATCHET: ByteArray = Octets.utf8("Brocolis_v4_PSK_Ratchet")
+    /** `"Brocolis_v4_HeaderKeys"` : les clés d'en-tête initiales. */
+    val INFO4_HEADER_KEYS: ByteArray = Octets.utf8("Brocolis_v4_HeaderKeys")
+    /** `"Brocolis_v4_Ratchet"` : `KDF_RK4` sans secret ML-KEM. */
+    val INFO4_RATCHET: ByteArray = Octets.utf8("Brocolis_v4_Ratchet")
+    /** `"Brocolis_v4_Ratchet_MLKEM768"` : `KDF_RK4` avec secret ML-KEM. */
+    val INFO4_RATCHET_PQ: ByteArray = Octets.utf8("Brocolis_v4_Ratchet_MLKEM768")
+    /** `"Brocolis_v4_MessageKeys"` : `ENCRYPT4(mk)`. */
+    val INFO4_MESSAGE: ByteArray = Octets.utf8("Brocolis_v4_MessageKeys")
+    /** `"Brocolis_v4_Preamble"` : la clé du préambule chiffré. */
+    val INFO4_PREAMBLE: ByteArray = Octets.utf8("Brocolis_v4_Preamble")
+
+    /** SK v4 : `HKDF(0³², FF³² ‖ DH1 ‖ DH2 ‖ DH3 ‖ SS, INFO4_SK, 32)`. */
+    fun sk4(dh1: ByteArray, dh2: ByteArray, dh3: ByteArray, ss: ByteArray): ByteArray {
+        val ikm = Octets.concat(ByteArray(32) { 0xFF.toByte() }, dh1, dh2, dh3, ss)
+        try {
+            return hkdfSha256(SEL_NUL, ikm, INFO4_SK, 32)
+        } finally {
+            Octets.wipe(ikm)
+        }
+    }
+
+    /** SK d'une session v4 à clé partagée : `HKDF(0³², clé, "Brocolis_v4_PSK_SHA-256", 32)`. */
+    fun sk4Psk(key: ByteArray): ByteArray = hkdfSha256(SEL_NUL, key, INFO4_PSK, 32)
+
+    /** Le secret X25519 de la clé de cliquet initiale du répondeur (v4, clé partagée) : `r_PSK`. */
+    fun psk4RatchetSecret(sk: ByteArray): ByteArray = hkdfSha256(SEL_NUL, sk, INFO4_PSK_RATCHET, 32)
+
+    /** Les clés d'en-tête initiales `(HK_AB, NHK_BA)` (§9.3) : `HKDF(0³², SK, "Brocolis_v4_HeaderKeys", 64)`. */
+    fun headerKeys4(sk: ByteArray): Pair<ByteArray, ByteArray> {
+        val out = hkdfSha256(SEL_NUL, sk, INFO4_HEADER_KEYS, 64)
+        try {
+            return Pair(out.sub(0, 32), out.sub(32, 64))
+        } finally {
+            Octets.wipe(out)
+        }
+    }
+
+    /**
+     * `KDF_RK4(rk, dh, ss?) = HKDF(sel = rk, ikm = dh ‖ ss, info, 96)` →
+     * `(rk', ck, nhk)` (§9.1) ; info `"Brocolis_v4_Ratchet_MLKEM768"` avec
+     * `ss`, `"Brocolis_v4_Ratchet"` sans.
+     */
+    fun kdfRk4(rk: ByteArray, dh: ByteArray, ss: ByteArray?): Triple<ByteArray, ByteArray, ByteArray> {
+        val ikm = if (ss != null) Octets.concat(dh, ss) else dh.copyOf()
+        val out = hkdfSha256(rk, ikm, if (ss != null) INFO4_RATCHET_PQ else INFO4_RATCHET, 96)
+        try {
+            return Triple(out.sub(0, 32), out.sub(32, 64), out.sub(64, 96))
+        } finally {
+            Octets.wipe(ikm, out)
+        }
+    }
+
+    /**
+     * `ENCRYPT4(mk) = HKDF(0³², mk, "Brocolis_v4_MessageKeys", 56)` → clé AES
+     * (32), nonce du chiffré (12), nonce de l'en-tête (12).
+     */
+    fun messageKeys4(mk: ByteArray): Triple<ByteArray, ByteArray, ByteArray> {
+        val out = hkdfSha256(SEL_NUL, mk, INFO4_MESSAGE, 56)
+        try {
+            return Triple(out.sub(0, 32), out.sub(32, 44), out.sub(44, 56))
+        } finally {
+            Octets.wipe(out)
+        }
+    }
+
+    /**
+     * La clé et le nonce du préambule chiffré d'un premier message v4 :
+     * `HKDF(0³², X25519(EK_A, SPK_B) ‖ SS, "Brocolis_v4_Preamble", 44)`.
+     */
+    fun preambleKey4(dh: ByteArray, ss: ByteArray): Pair<ByteArray, ByteArray> {
+        val ikm = Octets.concat(dh, ss)
+        val out = hkdfSha256(SEL_NUL, ikm, INFO4_PREAMBLE, 44)
+        try {
+            return Pair(out.sub(0, 32), out.sub(32, 44))
+        } finally {
+            Octets.wipe(ikm, out)
         }
     }
 

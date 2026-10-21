@@ -129,10 +129,12 @@ object BrocolisKeyStore {
 
     /**
      * Le contact v3 d'une clé appairée : le paquet du correspondant (ou `null` :
-     * un ancien client) et « à deux » / « en groupe ».
+     * un ancien client) et « à deux » / « en groupe » ; `caps` : sa capacité v4
+     * signée (§9.6), gardée avec le paquet.
      */
-    fun setV3Contact(keyId: String, bundle: String?, duo: Boolean) = updateKey(keyId) { k ->
+    fun setV3Contact(keyId: String, bundle: String?, duo: Boolean, caps: String? = null) = updateKey(keyId) { k ->
         k.v3Bundle = bundle
+        k.v3Caps = if (bundle == null) null else caps
         k.v3SinceSeconds = if (bundle == null) null else System.currentTimeMillis() / 1000
         k.duo = duo
     }
