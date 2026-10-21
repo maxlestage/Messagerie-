@@ -879,3 +879,40 @@ qu'elle avait :
 
 Un premier message (0x01) d'une identité qui n'est celle d'aucun contact
 reste refusé (§8.6).
+
+Implémenté dans brocolis (ré-appairage d'un contact : `previous_identity`,
+`identity_changed`, `brocolis confirm-identity`, bouton de l'application) :
+rien ne part plus vers lui, ni v3/v4 ni v1/v2, puisque la clé partagée vient
+du même ré-appairage. La discussion du site n'a qu'un correspondant par clé :
+un nouvel appairage y est une nouvelle conversation.
+
+### 9.9 Groupes à cliquet
+
+Les Sender Keys (§4.5) servent enfin : un groupe est un ensemble de
+contacts appairés deux à deux et un identifiant commun (16 octets, tiré
+par celui qui crée le groupe, recopié par les autres).
+
+- **Envoi** : chacun a sa chaîne d'envoi par groupe. Avant le premier
+  message, et pour tout membre qui ne l'a pas encore, elle part en
+  distribution par la session à deux (0x03 en v3 ; en v4 le genre 0x01 est
+  dans le chiffré). Une session v3 que l'autre ne connaît pas encore (non
+  confirmée) reçoit d'abord un premier message vide (0x01), qui la lui ouvre.
+  Suit le message de groupe signé (0x04). Tout part dans le même texte :
+  distributions puis message.
+- **Un membre qui sort** : la chaîne qui lui avait été remise est
+  abandonnée ; la suivante (neuve) n'est remise qu'aux membres restants. Il
+  ne lit plus rien de ce qui suit.
+- **Repli** : un membre sans session possible (ni contact v3/v4, ni PSK) —
+  ou dont l'identité a changé (§9.8, échec fermé) — et le groupe reste en v2
+  pour les clés des membres.
+- **Lecture** : une chaîne reçue est rangée sous l'expéditeur de la session
+  qui l'a portée ; c'est lui qu'on affiche comme auteur de ses messages de
+  groupe. Dans un texte qui porte un message de groupe, les jetons v3/v4
+  qu'on ne peut pas ouvrir sont les distributions des autres membres : ils
+  ne s'affichent pas. Un message de groupe d'une chaîne inconnue reste
+  affiché chiffré.
+
+Implémenté dans brocolis (`[[groups]]`, `brocolis group-create`,
+`group-members`, `encrypt --group`) ; à venir dans les applications
+iPhone et Android, dont les protocoles (`Groupe.swift`, `Groupe.kt`) sont
+déjà prêts.
